@@ -1,10 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const bodyParser = require('body-parser');
-const produkRoutes = require('./routes/produkRoutes');
-const kategoriRoutes = require('./routes/kategoriRoutes');
-const bahanBakuRoutes = require('./routes/bahanbakuRoutes');
+const cors = require('cors');
 
 const app = express();
 
@@ -13,18 +10,25 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // MongoDB Connection
-mongoose.connect('mongodb://127.0.0.1:27017/db_produk', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-.then(() => console.log('✅ Terhubung ke MongoDB'))
-.catch(err => console.error('❌ Gagal koneksi ke MongoDB:', err));
+mongoose.connect('mongodb://127.0.0.1:27017/db_produk')
+  .then(() => console.log('✅ Terhubung ke MongoDB'))
+  .catch(err => console.error('❌ Gagal koneksi ke MongoDB:', err));
+
+// Import routes
+const produkRoutes = require('./routes/produkRoutes');
+const kategoriRoutes = require('./routes/kategoriRoutes');
+const bahanBakuRoutes = require('./routes/bahanbakuRoutes');
+const tenantRoute = require("./routes/tenantRoute");
+const profilRoute = require("./routes/profilRoute");
 
 // Routes
 app.use('/api/produk', produkRoutes);
 app.use('/api/kategori', kategoriRoutes);
 app.use('/api/bahanbaku', bahanBakuRoutes);
+app.use("/api/tenant", tenantRoute);
+app.use("/api/profile", profilRoute);
 
 // Server
-const PORT = 3000;
-app.listen(PORT, () => console.log(`🚀 Server berjalan di http://localhost:${PORT}`));
+app.listen(8000, "0.0.0.0", () => {
+  console.log("🚀 Server running on http://0.0.0.0:8000");
+});
