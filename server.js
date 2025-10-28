@@ -26,7 +26,7 @@ app.use('/api/produk', produkRoutes);
 app.use('/api/kategori', kategoriRoutes);
 app.use('/api/bahanbaku', bahanBakuRoutes);
 app.use("/api/tenant", tenantRoute);
-app.use("/api/profile", profilRoute);
+app.use("/api/profil", profilRoute);
 
 // Server
 app.listen(8000, "0.0.0.0", () => {

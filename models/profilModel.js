@@ -37,7 +37,7 @@ const deviceHistorySchema = new mongoose.Schema({
 }, { _id: false });
 
 // Schema utama
-const profileSchema = new mongoose.Schema({
+const profilSchema = new mongoose.Schema({
   username: {
     type: String,
   },
@@ -48,10 +48,6 @@ const profileSchema = new mongoose.Schema({
     lowercase: true,
   },
   password: {
-    type: String,
-    required: true,
-  },
-  nomorHP: {
     type: String,
     required: true,
   },
@@ -72,17 +68,12 @@ const profileSchema = new mongoose.Schema({
   tenantID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Tenant",
-    required: false, // opsional, bisa diset kalau sudah punya tenant
-  },
-  role: {
-    type: String,
-    enum: ["owner", "admin", "kasir"],
-    default: "kasir",
+    required: false,
   },
 });
 
 // 🔒 Hash password sebelum disimpan
-profileSchema.pre("save", async function (next) {
+profilSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
   try {
     const salt = await bcrypt.genSalt(10);
@@ -94,8 +85,8 @@ profileSchema.pre("save", async function (next) {
 });
 
 // 🔍 Method untuk verifikasi password
-profileSchema.methods.comparePassword = async function (candidatePassword) {
+profilSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.model("Profile", profileSchema, "profile");
+module.exports = mongoose.model("Profil", profilSchema);
