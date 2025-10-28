@@ -24,7 +24,7 @@ exports.getAllBahanBaku = async (req, res) => {
 // READ (BY ID)
 exports.getBahanBakuById = async (req, res) => {
   try {
-    const bahan = await BahanBaku.findOne({ BahanBakuID: req.params.id });
+    const bahan = await BahanBaku.findOne({ BahanBakuID: req.params.BahanBakuID });
     if (!bahan) return res.status(404).json({ message: 'Bahan baku tidak ditemukan' });
     res.status(200).json(bahan);
   } catch (error) {
@@ -36,7 +36,7 @@ exports.getBahanBakuById = async (req, res) => {
 exports.updateBahanBaku = async (req, res) => {
   try {
     const bahan = await BahanBaku.findOneAndUpdate(
-      { BahanBakuID: req.params.id },
+      { BahanBakuID: req.params.BahanBakuID },
       req.body,
       { new: true }
     );

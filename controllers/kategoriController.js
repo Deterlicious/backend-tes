@@ -5,38 +5,39 @@ exports.tambahKategori = async (req, res) => {
   try {
     const { kategoriID, namaKategori, kodeKategori, keterangan } = req.body;
 
+    // Validasi input
     if (!kategoriID || !namaKategori || !kodeKategori) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Field kategoriID, namaKategori, dan kodeKategori wajib diisi.",
-        });
+      return res.status(400).json({
+        message: "Field kategoriID, namaKategori, dan kodeKategori wajib diisi.",
+      });
     }
 
-    // Pastikan kategoriID unik
-    const existing = await Kategori.findById(kategoriID);
+    // Cek apakah kategoriID sudah ada
+    const existing = await Kategori.findOne({ kategoriID });
     if (existing) {
       return res
         .status(400)
         .json({ message: `Kategori dengan ID ${kategoriID} sudah ada.` });
     }
 
+    // Buat data baru
     const kategoriBaru = new Kategori({
-      _id: kategoriID, // gunakan kategoriID sebagai _id
+      kategoriID,
       namaKategori,
       kodeKategori,
       keterangan,
     });
 
     await kategoriBaru.save();
-    res
-      .status(201)
-      .json({ message: "Kategori berhasil ditambahkan", data: kategoriBaru });
+    res.status(201).json({
+      message: "Kategori berhasil ditambahkan",
+      data: kategoriBaru,
+    });
   } catch (error) {
-    res
-      .status(400)
-      .json({ message: "Gagal menambah kategori", error: error.message });
+    res.status(400).json({
+      message: "Gagal menambah kategori",
+      error: error.message,
+    });
   }
 };
 
@@ -46,25 +47,26 @@ exports.getAllKategori = async (req, res) => {
     const kategori = await Kategori.find().sort({ createdAt: -1 });
     res.status(200).json(kategori);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengambil data kategori", error: error.message });
+    res.status(500).json({
+      message: "Gagal mengambil data kategori",
+      error: error.message,
+    });
   }
 };
 
 // READ BY kategoriID
 exports.getKategoriById = async (req, res) => {
   try {
-    const kategori = await Kategori.findOne({
-      kategoriID: req.params.id,
-    });
-    if (!kategori)
+    const kategori = await Kategori.findOne({ kategoriID: req.params.kategoriID });
+    if (!kategori) {
       return res.status(404).json({ message: "Kategori tidak ditemukan" });
+    }
     res.status(200).json(kategori);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengambil kategori", error: error.message });
+    res.status(500).json({
+      message: "Gagal mengambil kategori",
+      error: error.message,
+    });
   }
 };
 
@@ -72,24 +74,31 @@ exports.getKategoriById = async (req, res) => {
 exports.updateKategori = async (req, res) => {
   try {
     const kategori = await Kategori.findOneAndUpdate(
-      { kategoriID: req.params.id },
+      { kategoriID: req.params.kategoriID },
       req.body,
       { new: true, runValidators: true }
     );
 
-    if (!kategori) return res.status(404).json({ message: 'Kategori tidak ditemukan' });
-    res.status(200).json({ message: 'Kategori berhasil diperbarui', data: kategori });
+    if (!kategori) {
+      return res.status(404).json({ message: "Kategori tidak ditemukan" });
+    }
+
+    res.status(200).json({
+      message: "Kategori berhasil diperbarui",
+      data: kategori,
+    });
   } catch (error) {
-    res.status(400).json({ message: 'Gagal memperbarui kategori', error: error.message });
+    res.status(400).json({
+      message: "Gagal memperbarui kategori",
+      error: error.message,
+    });
   }
 };
 
 // DELETE BY kategoriID
 exports.hapusKategori = async (req, res) => {
   try {
-    const kategori = await Kategori.findOneAndDelete({
-      kategoriID: req.params.kategoriID,
-    });
+    const kategori = await Kategori.findOneAndDelete({ kategoriID: req.params.kategoriID });
 
     if (!kategori) {
       return res.status(404).json({ message: "Kategori tidak ditemukan" });
