@@ -1,4 +1,4 @@
-const BahanBaku = require('../models/bahanBaku');
+const BahanBaku = require('../models/bahanBakuModel');
 
 // CREATE
 exports.tambahBahanBaku = async (req, res) => {
