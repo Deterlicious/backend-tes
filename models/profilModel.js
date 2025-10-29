@@ -36,6 +36,7 @@ const deviceHistorySchema = new mongoose.Schema({
   },
 }, { _id: false });
 
+// Schema utama
 const profilSchema = new mongoose.Schema({
   username: {
     type: String,
