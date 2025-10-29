@@ -3,7 +3,17 @@ const Profil = require("../models/profilModel");
 // ✅ CREATE Profil
 exports.createProfil = async (req, res) => {
   try {
-    const { username, email, password, tenantID } = req.body;
+    const {
+      username,
+      email,
+      password,
+      role,
+      device,
+      maxPrimaryDevice,
+      maxDevice,
+      deviceHistory,
+      tenantID
+    } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ message: "email dan password wajib diisi" });
@@ -18,6 +28,11 @@ exports.createProfil = async (req, res) => {
       username,
       email,
       password,
+      role,
+      device,
+      maxPrimaryDevice,
+      maxDevice,
+      deviceHistory,
       tenantID,
     });
 

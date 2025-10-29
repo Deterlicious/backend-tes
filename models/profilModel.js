@@ -36,7 +36,6 @@ const deviceHistorySchema = new mongoose.Schema({
   },
 }, { _id: false });
 
-// Schema utama
 const profilSchema = new mongoose.Schema({
   username: {
     type: String,
@@ -50,6 +49,11 @@ const profilSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true,
+  },
+  role: {
+    type: String,
+    enum: ["client", "admin"],
+    default: "client",
   },
   device: [deviceSchema],
   maxPrimaryDevice: {
