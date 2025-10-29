@@ -1,4 +1,4 @@
-const Produk = require('../models/produk'); // pastikan huruf besar kecil sesuai
+const Produk = require('../models/produkModel'); // pastikan huruf besar kecil sesuai
 
 // CREATE
 exports.tambahProduk = async (req, res) => {
@@ -50,7 +50,9 @@ exports.getAllProduk = async (req, res) => {
 // READ (BY ID)
 exports.getProdukById = async (req, res) => {
   try {
-    const produk = await Produk.findById(req.params.id);
+    const produk = await Produk.findOne({
+      kodeProduk: req.params.id,
+    });
     if (!produk) return res.status(404).json({ message: 'Produk tidak ditemukan' });
     res.status(200).json(produk);
   } catch (error) {
@@ -72,7 +74,7 @@ exports.updateProduk = async (req, res) => {
       keterangan: req.body.keterangan
     };
 
-    const produk = await Produk.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
+    const produk = await Produk.findOneAndUpdate({kodeProduk: req.params.id}, updateData, { new: true, runValidators: true });
     if (!produk) return res.status(404).json({ message: 'Produk tidak ditemukan' });
 
     res.status(200).json({ message: 'Produk berhasil diperbarui', data: produk });
@@ -81,10 +83,10 @@ exports.updateProduk = async (req, res) => {
   }
 };
 
-// DELETE
+// DELETE berdasarkan ID
 exports.hapusProduk = async (req, res) => {
   try {
-    const produk = await Produk.findByIdAndDelete(req.params.id);
+    const produk = await Produk.findOneAndDelete({kodeProduk: req.params.id});
     if (!produk) return res.status(404).json({ message: 'Produk tidak ditemukan' });
     res.status(200).json({ message: 'Produk berhasil dihapus' });
   } catch (error) {

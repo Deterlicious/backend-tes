@@ -29,6 +29,6 @@ app.use("/api/tenant", tenantRoute);
 app.use("/api/profil", profilRoute);
 
 // Server
-app.listen(8000, "0.0.0.0", () => {
-  console.log("🚀 Server running on http://0.0.0.0:8000");
+app.listen(4000, "127.0.0.1", () => {
+  console.log("🚀 Server running on http://127.0.0.1:4000");
 });
