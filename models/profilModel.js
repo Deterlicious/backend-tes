@@ -31,8 +31,8 @@ const deviceHistorySchema = new mongoose.Schema({
     required: true,
   },
   timestamp: {
-    type: String,
-    default: () => new Date().toISOString()
+    type: Date,
+    default: Date.now,
   },
 }, { _id: false });
 

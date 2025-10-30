@@ -20,6 +20,10 @@ const kategoriRoutes = require('./routes/kategoriRoutes');
 const bahanBakuRoutes = require('./routes/bahanbakuRoutes');
 const tenantRoute = require("./routes/tenantRoute");
 const profilRoute = require("./routes/profilRoute");
+const posisiRoute = require("./routes/posisiRoute");
+const penggunaRoute = require("./routes/penggunaRoute");
+const absensiRoute = require("./routes/absensiRoute");
+const izinCutiRoute = require("./routes/izinCutiRoute");
 
 // Routes
 app.use('/api/produk', produkRoutes);
@@ -27,6 +31,10 @@ app.use('/api/kategori', kategoriRoutes);
 app.use('/api/bahanbaku', bahanBakuRoutes);
 app.use("/api/tenant", tenantRoute);
 app.use("/api/profil", profilRoute);
+app.use("/api/posisi", posisiRoute);
+app.use("/api/pengguna", penggunaRoute);
+app.use("/api/absensi", absensiRoute);
+app.use("/api/izincuti", izinCutiRoute);
 
 // Server
 app.listen(4000, "127.0.0.1", () => {
