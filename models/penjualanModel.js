@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// Schema untuk itemPenjualan
+// Subschema untuk ItemPenjualan
 const ItemPenjualanSchema = new mongoose.Schema({
   produkID: {
     type: mongoose.Schema.Types.ObjectId,
@@ -9,19 +9,37 @@ const ItemPenjualanSchema = new mongoose.Schema({
   },
   jumlah: {
     type: Number,
-    required: true
+    required: true,
+    min: 1
   },
-  hargaSatuan: {
-    type: Number,
-    required: true
+  namaProduk: {
+    type: String,
+    required: true,
+    trim: true
   },
-  subTotal: {
+  hargaJual: {
     type: Number,
+    required: true,
+    min: 0
+  },
+  subtotal: {
+    type: Number,
+    min: 0
+  },
+  sesiBookingID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SesiBooking',
     required: true
   }
 }, { _id: false });
 
-// Schema utama penjualan
+// Hitung subtotal otomatis sebelum validasi tiap item
+ItemPenjualanSchema.pre('validate', function(next) {
+  this.subtotal = this.jumlah * this.hargaJual;
+  next();
+});
+
+// Schema utama Penjualan
 const PenjualanSchema = new mongoose.Schema({
   tanggalPenjualan: {
     type: Date,
@@ -35,7 +53,8 @@ const PenjualanSchema = new mongoose.Schema({
   },
   totalHarga: {
     type: Number,
-    required: true
+    default: 0,
+    min: 0
   },
   namaPelanggan: {
     type: String,
@@ -60,5 +79,18 @@ const PenjualanSchema = new mongoose.Schema({
     default: 0
   }
 }, { timestamps: true });
+
+// Hitung totalHarga otomatis setelah subtotal tiap item dihitung
+PenjualanSchema.pre('validate', function(next) {
+  if (this.itemPenjualan && this.itemPenjualan.length > 0) {
+    this.totalHarga = this.itemPenjualan.reduce((acc, item) => {
+      const sub = Number(item.subtotal) || (item.jumlah * item.hargaJual);
+      return acc + sub;
+    }, 0);
+  } else {
+    this.totalHarga = 0;
+  }
+  next();
+});
 
 module.exports = mongoose.model('Penjualan', PenjualanSchema);

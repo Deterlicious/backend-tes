@@ -1,12 +1,12 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const bahanBakuController = require('../controllers/bahanbakuController');
+const bahanBakuController = require("../controllers/bahanBakuController");
 
-
-router.post('/', bahanBakuController.tambahBahanBaku);// CREATE
-router.get('/', bahanBakuController.getAllBahanBaku);// READ ALL
-router.get('/:BahanBakuID', bahanBakuController.getBahanBakuById);// READ BY ID
-router.put('/:BahanBakuID', bahanBakuController.updateBahanBaku);// UPDATE
-router.delete('/:id', bahanBakuController.hapusBahanBaku);// DELETE
+// CRUD Routes
+router.post("/", bahanBakuController.createBahanBaku);
+router.get("/", bahanBakuController.getAllBahanBaku);
+router.get("/:id", bahanBakuController.getBahanBakuById);
+router.put("/:id", bahanBakuController.updateBahanBaku);
+router.delete("/:id", bahanBakuController.deleteBahanBaku);
 
 module.exports = router;

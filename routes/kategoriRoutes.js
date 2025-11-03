@@ -1,12 +1,12 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const kategoriController = require('../controllers/kategoriController');
+const kategoriController = require("../controllers/kategoriController");
 
-// CRUD routes
-router.post('/', kategoriController.tambahKategori);      // CREATE
-router.get('/', kategoriController.getAllKategori);       // READ ALL
-router.get('/:kategoriID', kategoriController.getKategoriById);   // READ BY ID
-router.put('/:kategoriID', kategoriController.updateKategori);    // UPDATE
-router.delete('/:kategoriID', kategoriController.hapusKategori);  // DELETE
+// Endpoint CRUD
+router.post("/", kategoriController.createKategori);
+router.get("/", kategoriController.getAllKategori);
+router.get("/:id", kategoriController.getKategoriById);
+router.put("/:id", kategoriController.updateKategori);
+router.delete("/:id", kategoriController.deleteKategori);
 
 module.exports = router;

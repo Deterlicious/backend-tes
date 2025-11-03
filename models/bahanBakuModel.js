@@ -1,25 +1,37 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const bahanBakuSchema = new mongoose.Schema({
-  BahanBakuID: {
-    type: String,
-    required: true,
-    unique: true
+const BahanBakuSchema = new mongoose.Schema(
+  {
+    namaBahan: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    stok: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    satuan: {
+      type: String,
+      required: true,
+      enum: ["kg", "gram", "liter", "ml", "pcs", "pak", "unit"], // kamu bisa ubah sesuai kebutuhan
+    },
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+    },
   },
-  namaBahan: {
-    type: String,
-    required: true
-  },
-  stok: {
-    type: Number,
-    required: true,
-    default: 0
-  },
-  satuan: {
-    type: String,
-    required: true
+  {
+    timestamps: true,
+    versionKey: false,
   }
-});
+);
 
-const BahanBaku = mongoose.model('BahanBaku', bahanBakuSchema);
+// Index unik untuk kombinasi tenant dan nama bahan
+BahanBakuSchema.index({ tenantID: 1, namaBahan: 1 }, { unique: true });
+
+const BahanBaku = mongoose.model("BahanBaku", BahanBakuSchema);
+
 module.exports = BahanBaku;

@@ -1,116 +1,84 @@
 const Kategori = require("../models/kategoriModel");
 
-// CREATE
-exports.tambahKategori = async (req, res) => {
+// ✅ Tambah Kategori
+exports.createKategori = async (req, res) => {
   try {
-    const { kategoriID, namaKategori, kodeKategori, keterangan } = req.body;
-
-    // Validasi input
-    if (!kategoriID || !namaKategori || !kodeKategori) {
-      return res.status(400).json({
-        message: "Field kategoriID, namaKategori, dan kodeKategori wajib diisi.",
-      });
-    }
-
-    // Cek apakah kategoriID sudah ada
-    const existing = await Kategori.findOne({ kategoriID });
-    if (existing) {
-      return res
-        .status(400)
-        .json({ message: `Kategori dengan ID ${kategoriID} sudah ada.` });
-    }
-
-    // Buat data baru
-    const kategoriBaru = new Kategori({
-      kategoriID,
-      namaKategori,
-      kodeKategori,
-      keterangan,
-    });
-
-    await kategoriBaru.save();
+    const kategori = await Kategori.create(req.body);
     res.status(201).json({
       message: "Kategori berhasil ditambahkan",
-      data: kategoriBaru,
+      data: kategori
     });
   } catch (error) {
     res.status(400).json({
-      message: "Gagal menambah kategori",
-      error: error.message,
+      message: "Gagal menambahkan kategori",
+      error: error.message
     });
   }
 };
 
-// READ ALL
+// ✅ Tampilkan semua kategori
 exports.getAllKategori = async (req, res) => {
   try {
-    const kategori = await Kategori.find().sort({ createdAt: -1 });
+    const kategori = await Kategori.find().populate("tenantID");
     res.status(200).json(kategori);
   } catch (error) {
     res.status(500).json({
       message: "Gagal mengambil data kategori",
-      error: error.message,
+      error: error.message
     });
   }
 };
 
-// READ BY kategoriID
+// ✅ Tampilkan kategori berdasarkan ID
 exports.getKategoriById = async (req, res) => {
   try {
-    const kategori = await Kategori.findOne({ kategoriID: req.params.kategoriID });
+    const kategori = await Kategori.findById(req.params.id).populate("tenantID");
     if (!kategori) {
       return res.status(404).json({ message: "Kategori tidak ditemukan" });
     }
     res.status(200).json(kategori);
   } catch (error) {
     res.status(500).json({
-      message: "Gagal mengambil kategori",
-      error: error.message,
+      message: "Gagal mengambil data kategori",
+      error: error.message
     });
   }
 };
 
-// UPDATE BY kategoriID
+// ✅ Update kategori
 exports.updateKategori = async (req, res) => {
   try {
-    const kategori = await Kategori.findOneAndUpdate(
-      { kategoriID: req.params.kategoriID },
-      req.body,
-      { new: true, runValidators: true }
-    );
-
+    const kategori = await Kategori.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true
+    });
     if (!kategori) {
       return res.status(404).json({ message: "Kategori tidak ditemukan" });
     }
-
     res.status(200).json({
       message: "Kategori berhasil diperbarui",
-      data: kategori,
+      data: kategori
     });
   } catch (error) {
     res.status(400).json({
       message: "Gagal memperbarui kategori",
-      error: error.message,
+      error: error.message
     });
   }
 };
 
-// DELETE BY kategoriID
-exports.hapusKategori = async (req, res) => {
+// ✅ Hapus kategori
+exports.deleteKategori = async (req, res) => {
   try {
-    const kategori = await Kategori.findOneAndDelete({ kategoriID: req.params.kategoriID });
-
+    const kategori = await Kategori.findByIdAndDelete(req.params.id);
     if (!kategori) {
       return res.status(404).json({ message: "Kategori tidak ditemukan" });
     }
-
-    res.status(200).json({
-      message: `Kategori dengan ID ${req.params.kategoriID} berhasil dihapus.`,
-    });
+    res.status(200).json({ message: "Kategori berhasil dihapus" });
   } catch (error) {
     res.status(500).json({
       message: "Gagal menghapus kategori",
-      error: error.message,
+      error: error.message
     });
   }
 };
