@@ -1,99 +1,104 @@
-const AkunKas = require('../models/akunKasModel');
+const AkunKas = require("../models/akunKasModel"); // Sesuaikan path jika perlu
 
-// CREATE
-exports.tambahAkunKas = async (req, res) => {
+// ✅ Tambah Akun Kas
+exports.createAkunKas = async (req, res) => {
   try {
-    const {
-      akunKasID,
-      namaAkun,
-      saldo,
-      tipeAkun,
-      status,
-      nomorAkun,
-      keterangan,
-      tenantID
-    } = req.body;
-
-    // Validasi field wajib
-    if (!akunKasID || !namaAkun || saldo == null || !nomorAkun) {
-      return res.status(400).json({
-        message: "Field akunKasID, namaAkun, saldo, dan nomorAkun wajib diisi.",
-      });
-    }
-
-    // Cek akunKasID agar unik
-    const existing = await AkunKas.findOne({ akunKasID });
-    if (existing) {
-      return res.status(400).json({
-        message: `Akun Kas dengan ID ${akunKasID} sudah ada.`,
-      });
-    }
-
-    const akunKasBaru = new AkunKas({
-      akunKasID,
-      namaAkun,
-      saldo,
-      tipeAkun,
-      status: status || "aktif",
-      nomorAkun,
-      keterangan,
-      tenantID,
-    });
-
-    await akunKasBaru.save();
+    const akunKas = await AkunKas.create(req.body);
     res.status(201).json({
       message: "Akun Kas berhasil ditambahkan",
-      data: akunKasBaru,
+      data: akunKas,
     });
   } catch (error) {
     res.status(400).json({
-      message: "Gagal menambah akun kas",
+      message: "Gagal menambahkan Akun Kas",
       error: error.message,
     });
   }
 };
 
-// READ ALL
+// ✅ Tampilkan semua Akun Kas (WAJIB FILTER berdasarkan tenantID)
 exports.getAllAkunKas = async (req, res) => {
   try {
-    const akunKas = await AkunKas.find().sort({ createdAt: -1 });
+    const { tenantID } = req.query;
+
+    if (!tenantID) {
+      return res.status(400).json({
+        message: "Parameter tenantID wajib disertakan di query.",
+      });
+    }
+
+    const akunKas = await AkunKas.find({ tenantID }).sort({ createdAt: -1 });
+
+    if (akunKas.length === 0) {
+      return res.status(404).json({
+        message: "Tidak ada data Akun Kas untuk tenant ini.",
+      });
+    }
+
     res.status(200).json(akunKas);
   } catch (error) {
     res.status(500).json({
-      message: "Gagal mengambil data akun kas",
+      message: "Gagal mengambil data Akun Kas",
       error: error.message,
     });
   }
 };
 
-// READ BY ID
+// ✅ Tampilkan Akun Kas berdasarkan ID (Disederhanakan: Hanya menggunakan ID dari params)
 exports.getAkunKasById = async (req, res) => {
   try {
-    const akunKas = await AkunKas.findOne({
-      akunKasID: req.params.akunKasID,
-    });
-    if (!akunKas)
-      return res.status(404).json({ message: "Akun Kas tidak ditemukan" });
+    const { id } = req.params; // Hanya ambil ID dari route params, hilangkan tenantID dari query
+
+    // Cari berdasarkan _id saja
+    const akunKas = await AkunKas.findById(id);
+
+    if (!akunKas) {
+      // Ubah pesan error karena kita tidak memfilter berdasarkan tenant lagi
+      return res.status(404).json({ message: "Akun Kas tidak ditemukan." });
+    }
+
     res.status(200).json(akunKas);
   } catch (error) {
+    // Tangani error jika ID tidak valid (misalnya, bukan format ObjectID yang benar)
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        message: "Format ID tidak valid.",
+        error: error.message,
+      });
+    }
+
     res.status(500).json({
-      message: "Gagal mengambil data akun kas",
+      message: "Gagal mengambil data Akun Kas",
       error: error.message,
     });
   }
 };
-
-// UPDATE BY akunKasID
+// ✅ Update Akun Kas
+// Tambahkan filter tenantID untuk keamanan
 exports.updateAkunKas = async (req, res) => {
   try {
+    const { tenantID } = req.query;
+    const { id } = req.params;
+
+    if (!tenantID) {
+      return res
+        .status(400)
+        .json({ message: "Parameter tenantID wajib disertakan di query." });
+    }
+
     const akunKas = await AkunKas.findOneAndUpdate(
-      { akunKasID: req.params.akunKasID },
+      { _id: id, tenantID }, // Filter berdasarkan ID dan tenantID
       req.body,
       { new: true, runValidators: true }
     );
 
-    if (!akunKas)
-      return res.status(404).json({ message: "Akun Kas tidak ditemukan" });
+    if (!akunKas) {
+      return res
+        .status(404)
+        .json({
+          message: "Akun Kas tidak ditemukan atau Anda tidak memiliki akses.",
+        });
+    }
 
     res.status(200).json({
       message: "Akun Kas berhasil diperbarui",
@@ -101,28 +106,39 @@ exports.updateAkunKas = async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({
-      message: "Gagal memperbarui akun kas",
+      message: "Gagal memperbarui Akun Kas",
       error: error.message,
     });
   }
 };
 
-// DELETE BY akunKasID
-exports.hapusAkunKas = async (req, res) => {
+// ✅ Hapus Akun Kas
+// Tambahkan filter tenantID untuk keamanan
+exports.deleteAkunKas = async (req, res) => {
   try {
-    const akunKas = await AkunKas.findOneAndDelete({
-      akunKasID: req.params.akunKasID,
-    });
+    const { tenantID } = req.query;
+    const { id } = req.params;
 
-    if (!akunKas)
-      return res.status(404).json({ message: "Akun Kas tidak ditemukan" });
+    if (!tenantID) {
+      return res
+        .status(400)
+        .json({ message: "Parameter tenantID wajib disertakan di query." });
+    }
 
-    res.status(200).json({
-      message: `Akun Kas dengan ID ${req.params.akunKasID} berhasil dihapus.`,
-    });
+    const akunKas = await AkunKas.findOneAndDelete({ _id: id, tenantID });
+
+    if (!akunKas) {
+      return res
+        .status(404)
+        .json({
+          message: "Akun Kas tidak ditemukan atau Anda tidak memiliki akses.",
+        });
+    }
+
+    res.status(200).json({ message: "Akun Kas berhasil dihapus" });
   } catch (error) {
     res.status(500).json({
-      message: "Gagal menghapus akun kas",
+      message: "Gagal menghapus Akun Kas",
       error: error.message,
     });
   }

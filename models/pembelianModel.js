@@ -5,7 +5,7 @@ const ItemSchema = new mongoose.Schema({
   BahanBakuID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BahanBaku',
-    required: true
+    default: null, //ini akan di require: true jika sudah tahap deploy
   },
   jumlahStok: {
     type: Number,
@@ -33,7 +33,7 @@ const PembelianSchema = new mongoose.Schema({
   akunKasID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'AkunKas',
-    required: true
+    default: null, //ini akan di require: true jika sudah tahap deploy
   },
   totalBiaya: {
     type: Number,
@@ -54,7 +54,7 @@ const PembelianSchema = new mongoose.Schema({
   tenantID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tenant',
-    default: null
+    default: null //ini akan di require: true jika sudah tahap deploy
   }
 }, {
   timestamps: true,

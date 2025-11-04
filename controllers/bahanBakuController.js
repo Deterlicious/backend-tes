@@ -1,78 +1,85 @@
 const BahanBaku = require("../models/bahanBakuModel");
 
-// ✅ CREATE
-exports.createBahanBaku = async (req, res) => {
+// CREATE — Tambah Bahan Baku
+exports.tambahBahanBaku = async (req, res) => {
   try {
     const { namaBahan, stok, satuan, tenantID } = req.body;
 
     if (!namaBahan || !satuan || !tenantID) {
-      return res.status(400).json({ message: "namaBahan, satuan, dan tenantID wajib diisi" });
+      return res
+        .status(400)
+        .json({ message: "Field namaBahan, satuan, dan tenantID wajib diisi." });
     }
 
-    const bahanBaku = new BahanBaku({
+    const bahanBaru = new BahanBaku({
       namaBahan,
       stok,
       satuan,
       tenantID,
     });
 
-    await bahanBaku.save();
-    res.status(201).json({ message: "Bahan baku berhasil ditambahkan", data: bahanBaku });
+    await bahanBaru.save();
+    res.status(201).json({ message: "Bahan baku berhasil ditambahkan", data: bahanBaru });
   } catch (error) {
-    res.status(500).json({ message: "Gagal menambahkan bahan baku", error: error.message });
+    res.status(400).json({ message: "Gagal menambah bahan baku", error: error.message });
   }
 };
 
-// ✅ READ ALL
+// READ ALL — Filter by tenantID (query parameter)
 exports.getAllBahanBaku = async (req, res) => {
   try {
-    const data = await BahanBaku.find().populate("tenantID", "namaTenant");
-    res.status(200).json(data);
+    const { tenantID } = req.query;
+
+    if (!tenantID) {
+      return res.status(400).json({ message: "Parameter tenantID wajib disertakan di query." });
+    }
+
+    const bahanBaku = await BahanBaku.find({ tenantID }).sort({ createdAt: -1 });
+
+    if (bahanBaku.length === 0) {
+      return res.status(404).json({ message: "Tidak ada data bahan baku untuk tenant ini." });
+    }
+
+    res.status(200).json(bahanBaku);
   } catch (error) {
     res.status(500).json({ message: "Gagal mengambil data bahan baku", error: error.message });
   }
 };
 
-// ✅ READ BY ID
+// READ BY ID
 exports.getBahanBakuById = async (req, res) => {
   try {
-    const data = await BahanBaku.findById(req.params.id).populate("tenantID", "namaTenant");
-    if (!data) {
-      return res.status(404).json({ message: "Bahan baku tidak ditemukan" });
-    }
-    res.status(200).json(data);
+    const bahan = await BahanBaku.findById(req.params.id);
+    if (!bahan) return res.status(404).json({ message: "Bahan baku tidak ditemukan" });
+    res.status(200).json(bahan);
   } catch (error) {
     res.status(500).json({ message: "Gagal mengambil bahan baku", error: error.message });
   }
 };
 
-// ✅ UPDATE
+// UPDATE
 exports.updateBahanBaku = async (req, res) => {
   try {
-    const { namaBahan, stok, satuan } = req.body;
-    const data = await BahanBaku.findByIdAndUpdate(
-      req.params.id,
-      { namaBahan, stok, satuan },
-      { new: true, runValidators: true }
-    );
+    const bahan = await BahanBaku.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
 
-    if (!data) {
-      return res.status(404).json({ message: "Bahan baku tidak ditemukan" });
-    }
+    if (!bahan) return res.status(404).json({ message: "Bahan baku tidak ditemukan" });
 
-    res.status(200).json({ message: "Bahan baku berhasil diperbarui", data });
+    res.status(200).json({ message: "Bahan baku berhasil diperbarui", data: bahan });
   } catch (error) {
-    res.status(500).json({ message: "Gagal memperbarui bahan baku", error: error.message });
+    res.status(400).json({ message: "Gagal memperbarui bahan baku", error: error.message });
   }
 };
 
-// ✅ DELETE
-exports.deleteBahanBaku = async (req, res) => {
+// DELETE
+exports.hapusBahanBaku = async (req, res) => {
   try {
-    const data = await BahanBaku.findByIdAndDelete(req.params.id);
-    if (!data) {
-      return res.status(404).json({ message: "Bahan baku tidak ditemukan" });
-    }
+    const bahan = await BahanBaku.findByIdAndDelete(req.params.id);
+
+    if (!bahan) return res.status(404).json({ message: "Bahan baku tidak ditemukan" });
+
     res.status(200).json({ message: "Bahan baku berhasil dihapus" });
   } catch (error) {
     res.status(500).json({ message: "Gagal menghapus bahan baku", error: error.message });

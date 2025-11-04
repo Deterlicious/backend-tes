@@ -21,12 +21,6 @@ const ResepsSchema = new mongoose.Schema({
 
 // Schema utama Produk
 const ProdukSchema = new mongoose.Schema({
-  kodeProduk: {
-    type: String,
-    required: true,
-    trim: true,
-    unique: true
-  },
   namaProduk: {
     type: String,
     required: true,

@@ -1,12 +1,6 @@
 const mongoose = require('mongoose');
 
 const AkunKasSchema = new mongoose.Schema({
-  akunKasID: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true
-  },
   namaAkun: {
     type: String,
     required: true,
@@ -15,11 +9,12 @@ const AkunKasSchema = new mongoose.Schema({
   saldo: {
     type: Number,
     required: true,
+    default: 0, // Saldo awal bisa kita default ke 0
     min: 0
   },
   tipeAkun: {
     type: String,
-    enum: ['kas fisik', 'Rekening Bank'],
+    enum: ['Kas Fisik', 'Rekening Bank'], // Ubah agar lebih rapi
     required: true
   },
   status: {
@@ -30,16 +25,18 @@ const AkunKasSchema = new mongoose.Schema({
   nomorAkun: {
     type: String,
     required: true,
-    trim: true
+    trim: true,
+    unique: true // Nomor akun biasanya unik
   },
   keterangan: {
     type: String,
     default: null
   },
+  // Wajib menyertakan tenantID untuk konsistensi data scope
   tenantID: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Tenant',
-    required: false
+    ref: 'Tenant', // Sesuaikan dengan nama model Tenant Anda
+    required: true // Dibuat wajib agar setiap akun terikat pada satu tenant
   }
 }, {
   timestamps: true,
