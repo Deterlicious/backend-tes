@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
-// Subschema untuk device
+// Skema Sub-dokumen: Device
 const deviceSchema = new mongoose.Schema({
   deviceID: {
     type: String,
@@ -14,7 +14,7 @@ const deviceSchema = new mongoose.Schema({
   },
 }, { _id: false });
 
-// Subschema untuk deviceHistory
+// Skema Sub-dokumen: Riwayat Device
 const deviceHistorySchema = new mongoose.Schema({
   deviceID: {
     type: String,
@@ -36,8 +36,8 @@ const deviceHistorySchema = new mongoose.Schema({
   },
 }, { _id: false });
 
-// Schema utama
-const profilSchema = new mongoose.Schema({
+// Skema Utama: Akun
+const akunSchema = new mongoose.Schema({
   username: {
     type: String,
   },
@@ -55,6 +55,11 @@ const profilSchema = new mongoose.Schema({
     type: String,
     enum: ["client", "admin"],
     default: "client",
+  },
+  tokenVersion: {
+    type: Number,
+    required: true,
+    default: 0,
   },
   device: [deviceSchema],
   maxPrimaryDevice: {
@@ -77,8 +82,8 @@ const profilSchema = new mongoose.Schema({
   },
 });
 
-// 🔒 Hash password sebelum disimpan
-profilSchema.pre("save", async function (next) {
+// Hook Middleware (pre-save): Hash password
+akunSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
   try {
     const salt = await bcrypt.genSalt(10);
@@ -89,9 +94,9 @@ profilSchema.pre("save", async function (next) {
   }
 });
 
-// 🔍 Method untuk verifikasi password
-profilSchema.methods.comparePassword = async function (candidatePassword) {
+// Method Instance: Verifikasi password
+akunSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.model("Profil", profilSchema);
+module.exports = mongoose.model("Akun", akunSchema);

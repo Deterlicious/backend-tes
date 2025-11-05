@@ -10,6 +10,7 @@ const penggunaSchema = new mongoose.Schema({
     type: String,
     unique: true,
     required: true,
+    minlength: [6, "PIN minimal 6 karakter"],
   },
   role: {
     type: String,
@@ -41,9 +42,15 @@ const penggunaSchema = new mongoose.Schema({
   },
 });
 
-// 🔒 Hash pin sebelum disimpan
+// Hash pin sebelum disimpan
 penggunaSchema.pre("save", async function (next) {
   if (!this.isModified("pin")) return next();
+
+  // Cek panjang PIN minimal 6
+  if (this.pin.length < 6) {
+    return next(new Error("PIN minimal 6 karakter"));
+  }
+
   try {
     const salt = await bcrypt.genSalt(10);
     this.pin = await bcrypt.hash(this.pin, salt);
