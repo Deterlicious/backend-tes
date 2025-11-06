@@ -6,7 +6,8 @@ const bcrypt = require("bcrypt");
 
 // Konfigurasi JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || "secret_key";
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "refresh_secret_key";
+const JWT_REFRESH_SECRET =
+  process.env.JWT_REFRESH_SECRET || "refresh_secret_key";
 
 // ======== Fungsi Helper Token ========
 
@@ -41,7 +42,9 @@ exports.register = async (req, res) => {
     const { username, email, password, role } = req.body;
 
     if (!email || !password)
-      return res.status(400).json({ message: "Email dan password wajib diisi" });
+      return res
+        .status(400)
+        .json({ message: "Email dan password wajib diisi" });
 
     const existingUser = await Akun.findOne({ email });
     if (existingUser)
@@ -56,13 +59,14 @@ exports.register = async (req, res) => {
   }
 };
 
-// [POST] /auth/login
+// [POST] /auth/login <-- aziz yang betulin
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await Akun.findOne({ email });
 
-    if (!user) return res.status(404).json({ message: "Email tidak ditemukan" });
+    if (!user)
+      return res.status(404).json({ message: "Email tidak ditemukan" });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Password salah" });
@@ -70,17 +74,27 @@ exports.login = async (req, res) => {
     const accessToken = createAccessToken(user);
     const refreshToken = createRefreshToken(user);
 
-    sendRefreshToken(res, refreshToken);
+    // [PERBAIKAN] HAPUS BARIS INI:
+    // sendRefreshToken(res, refreshToken);
+    // Aplikasi Flutter tidak bisa membaca cookie.
 
-    res.json({ message: "Login berhasil", accessToken });
+    // [PERBAIKAN] Kirim SEMUA data yang dibutuhkan Flutter di body JSON
+    res.json({
+      message: "Login berhasil",
+      accessToken: accessToken,
+      refreshToken: refreshToken, // <-- KIRIM INI DI JSON
+      data: user.toJSON(), // <-- KIRIM INI DI JSON
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// [POST] /auth/refresh-token
+// [POST] /auth/refresh-token <-- aziz yang betulin
 exports.refreshToken = async (req, res) => {
-  const token = req.cookies.refreshToken;
+  // [PERBAIKAN] Ganti cara Anda mendapatkan token
+  // const token = req.cookies.refreshToken; // <-- HAPUS INI
+  const { token } = req.body; // <-- BACA DARI BODY JSON
 
   if (!token) {
     return res.status(401).json({ message: "Akses ditolak. Tidak ada refresh token." });
@@ -94,16 +108,23 @@ exports.refreshToken = async (req, res) => {
       return res.status(401).json({ message: "User tidak ditemukan." });
     }
 
+    // Pengecekan tokenVersion Anda sudah sangat bagus, biarkan saja
     if (user.tokenVersion !== payload.version) {
-      sendRefreshToken(res, "");
+      // sendRefreshToken(res, ""); // Tidak perlu kirim cookie kosong lagi
       return res.status(401).json({ message: "Sesi tidak valid. Silakan login kembali." });
     }
 
     const newAccessToken = createAccessToken(user);
     const newRefreshToken = createRefreshToken(user);
-    sendRefreshToken(res, newRefreshToken);
 
-    res.json({ accessToken: newAccessToken });
+    // [PERBAIKAN] HAPUS BARIS INI:
+    // sendRefreshToken(res, newRefreshToken);
+
+    // [PERBAIKAN] Kirim kedua token baru di body JSON
+    res.json({
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken
+    });
 
   } catch (err) {
     return res.status(403).json({ message: "Refresh token tidak valid.", error: err.message });
@@ -164,7 +185,9 @@ exports.updateProfile = async (req, res) => {
   try {
     const userId = req.user?.id;
     const updates = req.body;
-    const updated = await Akun.findByIdAndUpdate(userId, updates, { new: true });
+    const updated = await Akun.findByIdAndUpdate(userId, updates, {
+      new: true,
+    });
     res.json({ message: "Akun diperbarui", data: updated });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -199,8 +222,9 @@ exports.checkDevice = async (req, res) => {
   try {
     const { deviceId } = req.params;
     const user = await Akun.findById(req.user.id);
-    const device = user.device.find(d => d.deviceID === deviceId);
-    if (!device) return res.status(404).json({ message: "Device tidak ditemukan" });
+    const device = user.device.find((d) => d.deviceID === deviceId);
+    if (!device)
+      return res.status(404).json({ message: "Device tidak ditemukan" });
     res.json(device);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -214,7 +238,9 @@ exports.addDevice = async (req, res) => {
     const user = await Akun.findById(req.user.id);
 
     if (user.device.length >= user.maxDevice)
-      return res.status(400).json({ message: "Jumlah device maksimal sudah tercapai" });
+      return res
+        .status(400)
+        .json({ message: "Jumlah device maksimal sudah tercapai" });
 
     user.device.push({ deviceID, type });
     user.deviceHistory.push({ deviceID, type, action: "added" });
@@ -231,9 +257,10 @@ exports.promoteDevice = async (req, res) => {
   try {
     const { deviceID } = req.body;
     const user = await Akun.findById(req.user.id);
-    const device = user.device.find(d => d.deviceID === deviceID);
+    const device = user.device.find((d) => d.deviceID === deviceID);
 
-    if (!device) return res.status(404).json({ message: "Device tidak ditemukan" });
+    if (!device)
+      return res.status(404).json({ message: "Device tidak ditemukan" });
     device.type = "primary";
     user.deviceHistory.push({ deviceID, type: "primary", action: "promoted" });
 
@@ -249,9 +276,10 @@ exports.demoteDevice = async (req, res) => {
   try {
     const { deviceID } = req.body;
     const user = await Akun.findById(req.user.id);
-    const device = user.device.find(d => d.deviceID === deviceID);
+    const device = user.device.find((d) => d.deviceID === deviceID);
 
-    if (!device) return res.status(404).json({ message: "Device tidak ditemukan" });
+    if (!device)
+      return res.status(404).json({ message: "Device tidak ditemukan" });
     device.type = "secondary";
     user.deviceHistory.push({ deviceID, type: "secondary", action: "demoted" });
 
@@ -267,7 +295,7 @@ exports.removeDevice = async (req, res) => {
   try {
     const { deviceID } = req.body;
     const user = await Akun.findById(req.user.id);
-    user.device = user.device.filter(d => d.deviceID !== deviceID);
+    user.device = user.device.filter((d) => d.deviceID !== deviceID);
     user.deviceHistory.push({ deviceID, type: "secondary", action: "removed" });
     await user.save();
     res.json({ message: "Device berhasil dihapus" });

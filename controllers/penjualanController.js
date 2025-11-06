@@ -30,7 +30,7 @@ exports.getAllPenjualan = async (req, res) => {
   try {
     const penjualan = await Penjualan.find()
       .populate('itemPenjualan.produkID', 'namaProduk kodeProduk')
-      .populate('itemPenjualan.sesiBookingID', 'kodeSesi tanggalMulai')
+      // .populate('itemPenjualan.sesiBookingID', 'kodeSesi tanggalMulai')
       .populate('tenantID', 'namaTenant');
 
     res.status(200).json(penjualan);
@@ -44,7 +44,7 @@ exports.getPenjualanById = async (req, res) => {
   try {
     const penjualan = await Penjualan.findById(req.params.id)
       .populate('itemPenjualan.produkID', 'namaProduk kodeProduk')
-      .populate('itemPenjualan.sesiBookingID', 'kodeSesi tanggalMulai')
+      // .populate('itemPenjualan.sesiBookingID', 'kodeSesi tanggalMulai')
       .populate('tenantID', 'namaTenant');
 
     if (!penjualan) return res.status(404).json({ message: 'Penjualan tidak ditemukan' });

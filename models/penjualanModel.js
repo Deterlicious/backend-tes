@@ -26,11 +26,11 @@ const ItemPenjualanSchema = new mongoose.Schema({
     type: Number,
     min: 0
   },
-  sesiBookingID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'SesiBooking',
-    required: true
-  }
+  // sesiBookingID: {
+  //   type: mongoose.Schema.Types.ObjectId,
+  //   ref: 'SesiBooking',
+  //   required: false
+  // }
 }, { _id: false });
 
 // Hitung subtotal otomatis sebelum validasi tiap item

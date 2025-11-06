@@ -6,16 +6,12 @@ const pembelianController = require('../controllers/pembelianController');
 
 // ➕ CREATE pembelian baru
 router.post('/', pembelianController.tambahPembelian);
-
 // 📋 READ semua pembelian
 router.get('/', pembelianController.getAllPembelian);
-
 // 🔍 READ pembelian berdasarkan ID
 router.get('/:id', pembelianController.getPembelianById);
-
 // ✏️ UPDATE pembelian berdasarkan ID
 router.put('/:id', pembelianController.updatePembelian);
-
 // ❌ DELETE pembelian berdasarkan ID
 router.delete('/:id', pembelianController.hapusPembelian);
 
