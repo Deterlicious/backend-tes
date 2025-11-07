@@ -63,6 +63,7 @@ exports.login = async (req, res) => {
   try {
     const { email, password, deviceID } = req.body;
 
+    // 1. Validasi input dasar
     if (!deviceID) {
       return res.status(400).json({ message: "deviceID wajib diisi" });
     }
@@ -73,31 +74,78 @@ exports.login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Password salah" });
 
-    const device = user.device.find(d => d.deviceID === deviceID);
-    if (!device) {
-      return res.status(404).json({ message: "Device ini tidak terdaftar di akun Anda." });
+    // 2. Cari device yang ada
+    let device = user.device.find(d => d.deviceID === deviceID);
+
+    if (device) {
+      // --- ALUR 1: DEVICE SUDAH TERDAFTAR ---
+
+      const randomTokenVersion = Math.floor(1000 + Math.random() * 9000);
+      device.tokenVersion = randomTokenVersion;
+      user.markModified("device");
+      await user.save();
+
+      const accessToken = createAccessToken(user);
+      const refreshToken = createRefreshToken(user, device);
+
+      sendRefreshToken(res, refreshToken);
+
+      return res.json({
+        message: "Login berhasil",
+        accessToken,
+        refreshToken,
+        data: user.toJSON()
+      });
+
+    } else {
+      // --- ALUR 2: DEVICE BARU ---
+
+      // 3. Cek kuota device
+      if (user.device.length >= user.maxDevice) {
+        return res.status(403).json({
+          message: "Login gagal. Jumlah perangkat maksimal telah tercapai."
+        });
+      }
+
+      // 4. Kuota aman, buat dan tambahkan device baru
+      const newDevice = {
+        deviceID: deviceID,
+        type: user.device.length === 0 ? "primary" : "secondary",
+        tokenVersion: Math.floor(1000 + Math.random() * 9000),
+        lastUsed: new Date()
+      };
+
+      user.device.push(newDevice);
+
+      // BARIS YANG DIPERBAIKI:
+      // Mengganti "added_on_login" menjadi "added" agar sesuai dengan enum model
+      user.deviceHistory.push({
+        deviceID: deviceID,
+        type: newDevice.type,
+        action: "added" // <-- PERUBAHAN DI SINI
+      });
+
+      user.markModified("device");
+      user.markModified("deviceHistory");
+
+      await user.save(); // Ini adalah tempat error 500 terjadi sebelumnya
+
+      // 5. Buat token untuk device yang BARU
+      const accessToken = createAccessToken(user);
+      const refreshToken = createRefreshToken(user, newDevice);
+
+      sendRefreshToken(res, refreshToken);
+
+      return res.json({
+        message: "Login berhasil. Perangkat baru telah ditambahkan.",
+        accessToken,
+        refreshToken,
+        data: user.toJSON()
+      });
     }
 
-    const randomTokenVersion = Math.floor(1000 + Math.random() * 9000);
-    device.tokenVersion = randomTokenVersion;
-    user.markModified("device");
-    await user.save();
-
-    const accessToken = createAccessToken(user);
-    const refreshToken = createRefreshToken(user, device);
-
-    // **Tetap kirim refresh token via cookie**
-    sendRefreshToken(res, refreshToken);
-
-    // **Tambahan dari program teman kamu (KIRIM JUGA di JSON)**
-    return res.json({
-      message: "Login berhasil",
-      accessToken,
-      refreshToken,
-      data: user.toJSON()
-    });
-
   } catch (err) {
+    console.error("Login error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -303,24 +351,75 @@ exports.checkDevice = async (req, res) => {
 // [POST] /device/add
 exports.addDevice = async (req, res) => {
   try {
-    const { deviceID, type } = req.body;
-    const user = await Akun.findById(req.user.id);
-
-    if (user.device.length >= user.maxDevice)
-      return res.status(400).json({ message: "Jumlah device maksimal sudah tercapai" });
-
-    // Cek jika deviceID sudah ada
-    if (user.device.some(d => d.deviceID === deviceID)) {
-      return res.status(400).json({ message: "DeviceID sudah terdaftar." });
+    // 1. Dapatkan ID user dari Access Token (via middleware)
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Akses ditolak. Token tidak valid atau tidak ada." });
     }
 
-    // Menambahkan device baru (tokenVersion akan default 0)
-    user.device.push({ deviceID, type });
-    user.deviceHistory.push({ deviceID, type, action: "added" });
+    const { deviceID, type } = req.body;
+
+    // 2. Validasi input
+    if (!deviceID) {
+      return res.status(400).json({ message: "deviceID wajib diisi." });
+    }
+
+    const user = await Akun.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User tidak ditemukan." });
+    }
+
+    // 3. Cek kuota device
+    if (user.device.length >= user.maxDevice) {
+      return res.status(400).json({ message: "Jumlah device maksimal sudah tercapai" });
+    }
+
+    // 4. Cek jika deviceID sudah ada
+    if (user.device.some(d => d.deviceID === deviceID)) {
+      return res.status(409).json({ message: "DeviceID ini sudah terdaftar." }); // 409 Conflict lebih tepat
+    }
+
+    // 5. Tentukan tipe device secara cerdas
+    let deviceType = "secondary"; // Default
+    // Jika ini device pertama yang ditambahkan, otomatis jadikan 'primary'
+    if (user.device.length === 0) {
+      deviceType = "primary";
+    }
+    // Jika user mengirim 'type' yang valid, gunakan itu
+    else if (type === "primary" || type === "secondary") {
+      deviceType = type;
+    }
+
+    // 6. Buat objek device baru
+    const newDevice = {
+      deviceID: deviceID,
+      type: deviceType,
+      tokenVersion: 0, // Dibuat 0, user harus login di device itu utk dapat tokenVersion
+      lastUsed: new Date() // Opsi: Tambahkan field lastUsed
+    };
+
+    // 7. Tambahkan ke array dan simpan
+    user.device.push(newDevice);
+    user.deviceHistory.push({
+      deviceID: deviceID,
+      type: deviceType,
+      action: "added"
+    });
+
+    // Tandai bahwa array telah dimodifikasi (best practice untuk Mongoose)
+    user.markModified('device');
+    user.markModified('deviceHistory');
 
     await user.save();
-    res.json({ message: "Device berhasil ditambahkan", data: user.device });
+
+    // 8. Kirim respons berhasil (201 Created)
+    res.status(201).json({
+      message: "Device berhasil ditambahkan",
+      data: user.device
+    });
+
   } catch (err) {
+    console.error("Error adding device:", err);
     res.status(500).json({ message: err.message });
   }
 };
