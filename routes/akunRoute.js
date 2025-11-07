@@ -2,28 +2,32 @@ const express = require("express");
 const router = express.Router();
 const akunController = require("../controllers/akunController");
 const auth = require("../middleware/auth");
+const authorize = require("../middleware/authorize");
 
-// Rute Autentikasi & Profil
+// Auth
 router.post("/auth/register", akunController.register);
 router.post("/auth/login", akunController.login);
-router.post("/auth/refresh-token", akunController.refreshToken);
+router.post("/auth/refreshtoken", akunController.refreshToken);
 router.post("/auth/logout", akunController.logout);
-router.post("/auth/logout-all", auth, akunController.logoutAllDevices);
-router.get("/auth/profile", auth, akunController.getProfile);
-router.put("/auth/profile", auth, akunController.updateProfile);
-router.delete("/auth/delete", auth, akunController.deleteProfile);
+router.post("/auth/logoutall", auth, akunController.logoutAllDevices);
+router.get("/auth/akun", auth, akunController.getProfile);
+router.put("/auth/akun", auth, akunController.updateProfile);
+router.delete("/auth/akun", auth, akunController.deleteProfile);
 
-// Rute Manajemen Device
-router.get("/devices", auth, akunController.getDevices);
-router.get("/devices/check/:deviceId", auth, akunController.checkDevice);
-router.post("/devices/add", auth, akunController.addDevice);
+// Admin
+router.get("/admin/all", auth, authorize.adminOnly, akunController.getAllAkun);
+
+// Device
+router.get("/device", auth, akunController.getDevice);
+router.get("/device/check/:deviceId", auth, akunController.checkDevice);
+router.post("/device/add", auth, akunController.addDevice);
 router.put("/device/promote", auth, akunController.promoteDevice);
 router.put("/device/demote", auth, akunController.demoteDevice);
 router.delete("/device/remove", auth, akunController.removeDevice);
 
-// Rute Riwayat Device
-router.get("/device-history", auth, akunController.getDeviceHistory);
-router.post("/device-history", auth, akunController.addDeviceHistory);
-router.delete("/device-history/:id", auth, akunController.deleteDeviceHistory);
+// Device History
+router.get("/devicehistory", auth, akunController.getDeviceHistory);
+router.post("/devicehistory", auth, akunController.addDeviceHistory);
+router.delete("/devicehistory/:id", auth, akunController.deleteDeviceHistory);
 
 module.exports = router;

@@ -6,20 +6,19 @@ const bcrypt = require("bcrypt");
 
 // Konfigurasi JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || "secret_key";
-const JWT_REFRESH_SECRET =
-  process.env.JWT_REFRESH_SECRET || "refresh_secret_key";
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "refresh_secret_key";
 
-// ======== Fungsi Helper Token ========
-
+// ======== Token ========
 const createAccessToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, {
-    expiresIn: "1m",
+    expiresIn: "15m",
   });
 };
 
-const createRefreshToken = (user) => {
+// DIMODIFIKASI: Membutuhkan 'device' untuk menyertakan deviceID dan tokenVersion-nya
+const createRefreshToken = (user, device) => {
   return jwt.sign(
-    { id: user._id, version: user.tokenVersion },
+    { id: user._id, deviceID: device.deviceID, version: device.tokenVersion },
     JWT_REFRESH_SECRET,
     { expiresIn: "7d" }
   );
@@ -35,22 +34,21 @@ const sendRefreshToken = (res, token) => {
 };
 
 // ======== Controller Autentikasi ========
-
 // [POST] /auth/register
 exports.register = async (req, res) => {
   try {
     const { username, email, password, role } = req.body;
 
     if (!email || !password)
-      return res
-        .status(400)
-        .json({ message: "Email dan password wajib diisi" });
+      return res.status(400).json({ message: "Email dan password wajib diisi" });
 
     const existingUser = await Akun.findOne({ email });
     if (existingUser)
       return res.status(400).json({ message: "Email sudah digunakan" });
 
     const newUser = new Akun({ username, email, password, role });
+    // Catatan: User harus menambahkan device terlebih dahulu via endpoint /device/add
+    // sebelum bisa login dengan device tersebut.
     await newUser.save();
 
     res.status(201).json({ message: "Registrasi berhasil", data: newUser });
@@ -59,42 +57,56 @@ exports.register = async (req, res) => {
   }
 };
 
-// [POST] /auth/login <-- aziz yang betulin
+// [POST] /auth/login
+// DIMODIFIKASI: Sekarang membutuhkan deviceID untuk login
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await Akun.findOne({ email });
+    const { email, password, deviceID } = req.body;
 
-    if (!user)
-      return res.status(404).json({ message: "Email tidak ditemukan" });
+    if (!deviceID) {
+      return res.status(400).json({ message: "deviceID wajib diisi" });
+    }
+
+    const user = await Akun.findOne({ email });
+    if (!user) return res.status(404).json({ message: "Email tidak ditemukan" });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Password salah" });
 
+    const device = user.device.find(d => d.deviceID === deviceID);
+    if (!device) {
+      return res.status(404).json({ message: "Device ini tidak terdaftar di akun Anda." });
+    }
+
+    const randomTokenVersion = Math.floor(1000 + Math.random() * 9000);
+    device.tokenVersion = randomTokenVersion;
+    user.markModified("device");
+    await user.save();
+
     const accessToken = createAccessToken(user);
-    const refreshToken = createRefreshToken(user);
+    const refreshToken = createRefreshToken(user, device);
 
-    // [PERBAIKAN] HAPUS BARIS INI:
-    // sendRefreshToken(res, refreshToken);
-    // Aplikasi Flutter tidak bisa membaca cookie.
+    // **Tetap kirim refresh token via cookie**
+    sendRefreshToken(res, refreshToken);
 
-    // [PERBAIKAN] Kirim SEMUA data yang dibutuhkan Flutter di body JSON
-    res.json({
+    // **Tambahan dari program teman kamu (KIRIM JUGA di JSON)**
+    return res.json({
       message: "Login berhasil",
-      accessToken: accessToken,
-      refreshToken: refreshToken, // <-- KIRIM INI DI JSON
-      data: user.toJSON(), // <-- KIRIM INI DI JSON
+      accessToken,
+      refreshToken,
+      data: user.toJSON()
     });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// [POST] /auth/refresh-token <-- aziz yang betulin
+// [POST] /auth/refreshtoken
+// DIMODIFIKASI: Logika verifikasi diubah total
 exports.refreshToken = async (req, res) => {
-  // [PERBAIKAN] Ganti cara Anda mendapatkan token
-  // const token = req.cookies.refreshToken; // <-- HAPUS INI
-  const { token } = req.body; // <-- BACA DARI BODY JSON
+  // **Tambahan dari teman kamu → refresh token diterima dari JSON juga**
+  const token = req.cookies.refreshToken || req.body.refreshToken;
 
   if (!token) {
     return res.status(401).json({ message: "Akses ditolak. Tidak ada refresh token." });
@@ -104,24 +116,31 @@ exports.refreshToken = async (req, res) => {
     const payload = jwt.verify(token, JWT_REFRESH_SECRET);
 
     const user = await Akun.findById(payload.id);
-    if (!user) {
-      return res.status(401).json({ message: "User tidak ditemukan." });
+    if (!user) return res.status(401).json({ message: "User tidak ditemukan." });
+
+    const device = user.device.find(d => d.deviceID === payload.deviceID);
+    if (!device) {
+      return res.status(401).json({ message: "Device tidak terdaftar." });
     }
 
-    // Pengecekan tokenVersion Anda sudah sangat bagus, biarkan saja
-    if (user.tokenVersion !== payload.version) {
-      // sendRefreshToken(res, ""); // Tidak perlu kirim cookie kosong lagi
+    if (device.tokenVersion === 0 || device.tokenVersion !== payload.version) {
+      sendRefreshToken(res, "");
       return res.status(401).json({ message: "Sesi tidak valid. Silakan login kembali." });
     }
 
+    const newRandomTokenVersion = Math.floor(1000 + Math.random() * 9000);
+    device.tokenVersion = newRandomTokenVersion;
+    user.markModified("device");
+    await user.save();
+
     const newAccessToken = createAccessToken(user);
-    const newRefreshToken = createRefreshToken(user);
+    const newRefreshToken = createRefreshToken(user, device);
 
-    // [PERBAIKAN] HAPUS BARIS INI:
-    // sendRefreshToken(res, newRefreshToken);
+    // **Tetap kirim via cookie**
+    sendRefreshToken(res, newRefreshToken);
 
-    // [PERBAIKAN] Kirim kedua token baru di body JSON
-    res.json({
+    // **Tambahan dari teman kamu → kirim juga via JSON**
+    return res.json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken
     });
@@ -132,8 +151,30 @@ exports.refreshToken = async (req, res) => {
 };
 
 // [POST] /auth/logout
+// DIMODIFIKASI: Mengatur tokenVersion device menjadi 0
 exports.logout = async (req, res) => {
   try {
+    // [PERBAIKAN] Baca dari kedua sumber, sama seperti refreshToken
+    const token = req.cookies.refreshToken || req.body.refreshToken;
+
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_REFRESH_SECRET);
+        const user = await Akun.findById(payload.id);
+        if (user) {
+          const device = user.device.find(d => d.deviceID === payload.deviceID);
+          if (device) {
+            device.tokenVersion = 0;
+            user.markModified('device');
+            await user.save();
+          }
+        }
+      } catch (err) {
+        // Token tidak valid atau kedaluwarsa, abaikan
+      }
+    }
+
+    // [PERBAIKAN] Hapus cookie (untuk klien web)
     res.cookie("refreshToken", "", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -142,22 +183,35 @@ exports.logout = async (req, res) => {
       expires: new Date(0),
     });
 
+    // [PERBAIKAN] Kirim respons JSON (untuk semua klien)
     res.json({ message: "Logout berhasil" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// [POST] /auth/logout-all
+// [POST] /auth/logoutall
+// DIMODIFIKASI: Mengatur SEMUA tokenVersion device menjadi 0
 exports.logoutAllDevices = async (req, res) => {
   try {
-    const userId = req.user.id;
-    await Akun.findByIdAndUpdate(userId, { $inc: { tokenVersion: 1 } });
+    const userId = req.user.id; // Ini didapat dari Access Token, jadi aman
+    const user = await Akun.findById(userId);
 
+    if (user && user.device) {
+      user.device.forEach(device => {
+        device.tokenVersion = 0;
+      });
+      user.markModified('device');
+      await user.save();
+    }
+
+    // [PERBAIKAN] Tetap hapus cookie, untuk klien web
     res.cookie("refreshToken", "", {
       httpOnly: true,
-      expires: new Date(0),
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
       path: "/api/akun/auth",
+      expires: new Date(0),
     });
 
     res.json({ message: "Berhasil logout dari semua perangkat." });
@@ -166,9 +220,7 @@ exports.logoutAllDevices = async (req, res) => {
   }
 };
 
-// ======== Controller Profil Pengguna ========
-
-// [GET] /auth/profile
+// [GET] /auth/akun
 exports.getProfile = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -180,21 +232,21 @@ exports.getProfile = async (req, res) => {
   }
 };
 
-// [PUT] /auth/profile
+// [PUT] /auth/akun
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.user?.id;
     const updates = req.body;
-    const updated = await Akun.findByIdAndUpdate(userId, updates, {
-      new: true,
-    });
+    // Mencegah 'device' diupdate manual lewat endpoint ini
+    if (updates.device) delete updates.device;
+    const updated = await Akun.findByIdAndUpdate(userId, updates, { new: true });
     res.json({ message: "Akun diperbarui", data: updated });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// [DELETE] /auth/delete
+// [DELETE] /auth/akun
 exports.deleteProfile = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -205,10 +257,28 @@ exports.deleteProfile = async (req, res) => {
   }
 };
 
-// ======== Controller Manajemen Device ========
+// ======== Controller Khusus Admin ========
+// [GET] /admin/all
+exports.getAllAkun = async (req, res) => {
+  try {
+    // Ambil semua akun dari database
+    // Gunakan .select('-password') untuk alasan keamanan,
+    // agar password hash tidak ikut terkirim
+    const users = await Akun.find({}).select("-password");
 
-// [GET] /devices
-exports.getDevices = async (req, res) => {
+    res.json({
+      message: "Berhasil mengambil semua akun",
+      total: users.length,
+      data: users
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ======== Controller Manajemen Device ========
+// [GET] /device
+exports.getDevice = async (req, res) => {
   try {
     const user = await Akun.findById(req.user.id);
     res.json(user.device);
@@ -217,31 +287,34 @@ exports.getDevices = async (req, res) => {
   }
 };
 
-// [GET] /devices/check/:deviceId
+// [GET] /device/check/:deviceId
 exports.checkDevice = async (req, res) => {
   try {
     const { deviceId } = req.params;
     const user = await Akun.findById(req.user.id);
-    const device = user.device.find((d) => d.deviceID === deviceId);
-    if (!device)
-      return res.status(404).json({ message: "Device tidak ditemukan" });
+    const device = user.device.find(d => d.deviceID === deviceId);
+    if (!device) return res.status(404).json({ message: "Device tidak ditemukan" });
     res.json(device);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// [POST] /devices/add
+// [POST] /device/add
 exports.addDevice = async (req, res) => {
   try {
     const { deviceID, type } = req.body;
     const user = await Akun.findById(req.user.id);
 
     if (user.device.length >= user.maxDevice)
-      return res
-        .status(400)
-        .json({ message: "Jumlah device maksimal sudah tercapai" });
+      return res.status(400).json({ message: "Jumlah device maksimal sudah tercapai" });
 
+    // Cek jika deviceID sudah ada
+    if (user.device.some(d => d.deviceID === deviceID)) {
+      return res.status(400).json({ message: "DeviceID sudah terdaftar." });
+    }
+
+    // Menambahkan device baru (tokenVersion akan default 0)
     user.device.push({ deviceID, type });
     user.deviceHistory.push({ deviceID, type, action: "added" });
 
@@ -257,10 +330,9 @@ exports.promoteDevice = async (req, res) => {
   try {
     const { deviceID } = req.body;
     const user = await Akun.findById(req.user.id);
-    const device = user.device.find((d) => d.deviceID === deviceID);
+    const device = user.device.find(d => d.deviceID === deviceID);
 
-    if (!device)
-      return res.status(404).json({ message: "Device tidak ditemukan" });
+    if (!device) return res.status(404).json({ message: "Device tidak ditemukan" });
     device.type = "primary";
     user.deviceHistory.push({ deviceID, type: "primary", action: "promoted" });
 
@@ -276,10 +348,9 @@ exports.demoteDevice = async (req, res) => {
   try {
     const { deviceID } = req.body;
     const user = await Akun.findById(req.user.id);
-    const device = user.device.find((d) => d.deviceID === deviceID);
+    const device = user.device.find(d => d.deviceID === deviceID);
 
-    if (!device)
-      return res.status(404).json({ message: "Device tidak ditemukan" });
+    if (!device) return res.status(404).json({ message: "Device tidak ditemukan" });
     device.type = "secondary";
     user.deviceHistory.push({ deviceID, type: "secondary", action: "demoted" });
 
@@ -295,8 +366,14 @@ exports.removeDevice = async (req, res) => {
   try {
     const { deviceID } = req.body;
     const user = await Akun.findById(req.user.id);
-    user.device = user.device.filter((d) => d.deviceID !== deviceID);
-    user.deviceHistory.push({ deviceID, type: "secondary", action: "removed" });
+    const device = user.device.find(d => d.deviceID === deviceID);
+    if (!device) return res.status(404).json({ message: "Device tidak ditemukan" });
+
+    // Ambil tipe device sebelum dihapus untuk history
+    const deviceType = device.type || "secondary";
+
+    user.device = user.device.filter(d => d.deviceID !== deviceID);
+    user.deviceHistory.push({ deviceID, type: deviceType, action: "removed" });
     await user.save();
     res.json({ message: "Device berhasil dihapus" });
   } catch (err) {
@@ -305,8 +382,9 @@ exports.removeDevice = async (req, res) => {
 };
 
 // ======== Controller Riwayat Device ========
+// (Tidak ada perubahan di bagian ini)
 
-// [GET] /device-history
+// [GET] /devicehistory
 exports.getDeviceHistory = async (req, res) => {
   try {
     const user = await Akun.findById(req.user.id);
@@ -316,7 +394,7 @@ exports.getDeviceHistory = async (req, res) => {
   }
 };
 
-// [POST] /device-history
+// [POST] /devicehistory
 exports.addDeviceHistory = async (req, res) => {
   try {
     const { deviceID, type, action } = req.body;
@@ -329,10 +407,10 @@ exports.addDeviceHistory = async (req, res) => {
   }
 };
 
-// [DELETE] /device-history/:id
+// [DELETE] /devicehistory/:id
 exports.deleteDeviceHistory = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params; // Asumsi 'id' adalah index, ini kurang ideal
     const user = await Akun.findById(req.user.id);
     user.deviceHistory.splice(id, 1);
     await user.save();

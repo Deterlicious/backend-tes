@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
-// Skema Sub-dokumen: Device
+// Device Schema
 const deviceSchema = new mongoose.Schema({
   deviceID: {
     type: String,
@@ -12,9 +12,13 @@ const deviceSchema = new mongoose.Schema({
     enum: ["primary", "secondary"],
     required: true,
   },
+  tokenVersion: {
+    type: Number,
+    default: 0,
+  },
 }, { _id: false });
 
-// Skema Sub-dokumen: Riwayat Device
+// Device History Schema
 const deviceHistorySchema = new mongoose.Schema({
   deviceID: {
     type: String,
@@ -36,7 +40,7 @@ const deviceHistorySchema = new mongoose.Schema({
   },
 }, { _id: false });
 
-// Skema Utama: Akun
+// Akun Schema
 const akunSchema = new mongoose.Schema({
   username: {
     type: String,
@@ -55,11 +59,6 @@ const akunSchema = new mongoose.Schema({
     type: String,
     enum: ["client", "admin"],
     default: "client",
-  },
-  tokenVersion: {
-    type: Number,
-    required: true,
-    default: 0,
   },
   device: [deviceSchema],
   maxPrimaryDevice: {
@@ -82,7 +81,6 @@ const akunSchema = new mongoose.Schema({
   },
 });
 
-// Hook Middleware (pre-save): Hash password
 akunSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
   try {
@@ -94,7 +92,6 @@ akunSchema.pre("save", async function (next) {
   }
 });
 
-// Method Instance: Verifikasi password
 akunSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };

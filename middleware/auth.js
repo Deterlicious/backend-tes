@@ -1,10 +1,8 @@
-// middleware/auth.js
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
 
 const JWT_SECRET = process.env.JWT_SECRET || "secret_key";
 
-// Middleware: Verifikasi Access Token (JWT)
 module.exports = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
