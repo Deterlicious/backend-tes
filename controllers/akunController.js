@@ -153,7 +153,7 @@ exports.login = async (req, res) => {
 // [POST] /auth/refreshtoken
 // DIMODIFIKASI: Logika verifikasi diubah total
 exports.refreshToken = async (req, res) => {
-  // **Tambahan dari teman kamu → refresh token diterima dari JSON juga**
+  // *Tambahan dari teman kamu → refresh token diterima dari JSON juga*
   const token = req.cookies.refreshToken || req.body.refreshToken;
 
   if (!token) {
@@ -184,10 +184,10 @@ exports.refreshToken = async (req, res) => {
     const newAccessToken = createAccessToken(user);
     const newRefreshToken = createRefreshToken(user, device);
 
-    // **Tetap kirim via cookie**
+    // *Tetap kirim via cookie*
     sendRefreshToken(res, newRefreshToken);
 
-    // **Tambahan dari teman kamu → kirim juga via JSON**
+    // *Tambahan dari teman kamu → kirim juga via JSON*
     return res.json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken
