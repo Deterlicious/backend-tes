@@ -10,7 +10,6 @@ const penggunaSchema = new mongoose.Schema({
     type: String,
     unique: true,
     required: true,
-    minlength: [6, "PIN minimal 6 karakter"],
   },
   roleID: {
     type: mongoose.Schema.Types.ObjectId,
@@ -29,7 +28,7 @@ const penggunaSchema = new mongoose.Schema({
   posisiID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Posisi",
-    required: false,
+    default: null,
   },
   tenantID: {
     type: mongoose.Schema.Types.ObjectId,
@@ -49,9 +48,6 @@ const penggunaSchema = new mongoose.Schema({
 
 penggunaSchema.pre("save", async function (next) {
   if (!this.isModified("pin")) return next();
-  if (this.pin.length < 6) {
-    return next(new Error("PIN minimal 6 karakter"));
-  }
   try {
     const salt = await bcrypt.genSalt(10);
     this.pin = await bcrypt.hash(this.pin, salt);

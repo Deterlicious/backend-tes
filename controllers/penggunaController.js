@@ -77,9 +77,12 @@ exports.loginPin = async (req, res) => {
       roleID: pengguna.roleID,
     }).populate("permissionID", "nama");
     const permissions = rolePermissions.map((rp) => rp.permissionID.nama);
+
+    // Generate 4 digit random number for tokenVersion
     const newRandomTokenVersion = Math.floor(1000 + Math.random() * 9000);
     pengguna.tokenVersion = newRandomTokenVersion;
     await pengguna.save();
+
     const accessToken = createPenggunaAccessToken(
       pengguna,
       newRandomTokenVersion,
@@ -97,6 +100,7 @@ exports.loginPin = async (req, res) => {
       accessToken,
       refreshToken,
       data: {
+        id: pengguna._id,
         nama: pengguna.nama,
         roleID: pengguna.roleID,
         permissions,
@@ -128,13 +132,16 @@ exports.refreshTokenPin = async (req, res) => {
         .json({ message: "Sesi tidak valid. Silakan login kembali." });
     }
 
+    // Rotate tokenVersion on refresh
     const newRandomTokenVersion = Math.floor(1000 + Math.random() * 9000);
     pengguna.tokenVersion = newRandomTokenVersion;
     await pengguna.save();
+
     const rolePermissions = await RolePermission.find({
       roleID: pengguna.roleID,
     }).populate("permissionID", "nama");
     const permissions = rolePermissions.map((rp) => rp.permissionID.nama);
+
     const newAccessToken = createPenggunaAccessToken(
       pengguna,
       newRandomTokenVersion,
@@ -161,6 +168,7 @@ exports.refreshTokenPin = async (req, res) => {
 exports.logoutPin = async (req, res) => {
   try {
     const penggunaId = req.pengguna.id;
+    // Set tokenVersion to 0 on logout
     await Pengguna.findByIdAndUpdate(penggunaId, { tokenVersion: 0 });
 
     sendPenggunaRefreshTokenCookie(res, "");
@@ -193,6 +201,7 @@ exports.createPengguna = async (req, res) => {
       posisiID,
       tenantID,
       fotoKaryawan,
+      tokenVersion: 0 // Default 0
     });
     await newPengguna.save();
     res
