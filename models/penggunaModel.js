@@ -12,9 +12,9 @@ const penggunaSchema = new mongoose.Schema({
     required: true,
     minlength: [6, "PIN minimal 6 karakter"],
   },
-  role: {
-    type: String,
-    enum: ["owner", "admin", "staff"],
+  roleID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Role",
     required: true,
   },
   status: {
@@ -22,7 +22,7 @@ const penggunaSchema = new mongoose.Schema({
     enum: ["aktif", "non-aktif"],
     default: "aktif",
   },
-  nomorHP: {
+  nomorHp: {
     type: String,
     default: null,
   },
@@ -40,17 +40,18 @@ const penggunaSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  tokenVersion: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
 });
 
-// Hash pin sebelum disimpan
 penggunaSchema.pre("save", async function (next) {
   if (!this.isModified("pin")) return next();
-
-  // Cek panjang PIN minimal 6
   if (this.pin.length < 6) {
     return next(new Error("PIN minimal 6 karakter"));
   }
-
   try {
     const salt = await bcrypt.genSalt(10);
     this.pin = await bcrypt.hash(this.pin, salt);
@@ -60,7 +61,6 @@ penggunaSchema.pre("save", async function (next) {
   }
 });
 
-// 🔍 Verifikasi pin
 penggunaSchema.methods.comparePin = async function (candidatePin) {
   return await bcrypt.compare(candidatePin, this.pin);
 };
