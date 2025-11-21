@@ -2,12 +2,12 @@ require("dotenv").config();
 const Pengguna = require("../models/penggunaModel");
 const RolePermission = require("../models/rolePermissionModel");
 const Permission = require("../models/permissionModel");
+const Role = require("../models/roleModel");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
 const PENGGUNA_JWT_SECRET = process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
-const PENGGUNA_JWT_REFRESH_SECRET =
-  process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
+const PENGGUNA_JWT_REFRESH_SECRET = process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
 
 const createPenggunaAccessToken = (pengguna, tokenVersion, permissions) => {
   return jwt.sign(
@@ -77,9 +77,11 @@ exports.loginPin = async (req, res) => {
       roleID: pengguna.roleID,
     }).populate("permissionID", "nama");
     const permissions = rolePermissions.map((rp) => rp.permissionID.nama);
+
     const newRandomTokenVersion = Math.floor(1000 + Math.random() * 9000);
     pengguna.tokenVersion = newRandomTokenVersion;
     await pengguna.save();
+
     const accessToken = createPenggunaAccessToken(
       pengguna,
       newRandomTokenVersion,
@@ -97,6 +99,7 @@ exports.loginPin = async (req, res) => {
       accessToken,
       refreshToken,
       data: {
+        id: pengguna._id,
         nama: pengguna.nama,
         roleID: pengguna.roleID,
         permissions,
@@ -131,10 +134,12 @@ exports.refreshTokenPin = async (req, res) => {
     const newRandomTokenVersion = Math.floor(1000 + Math.random() * 9000);
     pengguna.tokenVersion = newRandomTokenVersion;
     await pengguna.save();
+
     const rolePermissions = await RolePermission.find({
       roleID: pengguna.roleID,
     }).populate("permissionID", "nama");
     const permissions = rolePermissions.map((rp) => rp.permissionID.nama);
+
     const newAccessToken = createPenggunaAccessToken(
       pengguna,
       newRandomTokenVersion,
@@ -162,9 +167,7 @@ exports.logoutPin = async (req, res) => {
   try {
     const penggunaId = req.pengguna.id;
     await Pengguna.findByIdAndUpdate(penggunaId, { tokenVersion: 0 });
-
     sendPenggunaRefreshTokenCookie(res, "");
-
     res.json({ message: "Logout berhasil" });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -173,18 +176,7 @@ exports.logoutPin = async (req, res) => {
 
 exports.createPengguna = async (req, res) => {
   try {
-    const { nama, pin, roleID, status, nomorHp, posisiID, tenantID, fotoKaryawan } =
-      req.body;
-    if (!nama || !pin || !roleID || !tenantID) {
-      return res
-        .status(400)
-        .json({ message: "nama, pin, roleID, dan tenantID wajib diisi" });
-    }
-    const existingPin = await Pengguna.findOne({ pin });
-    if (existingPin) {
-      return res.status(400).json({ message: "PIN sudah digunakan" });
-    }
-    const newPengguna = new Pengguna({
+    const {
       nama,
       pin,
       roleID,
@@ -193,11 +185,94 @@ exports.createPengguna = async (req, res) => {
       posisiID,
       tenantID,
       fotoKaryawan,
+    } = req.body;
+
+    if (!nama || !pin || !tenantID) {
+      return res
+        .status(400)
+        .json({ message: "nama, pin, dan tenantID wajib diisi" });
+    }
+
+    const existingPin = await Pengguna.findOne({ pin });
+    if (existingPin) {
+      return res.status(400).json({ message: "PIN sudah digunakan" });
+    }
+
+    const userCount = await Pengguna.countDocuments({ tenantID });
+    let finalRoleID = roleID;
+
+    if (userCount > 0 && !req.pengguna) {
+      return res.status(403).json({
+        message:
+          "Tenant ini sudah memiliki Owner. Silakan login untuk menambah karyawan.",
+      });
+    }
+
+    if (userCount === 0) {
+      let ownerRole = await Role.findOne({ tenantID, namaRole: "Owner" });
+      if (!ownerRole) {
+        ownerRole = new Role({
+          tenantID,
+          namaRole: "Owner",
+          deskripsi: "Hak akses penuh (Super Admin)",
+        });
+        await ownerRole.save();
+      }
+
+      const allPermissions = await Permission.find({});
+      if (allPermissions.length === 0) {
+        console.warn(
+          "PERINGATAN: Tabel Permission kosong! Owner tidak akan punya akses."
+        );
+      }
+
+      await RolePermission.deleteMany({ roleID: ownerRole._id });
+
+      const permissionInserts = allPermissions.map((perm) => ({
+        tenantID,
+        roleID: ownerRole._id,
+        permissionID: perm._id,
+      }));
+
+      if (permissionInserts.length > 0) {
+        await RolePermission.insertMany(permissionInserts);
+      }
+
+      finalRoleID = ownerRole._id;
+    } else {
+      if (!roleID) {
+        return res
+          .status(400)
+          .json({ message: "roleID wajib diisi untuk penambahan karyawan" });
+      }
+    }
+
+    const newPengguna = new Pengguna({
+      nama,
+      pin,
+      roleID: finalRoleID,
+      status: status || "aktif",
+      nomorHp,
+      posisiID,
+      tenantID,
+      fotoKaryawan,
+      tokenVersion: 0,
     });
+
     await newPengguna.save();
-    res
-      .status(201)
-      .json({ message: "Pengguna berhasil dibuat", data: newPengguna });
+
+    res.status(201).json({
+      message:
+        userCount === 0
+          ? "Owner berhasil dibuat dengan akses penuh"
+          : "Pengguna berhasil dibuat",
+      data: {
+        id: newPengguna._id,
+        nama: newPengguna.nama,
+        roleID: newPengguna.roleID,
+        tenantID: newPengguna.tenantID,
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -256,6 +331,25 @@ exports.deletePengguna = async (req, res) => {
     if (!pengguna)
       return res.status(404).json({ message: "Pengguna tidak ditemukan" });
     res.json({ message: "Pengguna berhasil dihapus" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.getPenggunaForLoginScreen = async (req, res) => {
+  try {
+    const { tenantID } = req.params;
+
+    if (!tenantID) {
+      return res.status(400).json({ message: "Tenant ID diperlukan" });
+    }
+
+    const pengguna = await Pengguna.find({ tenantID, status: "aktif" })
+      .select("nama fotoKaryawan roleID posisiID")
+      .populate("roleID", "namaRole")
+      .populate("posisiID", "namaPosisi");
+
+    res.json(pengguna);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

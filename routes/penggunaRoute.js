@@ -9,6 +9,10 @@ router.post("/pin-login", penggunaController.loginPin);
 
 router.post("/pin-refresh", penggunaController.refreshTokenPin);
 
+router.get("/login-list/:tenantID", penggunaController.getPenggunaForLoginScreen);
+
+router.post("/register-owner", penggunaController.createPengguna);
+
 router.post("/pin-logout", authPengguna, penggunaController.logoutPin);
 
 router.post(
