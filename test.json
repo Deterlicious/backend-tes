@@ -1,0 +1,463 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+		"name": "Sistem Auth & Multi-Tenant (Automated)",
+		"description": "Koleksi pengujian otomatis untuk alur Owner, Karyawan, dan Permission baru.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Buat Tenant Baru",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"if (jsonData._id) {",
+							"    pm.collectionVariables.set(\"tenant_id\", jsonData._id);",
+							"    console.log(\"Tenant ID saved: \" + jsonData._id);",
+							"} else if (jsonData.data && jsonData.data._id) {",
+							"    pm.collectionVariables.set(\"tenant_id\", jsonData.data._id);",
+							"}",
+							"pm.test(\"Status code is 201\", function () {",
+							"    pm.response.to.have.status(201);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"namaToko\": \"Toko Maju Jaya\",\n    \"alamat\": \"Jl. Merdeka No 45\",\n    \"kontak\": \"081299998888\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/tenant",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"tenant"
+					]
+				}
+			}
+		},
+		{
+			"name": "2. Register Owner (Pengguna Pertama)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201\", function () {",
+							"    pm.response.to.have.status(201);",
+							"});",
+							"",
+							"var jsonData = pm.response.json();",
+							"pm.test(\"Message confirm Owner creation\", function () {",
+							"    pm.expect(jsonData.message).to.include(\"Owner berhasil dibuat\");",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nama\": \"Pak Budi (Owner)\",\n    \"pin\": \"123123\",\n    \"tenantID\": \"{{tenant_id}}\",\n    \"status\": \"aktif\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/pengguna/register-owner",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"pengguna",
+						"register-owner"
+					]
+				}
+			}
+		},
+		{
+			"name": "3. Login Owner (Get Token)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"",
+							"if (jsonData.accessToken) {",
+							"    pm.collectionVariables.set(\"owner_token\", jsonData.accessToken);",
+							"    console.log(\"Owner Token saved\");",
+							"}",
+							"",
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"pin\": \"123123\",\n    \"tenantID\": \"{{tenant_id}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/pengguna/pin-login",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"pengguna",
+						"pin-login"
+					]
+				}
+			}
+		},
+		{
+			"name": "4. Get All Permissions (Auto Find ID)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"",
+							"// Cari permission dengan nama 'akses-pos' (Fitur Kasir)",
+							"var targetPerm = jsonData.find(p => p.nama === \"akses-pos\");",
+							"",
+							"if (targetPerm) {",
+							"    pm.collectionVariables.set(\"pos_permission_id\", targetPerm._id);",
+							"    console.log(\"Permission ID for 'akses-pos' saved: \" + targetPerm._id);",
+							"} else {",
+							"    console.log(\"Permission akses-pos tidak ditemukan. Pastikan sudah seeding!\");",
+							"}",
+							"",
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/permissions",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"permissions"
+					]
+				}
+			}
+		},
+		{
+			"name": "5. Buat Role 'Kasir'",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"",
+							"if (jsonData._id) {",
+							"    pm.collectionVariables.set(\"kasir_role_id\", jsonData._id);",
+							"}",
+							"",
+							"pm.test(\"Status code is 201\", function () {",
+							"    pm.response.to.have.status(201);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{owner_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"tenantID\": \"{{tenant_id}}\",\n    \"namaRole\": \"Kasir\",\n    \"deskripsi\": \"Khusus melayani pembayaran\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/roles",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"roles"
+					]
+				}
+			}
+		},
+		{
+			"name": "6. Assign Permission 'akses-pos' ke Role Kasir",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201\", function () {",
+							"    pm.response.to.have.status(201);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{owner_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"tenantID\": \"{{tenant_id}}\",\n    \"roleID\": \"{{kasir_role_id}}\",\n    \"permissionID\": \"{{pos_permission_id}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/rolepermissions",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"rolepermissions"
+					]
+				}
+			}
+		},
+		{
+			"name": "7. Buat Karyawan (Siti)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201\", function () {",
+							"    pm.response.to.have.status(201);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{owner_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nama\": \"Siti (Kasir)\",\n    \"pin\": \"112233\",\n    \"tenantID\": \"{{tenant_id}}\",\n    \"roleID\": \"{{kasir_role_id}}\",\n    \"status\": \"aktif\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/pengguna",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"pengguna"
+					]
+				}
+			}
+		},
+		{
+			"name": "8. Login Karyawan (Cek Hak Akses)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"",
+							"pm.test(\"Login Berhasil\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Permissions contains 'akses-pos'\", function () {",
+							"    // Cek apakah array permissions mengandung string 'akses-pos'",
+							"    var permissions = jsonData.data.permissions;",
+							"    pm.expect(permissions).to.include(\"akses-pos\");",
+							"});",
+							"",
+							"pm.test(\"Permissions DOES NOT contain 'kelola-staff'\", function () {",
+							"    // Cek bahwa Kasir TIDAK BISA akses kelola staff",
+							"    var permissions = jsonData.data.permissions;",
+							"    pm.expect(permissions).to.not.include(\"kelola-staff\");",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"pin\": \"112233\",\n    \"tenantID\": \"{{tenant_id}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/pengguna/pin-login",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"pengguna",
+						"pin-login"
+					]
+				}
+			}
+		},
+		{
+			"name": "9. Cek Login List (Public)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/pengguna/login-list/{{tenant_id}}",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"pengguna",
+						"login-list",
+						"{{tenant_id}}"
+					]
+				}
+			}
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:4000",
+			"type": "string"
+		},
+		{
+			"key": "tenant_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "owner_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "kasir_role_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "pos_permission_id",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
