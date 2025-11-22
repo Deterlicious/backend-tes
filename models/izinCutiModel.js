@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const izinCutiSchema = new mongoose.Schema(
   {
+    penggunaID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Pengguna",
+      required: true,
+    },
     tanggalMulai: {
       type: Date,
       required: true,
@@ -24,13 +29,9 @@ const izinCutiSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    pengaju: {
-      type: String, // nama pengguna yang mengajukan cuti
-      required: true,
-    },
     dicatatOleh: {
-      type: String, // nama pengguna yang menyetujui / mencatat cuti
-      required: false,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Pengguna",
       default: null,
     },
     tenantID: {

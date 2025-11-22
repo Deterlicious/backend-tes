@@ -22,7 +22,7 @@ const absensiSchema = new mongoose.Schema({
     required: true,
   },
   durasiKerja: {
-    type: Number, // dalam jam atau menit (bisa dihitung otomatis di controller)
+    type: Number,
     default: 0,
   },
   keterangan: {
@@ -41,11 +41,10 @@ const absensiSchema = new mongoose.Schema({
   },
 });
 
-// 🧮 Hitung durasi kerja otomatis sebelum save
 absensiSchema.pre("save", function (next) {
   if (this.waktuMasuk && this.waktuPulang) {
     const durasiMs = this.waktuPulang - this.waktuMasuk;
-    this.durasiKerja = Math.round(durasiMs / (1000 * 60 * 60)); // jam
+    this.durasiKerja = Math.round(durasiMs / (1000 * 60 * 60));
   }
   next();
 });
