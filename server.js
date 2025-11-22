@@ -34,6 +34,9 @@ const izinCutiRoute = require("./routes/izinCutiRoute");
 const akunKasRoute = require("./routes/akunKasRoute");
 const pembelianStokRoute = require("./routes/pembelianStokRoute");
 const penjualanRoute = require("./routes/penjualanRoute");
+const pelangganRoute = require('./routes/pelangganRoute');
+const membershipRoute = require('./routes/membershipRoute');
+const paketMembershipRoute = require('./routes/paketMembershipRoute');
 
 // Routes
 app.use('/api/produk', produkRoutes);
@@ -51,6 +54,9 @@ app.use("/api/izincuti", izinCutiRoute);
 app.use("/api/akunkas", akunKasRoute);
 app.use("/api/pembelianstok", pembelianStokRoute);
 app.use("/api/penjualan", penjualanRoute);
+app.use('/api/pelanggan', pelangganRoute);
+app.use('/api/membership', membershipRoute);
+app.use('/api/paketmembership', paketMembershipRoute);
 
 // Server
 app.listen(4000, "127.0.0.1", () => {
