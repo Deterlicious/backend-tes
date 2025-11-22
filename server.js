@@ -37,6 +37,8 @@ const penjualanRoute = require("./routes/penjualanRoute");
 const pelangganRoute = require('./routes/pelangganRoute');
 const membershipRoute = require('./routes/membershipRoute');
 const paketMembershipRoute = require('./routes/paketMembershipRoute');
+const pembayaranRoute = require('./routes/pembayaranRoute');
+const diskonRoute = require('./routes/diskonRoute');
 
 // Routes
 app.use('/api/produk', produkRoutes);
@@ -57,6 +59,8 @@ app.use("/api/penjualan", penjualanRoute);
 app.use('/api/pelanggan', pelangganRoute);
 app.use('/api/membership', membershipRoute);
 app.use('/api/paketmembership', paketMembershipRoute);
+app.use('/api/pembayaran', pembayaranRoute);
+app.use('/api/diskon', diskonRoute);
 
 // Server
 app.listen(4000, "127.0.0.1", () => {
