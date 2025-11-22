@@ -14,6 +14,11 @@ const posisiSchema = new mongoose.Schema({
     ref: "Tenant",
     required: true,
   },
+  status: {
+    type: String,
+    enum: ["Aktif", "Non-Aktif"],
+    default: "Aktif",
+  },
 });
 
 module.exports = mongoose.model("Posisi", posisiSchema);
