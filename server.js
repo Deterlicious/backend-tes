@@ -43,6 +43,9 @@ const pembayaranRoute = require('./routes/pembayaranRoute');
 const diskonRoute = require('./routes/diskonRoute');
 const tarifRoute = require("./routes/tarifRoute");
 const tipeAsetRoute = require("./routes/tipeAsetRoute");
+const asetRoute = require('./routes/asetRoute');
+const sesiBookingRoute = require('./routes/sesiBookingRoute');
+
 // Routes
 app.use("/api/produk", produkRoutes);
 app.use("/api/kategori", kategoriRoutes);
@@ -67,6 +70,8 @@ app.use('/api/pembayaran', pembayaranRoute);
 app.use('/api/diskon', diskonRoute);
 app.use("/api/tarif", tarifRoute);
 app.use("/api/tipeaset", tipeAsetRoute);
+app.use('/api/aset', asetRoute);
+app.use('/api/sesibooking', sesiBookingRoute);
 
 // Server
 app.listen(4000, "127.0.0.1", () => {
