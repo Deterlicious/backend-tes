@@ -41,7 +41,8 @@ const membershipRoute = require('./routes/membershipRoute');
 const paketMembershipRoute = require('./routes/paketMembershipRoute');
 const pembayaranRoute = require('./routes/pembayaranRoute');
 const diskonRoute = require('./routes/diskonRoute');
-
+const tarifRoute = require("./routes/tarifRoute");
+const tipeAsetRoute = require("./routes/tipeAsetRoute");
 // Routes
 app.use("/api/produk", produkRoutes);
 app.use("/api/kategori", kategoriRoutes);
@@ -64,6 +65,8 @@ app.use('/api/membership', membershipRoute);
 app.use('/api/paketmembership', paketMembershipRoute);
 app.use('/api/pembayaran', pembayaranRoute);
 app.use('/api/diskon', diskonRoute);
+app.use("/api/tarif", tarifRoute);
+app.use("/api/tipeaset", tipeAsetRoute);
 
 // Server
 app.listen(4000, "127.0.0.1", () => {
