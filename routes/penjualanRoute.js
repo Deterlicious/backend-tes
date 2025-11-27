@@ -1,11 +1,18 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const penjualanController = require('../controllers/penjualanController');
+const penjualanController = require("../controllers/penjualanController"); // Sesuaikan path
 
-router.post('/', penjualanController.createPenjualan);
-router.get('/', penjualanController.getAllPenjualan);
-router.get('/:id', penjualanController.getPenjualanById);
-router.put('/:id', penjualanController.updatePenjualan);
-router.delete('/:id', penjualanController.deletePenjualan);
+// Route untuk CREATE dan READ ALL
+router
+  .route("/")
+  .post(penjualanController.createPenjualan)
+  .get(penjualanController.getAllPenjualan); // Wajib filter tenantID
+
+// Route untuk READ BY ID, UPDATE, dan DELETE
+router
+  .route("/:id")
+  .get(penjualanController.getPenjualanById)
+  .put(penjualanController.updatePenjualan)
+  .delete(penjualanController.deletePenjualan);
 
 module.exports = router;

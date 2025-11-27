@@ -1,90 +1,145 @@
-const Penjualan = require('../models/penjualanModel');
+const Penjualan = require("../models/penjualanModel");
+const mongoose = require("mongoose");
 
-// ✅ CREATE PENJUALAN
+// Fungsi bantuan untuk membuat pesan error Mongoose lebih informatif
+const handleValidationError = (err) => {
+  let errors = {};
+  if (err.name === "ValidationError") {
+    Object.keys(err.errors).forEach((key) => {
+      errors[key] = err.errors[key].message;
+    });
+    return { message: "Validasi data gagal. Cek detail error.", errors };
+  }
+  // Tangani error duplikasi (nomorFaktur)
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyValue);
+    return {
+      message: `Gagal menambahkan/memperbarui. ${field} '${err.keyValue[field]}' sudah terdaftar.`,
+    };
+  }
+  return { message: "Terjadi kesalahan pada server." };
+};
+
+// CREATE: Tambah Penjualan
 exports.createPenjualan = async (req, res) => {
   try {
-    const { tanggalPenjualan, nomorFaktur, namaPelanggan, itemPenjualan, tenantID, statusPembayaran } = req.body;
-
-    if (!tanggalPenjualan || !nomorFaktur || !itemPenjualan || !tenantID) {
-      return res.status(400).json({ message: 'Field wajib belum lengkap!' });
-    }
-
-    const penjualanBaru = new Penjualan({
-      tanggalPenjualan,
-      nomorFaktur,
-      namaPelanggan,
-      itemPenjualan,
-      tenantID,
-      statusPembayaran
+    // Note: Logika bisnis pengurangan stok produk harus ditambahkan di sini.
+    const penjualan = await Penjualan.create(req.body);
+    res.status(201).json({
+      message: "Penjualan berhasil ditambahkan",
+      data: penjualan,
     });
-
-    await penjualanBaru.save();
-    res.status(201).json({ message: 'Penjualan berhasil dibuat', data: penjualanBaru });
   } catch (error) {
-    res.status(500).json({ message: 'Gagal membuat penjualan', error: error.message });
+    const errorResponse = handleValidationError(error);
+    res.status(400).json(errorResponse);
   }
 };
 
-// ✅ GET ALL PENJUALAN
+// READ ALL (WAJIB FILTER berdasarkan tenantID)
 exports.getAllPenjualan = async (req, res) => {
   try {
-    const penjualan = await Penjualan.find()
-      .populate('itemPenjualan.produkID', 'namaProduk kodeProduk')
-      // .populate('itemPenjualan.sesiBookingID', 'kodeSesi tanggalMulai')
-      .populate('tenantID', 'namaTenant');
+    const { tenantID } = req.query;
+
+    if (!tenantID) {
+      return res.status(400).json({
+        message: "Parameter tenantID wajib disertakan di query.",
+      });
+    }
+
+    const penjualan = await Penjualan.find({ tenantID })
+      .populate("namaPelanggan", "namaPelanggan")
+      .populate("itemPenjualan.produkID", "namaProduk")
+      .populate("itemPenjualan.diskonID", "namaDiskon tipe nilai")
+      .sort({ tanggalPenjualan: -1 });
+
+    if (penjualan.length === 0) {
+      return res.status(404).json({
+        message: "Tidak ada data Penjualan untuk tenant ini.",
+      });
+    }
 
     res.status(200).json(penjualan);
   } catch (error) {
-    res.status(500).json({ message: 'Gagal mengambil data penjualan', error: error.message });
+    res.status(500).json({
+      message: "Gagal mengambil data Penjualan",
+      error: error.message,
+    });
   }
 };
 
-// ✅ GET PENJUALAN BY ID
+// READ BY ID (HANYA MENGGUNAKAN ID DARI PARAMS)
 exports.getPenjualanById = async (req, res) => {
   try {
-    const penjualan = await Penjualan.findById(req.params.id)
-      .populate('itemPenjualan.produkID', 'namaProduk kodeProduk')
-      // .populate('itemPenjualan.sesiBookingID', 'kodeSesi tanggalMulai')
-      .populate('tenantID', 'namaTenant');
+    const { id } = req.params;
 
-    if (!penjualan) return res.status(404).json({ message: 'Penjualan tidak ditemukan' });
+    const penjualan = await Penjualan.findById(id)
+      .populate("namaPelanggan", "namaPelanggan")
+      .populate("itemPenjualan.produkID", "namaProduk")
+      .populate("itemPenjualan.diskonID", "namaDiskon tipe nilai");
+
+    if (!penjualan) {
+      return res.status(404).json({ message: "Penjualan tidak ditemukan." });
+    }
     res.status(200).json(penjualan);
   } catch (error) {
-    res.status(500).json({ message: 'Gagal mengambil penjualan', error: error.message });
+    if (error.name === "CastError") {
+      return res
+        .status(400)
+        .json({ message: "Format ID tidak valid.", error: error.message });
+    }
+    res
+      .status(500)
+      .json({
+        message: "Gagal mengambil data Penjualan",
+        error: error.message,
+      });
   }
 };
 
-// ✅ UPDATE PENJUALAN
+// UPDATE (HANYA MENGGUNAKAN ID DARI PARAMS)
 exports.updatePenjualan = async (req, res) => {
   try {
-    const { tanggalPenjualan, namaPelanggan, itemPenjualan, statusPembayaran, sisaTagihan } = req.body;
+    const { id } = req.params;
 
-    const updateData = {
-      tanggalPenjualan,
-      namaPelanggan,
-      itemPenjualan,
-      statusPembayaran,
-      sisaTagihan
-    };
+    // Hapus field yang tidak boleh diupdate
+    const updateData = { ...req.body };
+    delete updateData._id;
+    delete updateData.tenantID;
 
-    const penjualan = await Penjualan.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
+    const penjualan = await Penjualan.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    });
 
-    if (!penjualan) return res.status(404).json({ message: 'Penjualan tidak ditemukan' });
+    if (!penjualan) {
+      return res.status(404).json({ message: "Penjualan tidak ditemukan" });
+    }
 
-    res.status(200).json({ message: 'Penjualan berhasil diperbarui', data: penjualan });
+    res.status(200).json({
+      message: "Penjualan berhasil diperbarui",
+      data: penjualan,
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Gagal memperbarui penjualan', error: error.message });
+    const errorResponse = handleValidationError(error);
+    res.status(400).json(errorResponse);
   }
 };
 
-// ✅ DELETE PENJUALAN
+// DELETE (HANYA MENGGUNAKAN ID DARI PARAMS)
 exports.deletePenjualan = async (req, res) => {
   try {
-    const penjualan = await Penjualan.findByIdAndDelete(req.params.id);
-    if (!penjualan) return res.status(404).json({ message: 'Penjualan tidak ditemukan' });
+    const { id } = req.params;
 
-    res.status(200).json({ message: 'Penjualan berhasil dihapus' });
+    const penjualan = await Penjualan.findByIdAndDelete(id);
+
+    if (!penjualan) {
+      return res.status(404).json({ message: "Penjualan tidak ditemukan" });
+    }
+
+    res.status(200).json({ message: "Penjualan berhasil dihapus" });
   } catch (error) {
-    res.status(500).json({ message: 'Gagal menghapus penjualan', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Gagal menghapus Penjualan", error: error.message });
   }
 };
