@@ -6,6 +6,8 @@ const deviceSchema = new mongoose.Schema({
   deviceID: {
     type: String,
     required: true,
+    // Indexing deviceID di dalam subdocument untuk mempercepat pencarian device saat login
+    index: true, 
   },
   type: {
     type: String,
@@ -44,12 +46,16 @@ const deviceHistorySchema = new mongoose.Schema({
 const akunSchema = new mongoose.Schema({
   username: {
     type: String,
+    trim: true, // Auto trim spasi
   },
   email: {
     type: String,
     required: true,
     unique: true,
     lowercase: true,
+    trim: true,
+    // Indexing email sudah otomatis karena unique: true, tapi kita pastikan
+    index: true, 
   },
   password: {
     type: String,
@@ -59,6 +65,7 @@ const akunSchema = new mongoose.Schema({
     type: String,
     enum: ["client", "admin"],
     default: "client",
+    index: true, // Indexing role jika sering filter berdasarkan role
   },
   device: [deviceSchema],
   maxPrimaryDevice: {
@@ -78,8 +85,12 @@ const akunSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Tenant",
     required: false,
+    index: true, // Indexing foreign key
   },
 });
+
+// Compound Index: Contoh jika sering mencari user berdasarkan tenant dan role
+akunSchema.index({ tenantID: 1, role: 1 });
 
 akunSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();

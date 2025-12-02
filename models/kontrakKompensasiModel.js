@@ -6,11 +6,13 @@ const kontrakKompensasiSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
       required: true,
+      index: true, // Wajib index
     },
     penggunaID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pengguna",
       required: true,
+      index: true, // Wajib index (History gaji user)
     },
     tipeGaji: {
       type: String,
@@ -20,6 +22,7 @@ const kontrakKompensasiSchema = new mongoose.Schema(
     tarifGaji: {
       type: Number,
       required: true,
+      min: 0, // Validasi level Schema
     },
     tanggalMulai: {
       type: Date,
@@ -33,9 +36,14 @@ const kontrakKompensasiSchema = new mongoose.Schema(
       type: String,
       enum: ["Aktif", "Berakhir"],
       default: "Aktif",
+      index: true,
     },
   },
   { timestamps: true }
 );
+
+// == Compound Indexes ==
+// Optimasi Query: "Cari semua kontrak AKTIF di tenant X"
+kontrakKompensasiSchema.index({ tenantID: 1, status: 1 });
 
 module.exports = mongoose.model("KontrakKompensasi", kontrakKompensasiSchema);

@@ -5,6 +5,7 @@ const penggunaSchema = new mongoose.Schema({
   nama: {
     type: String,
     required: true,
+    trim: true,
   },
   pin: {
     type: String,
@@ -15,25 +16,30 @@ const penggunaSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Role",
     required: true,
+    index: true, // Index untuk filtering by role
   },
   status: {
     type: String,
     enum: ["aktif", "non-aktif"],
     default: "aktif",
+    index: true, // Index status
   },
   nomorHp: {
     type: String,
     default: null,
+    trim: true,
   },
   posisiID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Posisi",
     default: null,
+    index: true,
   },
   tenantID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Tenant",
     required: true,
+    index: true, // Wajib index
   },
   fotoKaryawan: {
     type: String,
@@ -45,6 +51,10 @@ const penggunaSchema = new mongoose.Schema({
     default: 0,
   },
 });
+
+// == Compound Indexes ==
+// Optimasi Query: "Tampilkan semua karyawan AKTIF di tenant X untuk layar login"
+penggunaSchema.index({ tenantID: 1, status: 1 });
 
 penggunaSchema.pre("save", async function (next) {
   if (!this.isModified("pin")) return next();

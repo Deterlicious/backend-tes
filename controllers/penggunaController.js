@@ -4,11 +4,21 @@ const RolePermission = require("../models/rolePermissionModel");
 const Permission = require("../models/permissionModel");
 const Role = require("../models/roleModel");
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcrypt");
+const mongoose = require("mongoose");
+// Pastikan path redisClient sesuai
+const redis = require("../utils/redisClient");
 
 const PENGGUNA_JWT_SECRET = process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
 const PENGGUNA_JWT_REFRESH_SECRET = process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
 
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+// --- Helper: Cache Keys ---
+const keyPenggunaList = (tenantID) => `pengguna:tenant:${tenantID}`;
+const keyPenggunaDetail = (id) => `pengguna:detail:${id}`;
+const keyLoginScreen = (tenantID) => `pengguna:loginscreen:${tenantID}`;
+
+// --- Token Helpers ---
 const createPenggunaAccessToken = (pengguna, tokenVersion, permissions) => {
   return jwt.sign(
     {
@@ -53,35 +63,56 @@ const sendPenggunaRefreshTokenCookie = (res, token) => {
   res.cookie("penggunaRefreshToken", token, cookieOptions);
 };
 
+// ======== Auth Controllers ========
+
 exports.loginPin = async (req, res) => {
   try {
     const { pin, tenantID } = req.body;
+    
+    // 1. Validasi Input
     if (!pin || !tenantID) {
       return res.status(400).json({ message: "PIN dan tenantID wajib diisi" });
     }
+    if (!isValidObjectId(tenantID)) {
+      return res.status(400).json({ message: "Format tenantID tidak valid" });
+    }
+
+    // 2. Cari Pengguna
+    // Optimasi: Hanya ambil field yang diperlukan untuk login (pin, status, roleID, nama)
     const allPenggunaInTenant = await Pengguna.find({ tenantID });
+    
     let pengguna = null;
+    // Loop ini berat jika user banyak (karena bcrypt), tapi diperlukan karena design login hanya pakai PIN
     for (let p of allPenggunaInTenant) {
       if (await p.comparePin(pin)) {
         pengguna = p;
         break;
       }
     }
+
     if (!pengguna) {
       return res.status(400).json({ message: "PIN salah atau tidak terdaftar" });
     }
+
     if (pengguna.status !== "aktif") {
       return res.status(403).json({ message: "Akun pengguna tidak aktif" });
     }
+
+    // 3. Ambil Permissions
     const rolePermissions = await RolePermission.find({
       roleID: pengguna.roleID,
     }).populate("permissionID", "nama");
     const permissions = rolePermissions.map((rp) => rp.permissionID.nama);
 
+    // 4. Update Token Version
     const newRandomTokenVersion = Math.floor(1000 + Math.random() * 9000);
     pengguna.tokenVersion = newRandomTokenVersion;
     await pengguna.save();
 
+    // Cache Invalidation (Detail user berubah karena tokenVersion)
+    await redis.del(keyPenggunaDetail(pengguna._id));
+
+    // 5. Generate Tokens
     const accessToken = createPenggunaAccessToken(
       pengguna,
       newRandomTokenVersion,
@@ -119,6 +150,8 @@ exports.refreshTokenPin = async (req, res) => {
 
   try {
     const payload = jwt.verify(token, PENGGUNA_JWT_REFRESH_SECRET);
+    
+    // Gunakan findById langsung ke DB untuk keamanan maksimal (jangan pakai cache untuk auth check)
     const pengguna = await Pengguna.findById(payload.id);
 
     if (
@@ -134,6 +167,9 @@ exports.refreshTokenPin = async (req, res) => {
     const newRandomTokenVersion = Math.floor(1000 + Math.random() * 9000);
     pengguna.tokenVersion = newRandomTokenVersion;
     await pengguna.save();
+
+    // Invalidate Cache Detail
+    await redis.del(keyPenggunaDetail(pengguna._id));
 
     const rolePermissions = await RolePermission.find({
       roleID: pengguna.roleID,
@@ -167,12 +203,18 @@ exports.logoutPin = async (req, res) => {
   try {
     const penggunaId = req.pengguna.id;
     await Pengguna.findByIdAndUpdate(penggunaId, { tokenVersion: 0 });
+    
+    // Invalidate Cache
+    await redis.del(keyPenggunaDetail(penggunaId));
+
     sendPenggunaRefreshTokenCookie(res, "");
     res.json({ message: "Logout berhasil" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
+
+// ======== CRUD Controllers ========
 
 exports.createPengguna = async (req, res) => {
   try {
@@ -187,28 +229,38 @@ exports.createPengguna = async (req, res) => {
       fotoKaryawan,
     } = req.body;
 
+    // 1. Validasi Input Wajib
     if (!nama || !pin || !tenantID) {
-      return res
-        .status(400)
-        .json({ message: "nama, pin, dan tenantID wajib diisi" });
+      return res.status(400).json({ message: "nama, pin, dan tenantID wajib diisi" });
+    }
+    if (pin.length < 6) {
+        return res.status(400).json({ message: "PIN minimal 6 karakter" });
+    }
+    if (!isValidObjectId(tenantID)) {
+        return res.status(400).json({ message: "Format tenantID tidak valid" });
+    }
+    if (roleID && !isValidObjectId(roleID)) {
+        return res.status(400).json({ message: "Format roleID tidak valid" });
     }
 
+    // 2. Cek Duplikasi PIN
     const existingPin = await Pengguna.findOne({ pin });
     if (existingPin) {
       return res.status(400).json({ message: "PIN sudah digunakan" });
     }
 
+    // 3. Logika Owner vs Karyawan
     const userCount = await Pengguna.countDocuments({ tenantID });
     let finalRoleID = roleID;
 
     if (userCount > 0 && !req.pengguna) {
       return res.status(403).json({
-        message:
-          "Tenant ini sudah memiliki Owner. Silakan login untuk menambah karyawan.",
+        message: "Tenant ini sudah memiliki Owner. Silakan login untuk menambah karyawan.",
       });
     }
 
     if (userCount === 0) {
+      // --- Logika Pembuatan Owner (User Pertama) ---
       let ownerRole = await Role.findOne({ tenantID, namaRole: "Owner" });
       if (!ownerRole) {
         ownerRole = new Role({
@@ -220,12 +272,6 @@ exports.createPengguna = async (req, res) => {
       }
 
       const allPermissions = await Permission.find({});
-      if (allPermissions.length === 0) {
-        console.warn(
-          "PERINGATAN: Tabel Permission kosong! Owner tidak akan punya akses."
-        );
-      }
-
       await RolePermission.deleteMany({ roleID: ownerRole._id });
 
       const permissionInserts = allPermissions.map((perm) => ({
@@ -240,10 +286,9 @@ exports.createPengguna = async (req, res) => {
 
       finalRoleID = ownerRole._id;
     } else {
+      // --- Logika Pembuatan Karyawan Biasa ---
       if (!roleID) {
-        return res
-          .status(400)
-          .json({ message: "roleID wajib diisi untuk penambahan karyawan" });
+        return res.status(400).json({ message: "roleID wajib diisi untuk penambahan karyawan" });
       }
     }
 
@@ -261,11 +306,12 @@ exports.createPengguna = async (req, res) => {
 
     await newPengguna.save();
 
+    // 4. Cache Invalidation
+    await redis.del(keyPenggunaList(tenantID));
+    await redis.del(keyLoginScreen(tenantID));
+
     res.status(201).json({
-      message:
-        userCount === 0
-          ? "Owner berhasil dibuat dengan akses penuh"
-          : "Pengguna berhasil dibuat",
+      message: userCount === 0 ? "Owner berhasil dibuat" : "Pengguna berhasil dibuat",
       data: {
         id: newPengguna._id,
         nama: newPengguna.nama,
@@ -280,10 +326,30 @@ exports.createPengguna = async (req, res) => {
 
 exports.getAllPengguna = async (req, res) => {
   try {
-    const pengguna = await Pengguna.find()
+    // Ambil tenantID dari user yang login (jika ada req.pengguna) atau query params
+    const tenantID = req.query.tenantID || req.pengguna?.tenantID;
+
+    if (!tenantID) {
+        // Jika super admin ingin lihat semua user, mungkin perlu logic lain, 
+        // tapi defaultnya kita batasi per tenant
+        return res.status(400).json({message: "tenantID diperlukan"});
+    }
+
+    // 1. Cek Cache
+    const cacheKey = keyPenggunaList(tenantID);
+    const cachedData = await redis.get(cacheKey);
+    if(cachedData) return res.json(JSON.parse(cachedData));
+
+    // 2. Ambil DB
+    const pengguna = await Pengguna.find({ tenantID })
       .populate("tenantID", "namaToko status")
       .populate("posisiID", "namaPosisi deskripsi")
-      .populate("roleID", "namaRole deskripsi");
+      .populate("roleID", "namaRole deskripsi")
+      .select("-pin"); // Jangan kirim hash PIN
+
+    // 3. Simpan Cache
+    await redis.setEx(cacheKey, 60, JSON.stringify(pengguna));
+
     res.json(pengguna);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -292,12 +358,27 @@ exports.getAllPengguna = async (req, res) => {
 
 exports.getPenggunaById = async (req, res) => {
   try {
-    const pengguna = await Pengguna.findById(req.params.id)
+    const { id } = req.params;
+    if(!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ID"});
+
+    // 1. Cek Cache
+    const cacheKey = keyPenggunaDetail(id);
+    const cachedData = await redis.get(cacheKey);
+    if(cachedData) return res.json(JSON.parse(cachedData));
+
+    // 2. Ambil DB
+    const pengguna = await Pengguna.findById(id)
       .populate("tenantID")
       .populate("posisiID")
-      .populate("roleID", "namaRole");
+      .populate("roleID", "namaRole")
+      .select("-pin");
+
     if (!pengguna)
-      return res.status(440).json({ message: "Pengguna tidak ditemukan" });
+      return res.status(404).json({ message: "Pengguna tidak ditemukan" });
+
+    // 3. Simpan Cache
+    await redis.setEx(cacheKey, 60, JSON.stringify(pengguna));
+
     res.json(pengguna);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -306,19 +387,50 @@ exports.getPenggunaById = async (req, res) => {
 
 exports.updatePengguna = async (req, res) => {
   try {
-    const { pin, ...otherUpdates } = req.body;
-    const pengguna = await Pengguna.findById(req.params.id);
+    const { id } = req.params;
+    if(!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ID"});
+
+    // 1. Validasi Field (Whitelisting)
+    const allowedUpdates = ["nama", "pin", "roleID", "status", "nomorHp", "posisiID", "fotoKaryawan"];
+    const updates = {};
+    
+    Object.keys(req.body).forEach(key => {
+        if(allowedUpdates.includes(key)) updates[key] = req.body[key];
+    });
+
+    if(Object.keys(updates).length === 0) {
+        return res.status(400).json({message: "Tidak ada data valid untuk diupdate"});
+    }
+
+    // 2. Handle PIN Update Logic
+    // Kita harus fetch document dulu agar pre-save hook jalan untuk hashing PIN
+    const pengguna = await Pengguna.findById(id);
     if (!pengguna) {
       return res.status(404).json({ message: "Pengguna tidak ditemukan" });
     }
-    Object.assign(pengguna, otherUpdates);
-    if (pin) {
-      if (pin.length < 6) {
+
+    // Terapkan updates manual
+    if (updates.nama) pengguna.nama = updates.nama;
+    if (updates.roleID) pengguna.roleID = updates.roleID;
+    if (updates.status) pengguna.status = updates.status;
+    if (updates.nomorHp) pengguna.nomorHp = updates.nomorHp;
+    if (updates.posisiID) pengguna.posisiID = updates.posisiID;
+    if (updates.fotoKaryawan) pengguna.fotoKaryawan = updates.fotoKaryawan;
+    
+    if (updates.pin) {
+      if (updates.pin.length < 6) {
         return res.status(400).json({ message: "PIN minimal 6 karakter" });
       }
-      pengguna.pin = pin;
+      pengguna.pin = updates.pin; // pre-save akan meng-hash ini
     }
+
     const updatedPengguna = await pengguna.save();
+
+    // 3. Cache Invalidation
+    await redis.del(keyPenggunaDetail(id));
+    await redis.del(keyPenggunaList(pengguna.tenantID));
+    await redis.del(keyLoginScreen(pengguna.tenantID));
+
     res.json(updatedPengguna);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -327,9 +439,20 @@ exports.updatePengguna = async (req, res) => {
 
 exports.deletePengguna = async (req, res) => {
   try {
-    const pengguna = await Pengguna.findByIdAndDelete(req.params.id);
-    if (!pengguna)
-      return res.status(404).json({ message: "Pengguna tidak ditemukan" });
+    const { id } = req.params;
+    if(!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ID"});
+
+    const pengguna = await Pengguna.findById(id);
+    if (!pengguna) return res.status(404).json({ message: "Pengguna tidak ditemukan" });
+
+    // 1. Hapus DB
+    await Pengguna.findByIdAndDelete(id);
+
+    // 2. Cache Invalidation
+    await redis.del(keyPenggunaDetail(id));
+    await redis.del(keyPenggunaList(pengguna.tenantID));
+    await redis.del(keyLoginScreen(pengguna.tenantID));
+
     res.json({ message: "Pengguna berhasil dihapus" });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -340,14 +463,27 @@ exports.getPenggunaForLoginScreen = async (req, res) => {
   try {
     const { tenantID } = req.params;
 
-    if (!tenantID) {
-      return res.status(400).json({ message: "Tenant ID diperlukan" });
+    if (!tenantID || !isValidObjectId(tenantID)) {
+      return res.status(400).json({ message: "Tenant ID diperlukan dan harus valid" });
     }
 
+    // 1. Cek Cache (Sangat penting untuk POS Login Screen)
+    const cacheKey = keyLoginScreen(tenantID);
+    const cachedData = await redis.get(cacheKey);
+
+    if (cachedData) {
+        return res.json(JSON.parse(cachedData));
+    }
+
+    // 2. Ambil DB
+    // Hanya ambil user Aktif untuk login screen
     const pengguna = await Pengguna.find({ tenantID, status: "aktif" })
-      .select("nama fotoKaryawan roleID posisiID")
+      .select("nama fotoKaryawan roleID posisiID") // Optimization: Select only needed fields
       .populate("roleID", "namaRole")
       .populate("posisiID", "namaPosisi");
+
+    // 3. Simpan Cache (Expire agak lama, misalnya 5 menit, karena jarang berubah)
+    await redis.setEx(cacheKey, 300, JSON.stringify(pengguna));
 
     res.json(pengguna);
   } catch (error) {

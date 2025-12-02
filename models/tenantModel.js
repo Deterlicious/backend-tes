@@ -4,31 +4,39 @@ const tenantSchema = new mongoose.Schema({
   namaToko: {
     type: String,
     required: true,
+    trim: true,
   },
   status: {
     type: String,
     enum: ["aktif", "non-aktif"],
     default: "aktif",
+    index: true, // Index untuk filter tenant aktif
   },
   alamat: {
     type: String,
     default: null,
+    trim: true,
   },
   kota: {
     type: String,
     default: null,
+    trim: true,
   },
   kodePos: {
     type: String,
     default: null,
+    trim: true,
   },
   nomorTelepon: {
     type: String,
     default: null,
+    trim: true,
   },
   emailBisnis: {
     type: String,
     default: null,
+    trim: true,
+    lowercase: true,
   },
   logoUrl: {
     type: String,
@@ -45,6 +53,8 @@ const tenantSchema = new mongoose.Schema({
   persenPajak: {
     type: Number,
     default: 0,
+    min: 0,
+    max: 100, // Validasi level Schema
   },
   tipePajak: {
     type: String,
