@@ -1,8 +1,8 @@
 const Penjualan = require("../models/penjualanModel");
-const Diskon = require("../models/diskonModel"); // <-- Pastikan Anda memiliki model Diskon
+const Diskon = require("../models/diskonModel");
 const mongoose = require("mongoose");
 
-// Fungsi bantuan untuk membuat pesan error Mongoose lebih informatif
+// Fungsi bantuan untuk membuat pesan error Mongoose lebih informatif (Harus tersedia/diimpor)
 const handleValidationError = (err) => {
   let errors = {};
   if (err.name === "ValidationError") {
@@ -10,7 +10,7 @@ const handleValidationError = (err) => {
       errors[key] = err.errors[key].message;
     });
     return { message: "Validasi data gagal. Cek detail error.", errors };
-  } // Tangani error duplikasi (nomorFaktur)
+  }
   if (err.code === 11000) {
     const field = Object.keys(err.keyValue);
     return {
@@ -21,7 +21,7 @@ const handleValidationError = (err) => {
 };
 
 // ===============================================
-// CREATE: Tambah Penjualan (REVISI)
+// ✅ CREATE: Tambah Penjualan (REVISI FINAL)
 // ===============================================
 exports.createPenjualan = async (req, res) => {
   try {
@@ -54,7 +54,7 @@ exports.createPenjualan = async (req, res) => {
             });
         }
 
-        const diskon = await Diskon.findById(item.diskonID); // Periksa jika diskon tidak ada atau statusnya Non-Aktif
+        const diskon = await Diskon.findById(item.diskonID);
 
         if (!diskon || diskon.status === "Non-Aktif") {
           return res.status(400).json({
@@ -64,7 +64,7 @@ exports.createPenjualan = async (req, res) => {
           });
         }
       }
-    } // 3. Proses Pembuatan Penjualan // Note: Logika bisnis pengurangan stok produk harus ditambahkan di sini.
+    } // 3. Proses Pembuatan Penjualan
 
     const penjualan = await Penjualan.create(req.body);
     res.status(201).json({
@@ -72,20 +72,22 @@ exports.createPenjualan = async (req, res) => {
       data: penjualan,
     });
   } catch (error) {
-    // Penanganan error Mongoose (ValidationError, Duplicate Key Error)
     const errorResponse = handleValidationError(error);
     res.status(400).json(errorResponse);
   }
 };
 
-// READ ALL (WAJIB FILTER berdasarkan tenantID)
+// ===============================================
+// ✅ READ ALL (WAJIB FILTER berdasarkan tenantID) (REVISI ID CHECK)
+// ===============================================
 exports.getAllPenjualan = async (req, res) => {
   try {
     const { tenantID } = req.query;
 
-    if (!tenantID) {
+    if (!tenantID || !mongoose.Types.ObjectId.isValid(tenantID)) {
       return res.status(400).json({
-        message: "Parameter tenantID wajib disertakan di query.",
+        message:
+          "Parameter tenantID wajib disertakan di query dan harus valid.",
       });
     }
 
@@ -110,10 +112,16 @@ exports.getAllPenjualan = async (req, res) => {
   }
 };
 
-// READ BY ID (HANYA MENGGUNAKAN ID DARI PARAMS)
+// ===============================================
+// ✅ READ BY ID (HANYA MENGGUNAKAN ID DARI PARAMS) (REVISI ID CHECK)
+// ===============================================
 exports.getPenjualanById = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Format ID tidak valid." });
+    }
 
     const penjualan = await Penjualan.findById(id)
       .populate("namaPelanggan", "namaPelanggan")
@@ -138,18 +146,22 @@ exports.getPenjualanById = async (req, res) => {
 };
 
 // ===============================================
-// UPDATE (REVISI)
+// ✅ UPDATE (REVISI KEAMANAN DAN VALIDASI)
 // ===============================================
 exports.updatePenjualan = async (req, res) => {
   try {
     const { id } = req.params;
-    const { itemPenjualan } = req.body; // Hapus field yang tidak boleh diupdate
+    const { itemPenjualan } = req.body;
+
+    // Pre-check: Validasi ID format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Format ID tidak valid." });
+    } // Hapus field yang tidak boleh diupdate
 
     const updateData = { ...req.body };
     delete updateData._id;
-    delete updateData.tenantID;
+    delete updateData.tenantID; // 1. Validasi Logika Bisnis (Status Diskon) pada saat update
 
-    // 1. Validasi Logika Bisnis (Status Diskon) pada saat update
     if (itemPenjualan && itemPenjualan.length > 0) {
       for (const [index, item] of itemPenjualan.entries()) {
         if (item.diskonID) {
@@ -172,9 +184,26 @@ exports.updatePenjualan = async (req, res) => {
       }
     }
 
+    // 2. KEAMANAN: Cek Field Asing/Tidak Dikenal (Konsisten dengan controller lain)
+    const allowedFields = Object.keys(Penjualan.schema.paths);
+
+    for (const key of Object.keys(updateData)) {
+      // Pengecualian: Biarkan subdocuments seperti 'itemPenjualan' lolos cek kunci utama,
+      // validasi detail item akan dilakukan oleh runValidators: true
+      if (key !== "itemPenjualan" && !allowedFields.includes(key)) {
+        return res.status(400).json({
+          message: "Validasi gagal. Field tidak dikenal.",
+          errors: {
+            [key]: `Kolom '${key}' tidak ada dalam skema Penjualan.`,
+          },
+        });
+      }
+    }
+
     const penjualan = await Penjualan.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
+      context: "query", // Diperlukan untuk validasi unique index pada update
     });
 
     if (!penjualan) {
@@ -191,10 +220,17 @@ exports.updatePenjualan = async (req, res) => {
   }
 };
 
-// DELETE (HANYA MENGGUNAKAN ID DARI PARAMS)
+// ===============================================
+// ✅ DELETE (HANYA MENGGUNAKAN ID DARI PARAMS) (REVISI ID CHECK)
+// ===============================================
 exports.deletePenjualan = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Pre-check: Validasi ID format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Format ID tidak valid." });
+    }
 
     const penjualan = await Penjualan.findByIdAndDelete(id);
 

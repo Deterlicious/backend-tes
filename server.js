@@ -36,15 +36,18 @@ const kontrakKompensasiRoute = require("./routes/kontrakKompensasiRoute");
 const akunKasRoute = require("./routes/akunKasRoute");
 const pembelianStokRoute = require("./routes/pembelianStokRoute");
 const penjualanRoute = require("./routes/penjualanRoute");
-const pelangganRoute = require('./routes/pelangganRoute');
-const membershipRoute = require('./routes/membershipRoute');
-const paketMembershipRoute = require('./routes/paketMembershipRoute');
-const pembayaranRoute = require('./routes/pembayaranRoute');
-const diskonRoute = require('./routes/diskonRoute');
+const pelangganRoute = require("./routes/pelangganRoute");
+const membershipRoute = require("./routes/membershipRoute");
+const paketMembershipRoute = require("./routes/paketMembershipRoute");
+const pembayaranRoute = require("./routes/pembayaranRoute");
+const diskonRoute = require("./routes/diskonRoute");
 const tarifRoute = require("./routes/tarifRoute");
 const tipeAsetRoute = require("./routes/tipeAsetRoute");
-const asetRoute = require('./routes/asetRoute');
-const sesiBookingRoute = require('./routes/sesiBookingRoute');
+const asetRoute = require("./routes/asetRoute");
+const sesiBookingRoute = require("./routes/sesiBookingRoute");
+const jurnalStokRoute = require("./routes/jurnalStokRoute");
+const JurnalTransfer = require("./models/jurnalTransferModel");
+const bebanOperasional = require("./routes/bebanOperasionalRoute");
 
 // Routes
 app.use("/api/produk", produkRoutes);
@@ -63,15 +66,18 @@ app.use("/api/kontrakkompensasi", kontrakKompensasiRoute);
 app.use("/api/akunkas", akunKasRoute);
 app.use("/api/pembelianstok", pembelianStokRoute);
 app.use("/api/penjualan", penjualanRoute);
-app.use('/api/pelanggan', pelangganRoute);
-app.use('/api/membership', membershipRoute);
-app.use('/api/paketmembership', paketMembershipRoute);
-app.use('/api/pembayaran', pembayaranRoute);
-app.use('/api/diskon', diskonRoute);
+app.use("/api/pelanggan", pelangganRoute);
+app.use("/api/membership", membershipRoute);
+app.use("/api/paketmembership", paketMembershipRoute);
+app.use("/api/pembayaran", pembayaranRoute);
+app.use("/api/diskon", diskonRoute);
 app.use("/api/tarif", tarifRoute);
 app.use("/api/tipeaset", tipeAsetRoute);
-app.use('/api/aset', asetRoute);
-app.use('/api/sesibooking', sesiBookingRoute);
+app.use("/api/aset", asetRoute);
+app.use("/api/sesibooking", sesiBookingRoute);
+app.use("/api/jurnalstok", jurnalStokRoute);
+app.use("/api/jurnaltransfer", JurnalTransfer);
+app.use("/api/bebanoperasional", bebanOperasional);
 
 // Server
 app.listen(4000, "127.0.0.1", () => {

@@ -1,48 +1,73 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const AkunKasSchema = new mongoose.Schema({
-  namaAkun: {
-    type: String,
-    required: true,
-    trim: true
+const AkunKasSchema = new mongoose.Schema(
+  {
+    namaAkun: {
+      type: String,
+      // Tambahkan pesan error kustom
+      required: [true, "Nama akun wajib diisi."],
+      trim: true,
+    },
+    saldo: {
+      type: Number,
+      required: [true, "Saldo awal wajib diisi."],
+      default: 0,
+      // Tambahkan pesan error kustom
+      min: [0, "Saldo tidak boleh negatif."],
+    },
+    tipeAkun: {
+      type: String,
+      enum: {
+        values: ["Kas Fisik", "Rekening Bank"],
+        message:
+          "{VALUE} bukan tipe akun yang valid. Pilih salah satu: Kas Fisik atau Rekening Bank.",
+      },
+      required: [true, "Tipe akun wajib diisi."],
+    },
+    status: {
+      type: String,
+      enum: {
+        values: ["aktif", "non-aktif"],
+        message:
+          "{VALUE} bukan status yang valid. Pilih salah satu: aktif atau non-aktif.",
+      },
+      default: "aktif",
+    },
+    nomorAkun: {
+      type: String,
+      required: [true, "Nomor akun wajib diisi."],
+      trim: true,
+      // Hapus 'unique: true' di sini, akan diganti dengan compound index di bawah
+    },
+    keterangan: {
+      type: String,
+      default: null,
+    },
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: [true, "Tenant ID wajib diisi."],
+      // Index untuk optimasi filter
+      index: true,
+    },
   },
-  saldo: {
-    type: Number,
-    required: true,
-    default: 0, // Saldo awal bisa kita default ke 0
-    min: 0
-  },
-  tipeAkun: {
-    type: String,
-    enum: ['Kas Fisik', 'Rekening Bank'], // Ubah agar lebih rapi
-    required: true
-  },
-  status: {
-    type: String,
-    enum: ['aktif', 'non-aktif'],
-    default: 'aktif'
-  },
-  nomorAkun: {
-    type: String,
-    required: true,
-    trim: true,
-    unique: true // Nomor akun biasanya unik
-  },
-  keterangan: {
-    type: String,
-    default: null
-  },
-  // Wajib menyertakan tenantID untuk konsistensi data scope
-  tenantID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Tenant', // Sesuaikan dengan nama model Tenant Anda
-    required: true // Dibuat wajib agar setiap akun terikat pada satu tenant
+  {
+    timestamps: true,
+    versionKey: false,
   }
-}, {
-  timestamps: true,
-  versionKey: false
-});
+);
 
-const AkunKas = mongoose.model('AkunKas', AkunKasSchema);
+// --- PENGOPTIMALAN PENCARIAN & INTEGRITAS DATA ---
+
+// 1. Index Unik (Integritas Data): Mencegah duplikasi nomorAkun dalam satu tenant.
+// Akun Kas yang sama boleh ada di tenant yang berbeda.
+AkunKasSchema.index({ tenantID: 1, nomorAkun: 1 }, { unique: true });
+
+// 2. Index Single Field (Optimasi Pencarian): Untuk pencarian cepat berdasarkan nama akun.
+AkunKasSchema.index({ namaAkun: 1 });
+
+// --------------------------------------------------
+
+const AkunKas = mongoose.model("AkunKas", AkunKasSchema);
 
 module.exports = AkunKas;
