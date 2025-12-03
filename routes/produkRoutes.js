@@ -1,11 +1,20 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const produkController = require('../controllers/produkController');
+const produkController = require("../controllers/produkController");
 
-router.post('/', produkController.createProduk);
-router.get('/', produkController.getAllProduk);
-router.get('/:id', produkController.getProdukById);
-router.put('/:id', produkController.updateProduk);
-router.delete('/:id', produkController.deleteProduk);
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn.call(produkController, req, res, next)).catch(next);
+};
+
+router
+  .route("/")
+  .post(wrap(produkController.create))
+  .get(wrap(produkController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(produkController.getById))
+  .put(wrap(produkController.update))
+  .delete(wrap(produkController.delete));
 
 module.exports = router;

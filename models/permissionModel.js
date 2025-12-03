@@ -5,18 +5,21 @@ const permissionSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
+    unique: true, // Nama permission harus unik secara global
   },
   grup: {
     type: String,
     required: true,
     trim: true,
-    index: true, // Untuk filtering berdasarkan grup
+    index: true, // Index untuk filtering/sorting grup
   },
+  deskripsi: {
+    type: String,
+    default: null,
+  }
 });
 
-// == Compound Index & Unique Constraint ==
-// 1. Mencegah duplikasi: Tidak boleh ada nama permission yang sama dalam satu grup.
-// 2. Mempercepat sorting: .sort({ grup: 1, nama: 1 })
-permissionSchema.index({ grup: 1, nama: 1 }, { unique: true });
+// Index Compound untuk sorting cepat
+permissionSchema.index({ grup: 1, nama: 1 });
 
 module.exports = mongoose.model("Permission", permissionSchema);

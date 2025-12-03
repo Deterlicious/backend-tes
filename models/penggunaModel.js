@@ -9,20 +9,22 @@ const penggunaSchema = new mongoose.Schema({
   },
   pin: {
     type: String,
-    unique: true,
     required: true,
+    // Note: 'unique' pada PIN dihilangkan karena PIN '123456' bisa dipakai
+    // oleh user berbeda di tenant berbeda. Kombinasi unik harusnya (tenantID + pin)
+    // Tapi karena PIN rahasia, validasi unik manual di service lebih aman daripada index DB.
   },
   roleID: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Role",
     required: true,
-    index: true, // Index untuk filtering by role
+    index: true,
   },
   status: {
     type: String,
     enum: ["aktif", "non-aktif"],
     default: "aktif",
-    index: true, // Index status
+    index: true,
   },
   nomorHp: {
     type: String,
@@ -39,7 +41,7 @@ const penggunaSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Tenant",
     required: true,
-    index: true, // Wajib index
+    index: true,
   },
   fotoKaryawan: {
     type: String,
@@ -52,10 +54,10 @@ const penggunaSchema = new mongoose.Schema({
   },
 });
 
-// == Compound Indexes ==
-// Optimasi Query: "Tampilkan semua karyawan AKTIF di tenant X untuk layar login"
+// Compound Index: Optimasi login screen (Tampilkan karyawan aktif di tenant X)
 penggunaSchema.index({ tenantID: 1, status: 1 });
 
+// Pre-save hook untuk Hashing PIN
 penggunaSchema.pre("save", async function (next) {
   if (!this.isModified("pin")) return next();
   try {
@@ -67,6 +69,7 @@ penggunaSchema.pre("save", async function (next) {
   }
 });
 
+// Method Compare PIN
 penggunaSchema.methods.comparePin = async function (candidatePin) {
   return await bcrypt.compare(candidatePin, this.pin);
 };

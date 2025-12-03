@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
-// Schema untuk subdokumen resep (embedded)
-const ResepsSchema = new mongoose.Schema(
+// Sub-schema untuk Resep (Embedded)
+const ResepSchema = new mongoose.Schema(
   {
     bahanBakuID: {
       type: mongoose.Schema.Types.ObjectId,
@@ -11,7 +11,7 @@ const ResepsSchema = new mongoose.Schema(
     jumlah: {
       type: Number,
       required: true,
-      min: 0,
+      min: [0, "Jumlah bahan tidak boleh negatif"],
     },
     satuan: {
       type: String,
@@ -22,7 +22,6 @@ const ResepsSchema = new mongoose.Schema(
   { _id: false }
 );
 
-// Schema utama Produk
 const ProdukSchema = new mongoose.Schema(
   {
     namaProduk: {
@@ -54,7 +53,12 @@ const ProdukSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Kategori",
       required: true,
-      // Tambahkan index untuk optimasi pencarian berdasarkan kategoriID
+      index: true,
+    },
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
       index: true,
     },
     keterangan: {
@@ -62,35 +66,18 @@ const ProdukSchema = new mongoose.Schema(
       default: null,
     },
     resep: {
-      type: [ResepsSchema],
+      type: [ResepSchema],
       default: [],
     },
-    tenantID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Tenant",
-      required: true,
-      // Tambahkan index untuk optimasi pencarian berdasarkan tenantID
-      index: true,
-    },
   },
-  {
-    timestamps: true,
-    versionKey: false,
-  }
+  { timestamps: true }
 );
 
-// --- PENGOPTIMALAN PENCARIAN & INTEGRITAS DATA ---
-
-// 1. Index Unik (Integrity): Mencegah duplikasi namaProduk dalam tenant yang sama.
+// COMPOUND INDEX: Unique Name per Tenant
 ProdukSchema.index({ tenantID: 1, namaProduk: 1 }, { unique: true });
 
-// 2. Index Single Field (Optimasi Pencarian): Untuk pencarian global atau filter cepat.
-ProdukSchema.index({ namaProduk: 1 });
-
-// 3. Index Field FK (Optimasi Join/Filter): KategoriID sudah ditambahkan di definisi field.
-// Jika Anda sering mencari berdasarkan harga, Anda juga bisa menambahkan:
-// ProdukSchema.index({ hargaJual: 1 });
-
-// --------------------------------------------------
+// INDEX: Optimasi pencarian nama & filter kategori
+ProdukSchema.index({ namaProduk: "text" }); // Text index untuk fitur search
+ProdukSchema.index({ tenantID: 1, kategoriID: 1 }); // Filter umum di menu kasir
 
 module.exports = mongoose.model("Produk", ProdukSchema);

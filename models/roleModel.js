@@ -5,7 +5,7 @@ const roleSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Tenant",
     required: true,
-    index: true, // Index untuk filtering
+    index: true,
   },
   namaRole: {
     type: String,
@@ -19,9 +19,8 @@ const roleSchema = new mongoose.Schema({
   },
 });
 
-// == Compound Index & Unique Constraint ==
-// Mencegah duplikasi nama role dalam satu tenant.
-// Contoh: Tenant A tidak boleh punya dua role bernama "Kasir".
+// COMPOUND INDEX: Unik per Tenant
+// Mencegah duplikasi nama role (misal: "Kasir") di tenant yang sama
 roleSchema.index({ tenantID: 1, namaRole: 1 }, { unique: true });
 
 module.exports = mongoose.model("Role", roleSchema);

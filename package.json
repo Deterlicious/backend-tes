@@ -4,21 +4,25 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon server.js"
+    "start": "nodemon serverNew.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "autocannon": "^8.0.0",
     "bcrypt": "^6.0.0",
     "body-parse": "^0.1.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.2",
-    "redis": "^5.10.0"
+    "redis": "^5.10.0",
+    "validator": "^13.15.23"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
