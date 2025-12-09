@@ -11,17 +11,6 @@ const tipeAsetSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-
-    // ambil _id default dari koleksi Tarif
-    tarifID: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Tarif",
-        index: true,
-      },
-    ],
-
-    // ambil _id default dari koleksi Tenant
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -29,10 +18,23 @@ const tipeAsetSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    toJSON: { virtuals: true }, // PENTING: Agar virtual muncul saat res.json()
+    toObject: { virtuals: true }
+  }
 );
 
-// index unik untuk mencegah duplikasi namaTipeAset dalam tenant yang sama
+// == VIRTUAL POPULATE ==
+// Definisi: "Field 'listTarif' ini isinya diambil dari tabel 'Tarif', 
+// dimana field 'tipeAsetID' di sana cocok dengan '_id' saya di sini."
+tipeAsetSchema.virtual("listTarif", {
+  ref: "Tarif",           // Model yang mau diintip
+  localField: "_id",      // ID (TipeAset)
+  foreignField: "tipeAsetID", // Field di seberang (Tarif) yang menyimpan ID
+  justOne: false          // Karena satu tipe aset bisa punya banyak tarif
+});
+
 tipeAsetSchema.index({ tenantID: 1, namaTipeAset: 1 }, { unique: true });
 
 module.exports = mongoose.model("TipeAset", tipeAsetSchema);

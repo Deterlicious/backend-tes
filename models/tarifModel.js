@@ -15,18 +15,17 @@ const tarifSchema = new mongoose.Schema(
     harga: {
       type: Number,
       required: true,
+      min: 0,
     },
     durasiMinimum: {
-      type: String,
+      type: Number, // Ubah ke Number agar bisa dihitung matematis
       required: true,
+      min: 1,
     },
-
-    // ambil _id default dari koleksi TipeAset
     tipeAsetID: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "TipeAset",
-        index: true,
       },
     ],
     tenantID: {
@@ -39,10 +38,10 @@ const tarifSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// index unik untuk mencegah duplikasi namaTarif dalam tenant yang sama
+// Compound Index: Nama unik per tenant
 tarifSchema.index({ tenantID: 1, namaTarif: 1 }, { unique: true });
 
-// index untuk optimasi pencarian berdasarkan tipeAsetID
+// Index tipeAsetID untuk pencarian cepat (Misal: Cari semua tarif untuk PS5)
 tarifSchema.index({ tipeAsetID: 1 });
 
 module.exports = mongoose.model("Tarif", tarifSchema);
