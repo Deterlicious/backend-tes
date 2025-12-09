@@ -2,17 +2,34 @@ const mongoose = require("mongoose");
 
 const sesiBookingSchema = new mongoose.Schema(
   {
-    penjualanID: {
+    tenantID: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Penjualan",
+      ref: "Tenant",
       required: true,
-      index: true, // Untuk mencari booking dari ID Transaksi
+      index: true,
     },
-    asetID: {
+    penggunaID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Pengguna",
+      required: true,
+    },
+    dataPelanggan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Pelanggan",
+      required: true,
+      index: true,
+    },
+    dataAset: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Aset",
       required: true,
-      index: true, // Penting untuk cek ketersediaan aset
+      index: true,
+    },
+    dataPenjualan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Penjualan",
+      required: true,
+      index: true,
     },
     waktuMulai: {
       type: Date,
@@ -22,47 +39,40 @@ const sesiBookingSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    durasiMenit: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
     status: {
       type: String,
       enum: ["Aktif", "Selesai", "Batal"],
       default: "Aktif",
       index: true,
     },
-    durasiMenit: {
-      type: Number,
-      default: null,
-    },
     totalBiaya: {
       type: Number,
       default: null,
-    },
-    penggunaID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Pengguna",
-      required: true,
-    },
-    tenantID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Tenant",
-      required: true,
-      index: true,
+      min: 0,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-// == Compound Indexes ==
-// 1. Optimasi Cek Bentrok: Cari aset X yang statusnya Aktif pada waktu tertentu
-sesiBookingSchema.index({ asetID: 1, status: 1, waktuMulai: 1 });
-
-// 2. Optimasi Laporan: List booking per tenant urut tanggal terbaru
+sesiBookingSchema.index({ dataAset: 1, status: 1, waktuMulai: 1 });
 sesiBookingSchema.index({ tenantID: 1, waktuMulai: -1 });
 
-// Middleware Pre-Save untuk hitung durasi otomatis
 sesiBookingSchema.pre("save", function (next) {
   if (this.waktuMulai && this.waktuSelesai) {
+    if (this.waktuSelesai < this.waktuMulai) {
+      return next(
+        new Error("Waktu selesai tidak boleh lebih awal dari waktu mulai.")
+      );
+    }
     const diffMs = new Date(this.waktuSelesai) - new Date(this.waktuMulai);
-    this.durasiMenit = Math.ceil(diffMs / (1000 * 60)); // Pembulatan ke atas
+    this.durasiMenit = Math.ceil(diffMs / (1000 * 60));
   }
   next();
 });

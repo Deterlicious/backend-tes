@@ -2,10 +2,19 @@ const express = require("express");
 const router = express.Router();
 const sesiBookingController = require("../controllers/sesiBookingController");
 
-router.post("/", sesiBookingController.createBooking);
-router.get("/", sesiBookingController.getAllBooking);
-router.get("/:id", sesiBookingController.getBookingById);
-router.put("/:id", sesiBookingController.updateBooking);
-router.delete("/:id", sesiBookingController.deleteBooking);
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn.call(sesiBookingController, req, res, next)).catch(next);
+};
+
+router
+  .route("/")
+  .post(wrap(sesiBookingController.create))
+  .get(wrap(sesiBookingController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(sesiBookingController.getById))
+  .put(wrap(sesiBookingController.update))
+  .delete(wrap(sesiBookingController.delete));
 
 module.exports = router;
