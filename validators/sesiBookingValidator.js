@@ -20,6 +20,9 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     if (!data.waktuMulai) {
       errors.push("waktuMulai wajib diisi");
     }
+    if (data.dataDiskon && !isValidObjectId(data.dataDiskon)) {
+      errors.push("dataDiskon tidak valid");
+    }
   }
 
   if (isUpdate) {
@@ -31,6 +34,9 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     }
     if (data.dataPenjualan && !isValidObjectId(data.dataPenjualan)) {
       errors.push("dataPenjualan tidak valid");
+    }
+    if (data.dataDiskon && !isValidObjectId(data.dataDiskon)) {
+      errors.push("dataDiskon tidak valid");
     }
   }
 
@@ -44,6 +50,14 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     if (isNaN(new Date(data.waktuSelesai).getTime())) {
       errors.push("Format waktuSelesai tidak valid");
     }
+  }
+
+  if (data.items && Array.isArray(data.items)) {
+    data.items.forEach((item, index) => {
+      if (item.dataDiskon && !isValidObjectId(item.dataDiskon)) {
+        errors.push(`Item #${index + 1}: dataDiskon tidak valid`);
+      }
+    });
   }
 
   return {

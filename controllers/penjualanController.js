@@ -42,7 +42,9 @@ class PenjualanController {
 
   async update(req, res, next) {
     try {
-      const result = await penjualanService.update(req.params.id, req.body);
+      const { tenantID } = req.query;
+
+      const result = await penjualanService.update(req.params.id, req.body, tenantID);
 
       if (result?.error) {
         return res.status(400).json({ errors: result.error });

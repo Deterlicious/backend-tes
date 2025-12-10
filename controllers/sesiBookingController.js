@@ -24,7 +24,12 @@ class SesiBookingController {
 
   async create(req, res, next) {
     try {
-      const result = await sesiBookingService.create(req.body);
+      let result;
+      if (req.body.items && Array.isArray(req.body.items)) {
+        result = await sesiBookingService.createBatch(req.body);
+      } else {
+        result = await sesiBookingService.create(req.body);
+      }
 
       if (result?.error) {
         return res.status(400).json({ errors: result.error });
