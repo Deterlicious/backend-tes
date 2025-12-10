@@ -40,28 +40,33 @@ const PembelianStokSchema = new mongoose.Schema(
       type: Date,
       required: [true, "Tanggal wajib diisi."],
     },
+
     akunKasID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "AkunKas",
       required: [true, "ID Akun Kas wajib diisi."],
       index: true, // Optimasi filter
     },
+
     totalBiaya: {
       type: Number,
       required: [true, "Total biaya wajib diisi."],
       default: 0,
       min: [0, "Total biaya tidak boleh negatif."],
     },
+
     supplier: {
       type: String,
       required: [true, "Nama supplier wajib diisi."],
       trim: true,
     },
+
     keterangan: {
       type: String,
       required: [true, "Keterangan wajib diisi."],
       trim: true,
     },
+
     items: {
       type: [ItemPembelianStokSchema], // Embedded subdocuments
       required: [true, "Daftar item pembelian wajib diisi."],
@@ -73,11 +78,19 @@ const PembelianStokSchema = new mongoose.Schema(
       required: [true, "Tenant ID wajib diisi."],
       index: true, // Optimasi filter
     },
+
+    locationID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Location", // Tabel baru (Master Lokasi)
+
+    },
+
     nomorFaktur: {
       type: String,
       default: null, // nullable
       trim: true, // Tambahkan unique index jika nomor faktur harus unik per tenant
     },
+
     dicatatOleh: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pengguna",
@@ -86,7 +99,6 @@ const PembelianStokSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    versionKey: false,
   }
 );
 

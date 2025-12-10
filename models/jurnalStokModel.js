@@ -56,6 +56,11 @@ const JurnalStokSchema = new mongoose.Schema(
       index: true,
     },
 
+    locationID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Location", // Tabel baru (Master Lokasi)
+    },
+
     // FK: Referensi ke Tenant (Wajib untuk data scoping)
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
