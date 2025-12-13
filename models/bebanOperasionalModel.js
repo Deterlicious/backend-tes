@@ -41,7 +41,7 @@ const BebanOperasionalSchema = new mongoose.Schema(
     // FK: Dicatat oleh User atau Staff
     dicatatOleh: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // Mengganti 'Pengguna' menjadi 'User' agar konsisten
+      ref: "Pengguna",
       required: [true, "Pencatat wajib diisi."],
       index: true,
     },

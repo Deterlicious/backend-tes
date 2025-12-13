@@ -1,83 +1,85 @@
-// akunKasController.js
-const AkunKasService = require("../services/akunKasService");
+// inventoryController.js
+const InventoryService = require("../services/inventoryService");
 const createError = require("http-errors");
 
 // Helper untuk menangani HttpErrors yang dilempar dari Service
 const handleServiceError = (res, error) => {
   if (createError.isHttpError(error) && error.statusCode) {
-    // Menggunakan 'error.errors' untuk menampilkan detail validasi Mongoose
     return res.status(error.statusCode).json({
       message: error.message,
       errors: error.errors,
     });
   }
-  res.status(500).json({ message: error.message });
+  res
+    .status(500)
+    .json({ message: error.message || "Kesalahan internal server." });
 };
 
 // ===============================================
-// ✅ CREATE: Tambah Akun Kas
+// ✅ CREATE: Tambah Entry Stok Baru
 // ===============================================
-exports.createAkunKas = async (req, res) => {
+exports.createInventory = async (req, res) => {
   try {
-    const newAkunKas = await AkunKasService.create(req.body);
-    res
-      .status(201)
-      .json({ message: "Akun Kas berhasil ditambahkan", data: newAkunKas });
+    const newInventory = await InventoryService.create(req.body);
+    res.status(201).json(newInventory);
   } catch (error) {
     handleServiceError(res, error);
   }
 };
 
 // ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID
+// ✅ READ ALL: Filter berdasarkan tenantID & locationID (Opsional)
 // ===============================================
-exports.getAllAkunKas = async (req, res) => {
+exports.getAllInventory = async (req, res) => {
   try {
-    const { tenantID } = req.query;
-    const akunKas = await AkunKasService.getAll(tenantID);
-    res.status(200).json(akunKas);
+    const { tenantID, locationID } = req.query;
+    const data = await InventoryService.getAll(tenantID, locationID);
+    res.status(200).json(data);
   } catch (error) {
     handleServiceError(res, error);
   }
 };
 
 // ===============================================
-// ✅ READ BY ID
+// ✅ READ BY ID (Query: tenantID, Params: id)
 // ===============================================
-exports.getAkunKasById = async (req, res) => {
+exports.getInventoryById = async (req, res) => {
   try {
     const { id } = req.params;
-    const akunKas = await AkunKasService.getById(id);
-    res.status(200).json(akunKas);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
-
-// ===============================================
-// ✅ UPDATE Akun Kas berdasarkan tenantID dan ID
-// ===============================================
-exports.updateAkunKas = async (req, res) => {
-  try {
     const { tenantID } = req.query;
-    const { id } = req.params;
-    const updatedAkunKas = await AkunKasService.update(tenantID, id, req.body);
-    res
-      .status(200)
-      .json({ message: "Akun Kas berhasil diperbarui", data: updatedAkunKas });
+    const inventory = await InventoryService.getById(tenantID, id);
+    res.status(200).json(inventory);
   } catch (error) {
     handleServiceError(res, error);
   }
 };
 
 // ===============================================
-// ✅ DELETE Akun Kas berdasarkan tenantID dan IDs
+// ✅ UPDATE Stok (Penyesuaian Manual) (Query: tenantID, Params: id)
 // ===============================================
-exports.deleteAkunKas = async (req, res) => {
+exports.updateInventory = async (req, res) => {
   try {
     const { tenantID } = req.query;
     const { id } = req.params;
-    const result = await AkunKasService.delete(tenantID, id);
+    const updatedInventory = await InventoryService.update(
+      tenantID,
+      id,
+      req.body
+    );
+    res.status(200).json(updatedInventory);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// ===============================================
+// ✅ DELETE Entry Stok (Query: tenantID, Params: id)
+// ===============================================
+exports.deleteInventory = async (req, res) => {
+  try {
+    const { tenantID } = req.query;
+    const { id } = req.params;
+    const result = await InventoryService.delete(tenantID, id);
     res.status(200).json(result);
   } catch (error) {
     handleServiceError(res, error);
