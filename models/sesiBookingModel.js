@@ -8,7 +8,7 @@ const sesiBookingSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    penggunaID: {
+    dataPengguna: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pengguna",
       required: true,

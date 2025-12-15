@@ -8,8 +8,8 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     if (!data.dataAset || !isValidObjectId(data.dataAset)) {
       errors.push("dataAset wajib diisi dan valid");
     }
-    if (!data.penggunaID || !isValidObjectId(data.penggunaID)) {
-      errors.push("penggunaID wajib diisi dan valid");
+    if (!data.dataPengguna || !isValidObjectId(data.dataPengguna)) {
+      errors.push("dataPengguna wajib diisi dan valid");
     }
     if (!data.tenantID || !isValidObjectId(data.tenantID)) {
       errors.push("tenantID wajib diisi dan valid");
