@@ -1,16 +1,20 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const kategoriBebanController = require('../controllers/kategoriBebanController'); // Sesuaikan path
+const kategoriBebanController = require("../controllers/kategoriBebanController");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(kategoriBebanController.createKategoriBeban)
-    .get(kategoriBebanController.getAllKategoriBeban); // Wajib filter tenantID
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn.call(kategoriBebanController, req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(kategoriBebanController.getKategoriBebanById)
-    .put(kategoriBebanController.updateKategoriBeban)
-    .delete(kategoriBebanController.deleteKategoriBeban);
+router
+  .route("/")
+  .post(wrap(kategoriBebanController.create))
+  .get(wrap(kategoriBebanController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(kategoriBebanController.getById))
+  .put(wrap(kategoriBebanController.update))
+  .delete(wrap(kategoriBebanController.delete));
 
 module.exports = router;

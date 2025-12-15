@@ -1,16 +1,20 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const pembayaranController = require('../controllers/pembayaranController'); // Sesuaikan path
+const pembayaranController = require("../controllers/pembayaranController");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(pembayaranController.createPembayaran)
-    .get(pembayaranController.getAllPembayaran); // Wajib filter tenantID
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn.call(pembayaranController, req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(pembayaranController.getPembayaranById)
-    .put(pembayaranController.updatePembayaran)
-    .delete(pembayaranController.deletePembayaran);
+router
+  .route("/")
+  .post(wrap(pembayaranController.create))
+  .get(wrap(pembayaranController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(pembayaranController.getById))
+  .put(wrap(pembayaranController.update))
+  .delete(wrap(pembayaranController.delete));
 
 module.exports = router;

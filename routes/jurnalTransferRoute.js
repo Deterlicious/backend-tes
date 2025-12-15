@@ -1,16 +1,20 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const jurnalTransferController = require('../controllers/jurnalTransferController'); // Sesuaikan path
+const jurnalTransferController = require("../controllers/jurnalTransferController");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(jurnalTransferController.createJurnalTransfer)
-    .get(jurnalTransferController.getAllJurnalTransfer); // Wajib filter tenantID
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn.call(jurnalTransferController, req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(jurnalTransferController.getJurnalTransferById)
-    .put(jurnalTransferController.updateJurnalTransfer)
-    .delete(jurnalTransferController.deleteJurnalTransfer);
+router
+  .route("/")
+  .post(wrap(jurnalTransferController.create))
+  .get(wrap(jurnalTransferController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(jurnalTransferController.getById))
+  .put(wrap(jurnalTransferController.update))
+  .delete(wrap(jurnalTransferController.delete));
 
 module.exports = router;

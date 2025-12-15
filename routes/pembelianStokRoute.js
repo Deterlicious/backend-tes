@@ -1,16 +1,20 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const pembelianStokController = require('../controllers/pembelianStokController'); // Sesuaikan path
+const pembelianStokController = require("../controllers/pembelianStokController");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(pembelianStokController.createPembelianStok)
-    .get(pembelianStokController.getAllPembelianStok); // Wajib filter tenantID
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn.call(pembelianStokController, req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(pembelianStokController.getPembelianStokById)
-    .put(pembelianStokController.updatePembelianStok)
-    .delete(pembelianStokController.deletePembelianStok);
+router
+  .route("/")
+  .post(wrap(pembelianStokController.create))
+  .get(wrap(pembelianStokController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(pembelianStokController.getById))
+  .put(wrap(pembelianStokController.update))
+  .delete(wrap(pembelianStokController.delete));
 
 module.exports = router;

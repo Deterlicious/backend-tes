@@ -2,10 +2,19 @@ const express = require("express");
 const router = express.Router();
 const kontrakController = require("../controllers/kontrakKompensasiController");
 
-router.post("/", kontrakController.createKontrak);
-router.get("/", kontrakController.getAllKontrak);
-router.get("/:id", kontrakController.getKontrakById);
-router.put("/:id", kontrakController.updateKontrak);
-router.delete("/:id", kontrakController.deleteKontrak);
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn.call(kontrakController, req, res, next)).catch(next);
+};
+
+router
+  .route("/")
+  .post(wrap(kontrakController.create))
+  .get(wrap(kontrakController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(kontrakController.getById))
+  .put(wrap(kontrakController.update))
+  .delete(wrap(kontrakController.delete));
 
 module.exports = router;
