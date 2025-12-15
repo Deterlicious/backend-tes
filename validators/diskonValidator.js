@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-const VALID_TIPE = ["persentase", "nominal"];
-const VALID_STATUS = ["aktif", "non-aktif"];
+const VALID_TIPE = ["persen", "nominal"];
+const VALID_STATUS = ["Aktif", "Non-Aktif"];
 
 /**
  * Validasi payload untuk operasi CREATE/UPDATE Diskon.
