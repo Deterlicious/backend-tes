@@ -55,6 +55,11 @@ const sesiBookingSchema = new mongoose.Schema(
       default: null,
       min: 0,
     },
+    tarifID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tarif",
+      required: true,
+    },
   },
   {
     timestamps: true,

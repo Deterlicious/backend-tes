@@ -23,6 +23,9 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     if (data.dataDiskon && !isValidObjectId(data.dataDiskon)) {
       errors.push("dataDiskon tidak valid");
     }
+    if (data.tarifID && !isValidObjectId(data.tarifID)) {
+      errors.push("Format tarifID tidak valid");
+    }
   }
 
   if (isUpdate) {
@@ -37,6 +40,9 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     }
     if (data.dataDiskon && !isValidObjectId(data.dataDiskon)) {
       errors.push("dataDiskon tidak valid");
+    }
+    if (data.tarifID && !isValidObjectId(data.tarifID)) {
+      errors.push("Format tarifID tidak valid");
     }
   }
 

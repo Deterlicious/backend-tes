@@ -15,7 +15,7 @@ function validateTarifPayload(data, isUpdate = false) {
     if (!data.durasiMinimum) errors.push("durasiMinimum wajib diisi");
   }
 
-  // 2. Format Validation
+  // 2. Format Validation Standard
   if (data.basisPerhitungan && !["per jam", "per sesi"].includes(data.basisPerhitungan)) {
     errors.push("basisPerhitungan harus 'per jam' atau 'per sesi'");
   }
@@ -28,7 +28,29 @@ function validateTarifPayload(data, isUpdate = false) {
     errors.push("durasiMinimum harus angka minimal 1");
   }
 
-  // Validasi tipeAsetID (jika ada) - Pastikan array valid atau single ID valid
+  // --- VALIDASI RULES ENGINE (BARU) ---
+
+  // Validasi Hari (Array of 0-6)
+  if (data.hariAktif) {
+    if (!Array.isArray(data.hariAktif)) {
+      errors.push("hariAktif harus berupa array angka [0-6]");
+    } else {
+      const invalidDays = data.hariAktif.some(d => d < 0 || d > 6);
+      if (invalidDays) errors.push("hariAktif hanya boleh berisi angka 0 (Minggu) sampai 6 (Sabtu)");
+    }
+  }
+
+  // Validasi Format Jam (HH:mm) regex
+  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+  if (data.jamMulai && !timeRegex.test(data.jamMulai)) {
+    errors.push("jamMulai harus format HH:mm (contoh: 08:00)");
+  }
+  if (data.jamSelesai && !timeRegex.test(data.jamSelesai)) {
+    errors.push("jamSelesai harus format HH:mm (contoh: 23:00)");
+  }
+
+  // Validasi tipeAsetID
   if (data.tipeAsetID) {
     const ids = Array.isArray(data.tipeAsetID) ? data.tipeAsetID : [data.tipeAsetID];
     for (const id of ids) {
