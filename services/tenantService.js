@@ -1,9 +1,12 @@
 const Tenant = require("../models/tenantModel");
 const Akun = require("../models/akunModel");
+const Role = require("../models/roleModel");
+const Permission = require("../models/permissionModel");
+const RolePermission = require("../models/rolePermissionModel");
 const redis = require("../config/redis");
 const { validateTenantPayload } = require("../validators/tenantValidator");
+const createError = require("http-errors");
 
-// KEY constants
 const CACHE_KEY_ALL = "tenants:all";
 const CACHE_KEY_ID = (id) => `tenants:${id}`;
 
@@ -37,29 +40,73 @@ class TenantService {
   }
 
   async create(payload, userId) {
-    // Validasi
+    // Validasi Input
     const validation = validateTenantPayload(payload);
     if (!validation.valid) {
       return { error: validation.errors };
     }
 
-    // Buat Tenant Baru
-    const tenant = await Tenant.create(payload);
-
-    // Update Akun user yang sedang login, masukkan tenantID baru
-    if (userId) {
-      await Akun.findByIdAndUpdate(userId, {
-        tenantID: tenant._id,
-        role: "owner",
-      });
-
-      // Hapus cache profile user agar saat dia GET /auth/akun, datanya fresh
-      await redis.del(`akun:profile:${userId}`);
+    // Cek Validitas User
+    const user = await Akun.findById(userId);
+    if (!user) throw createError(404, "Akun pengguna tidak ditemukan");
+    
+    // Cek apakah user sudah punya tenant (1 Akun = 1 Tenant)
+    if (user.tenantID) {
+      throw createError(400, "Akun Anda sudah memiliki toko. Tidak dapat membuat baru.");
     }
 
-    await redis.del(CACHE_KEY_ALL); // Hapus cache list tenant
+    try {
 
-    return tenant;
+      // Buat Tenant Baru
+      const tenant = await Tenant.create(payload);
+
+      // Buat Role 'Owner' Otomatis
+      const ownerRole = await Role.create({
+        tenantID: tenant._id,
+        namaRole: "Owner",
+        deskripsi: "Role otomatis dengan akses penuh (Super Admin)"
+      });
+
+      // Ambil Semua Permission dari Master Data
+      // (Pastikan sudah menjalankan seeder permission sebelumnya)
+      const allPermissions = await Permission.find({}).select("_id");
+
+      if (allPermissions.length > 0) {
+        // Assign Semua Permission ke Role Owner
+        const rolePermData = allPermissions.map(perm => ({
+          tenantID: tenant._id,
+          roleID: ownerRole._id,
+          permissionID: perm._id
+        }));
+
+        await RolePermission.insertMany(rolePermData);
+      } else {
+        console.warn("⚠️ Warning: Tabel Permission kosong. Role Owner dibuat tanpa hak akses.");
+      }
+
+      // E. Update Akun User
+      // Note: Di akunModel.js Anda, enum role adalah ["client", "admin"].
+      // Jadi saya set ke "admin". Jika ingin "owner", tambahkan ke enum di model Akun dulu.
+      user.tenantID = tenant._id;
+      
+      // Simpan perubahan user
+      await user.save();
+
+      // --- END LOGIKA OTOMATISASI ---
+
+      // Clean Up Cache
+      await redis.del(CACHE_KEY_ALL); // Hapus list tenant global
+      await redis.del(`akun:profile:${userId}`); // Hapus cache profil user agar data tenantID & role terupdate di FE
+
+      return tenant;
+
+    } catch (err) {
+      // Error Handling: Jika terjadi error di tengah proses, idealnya kita rollback.
+      // Karena MongoDB standalone (bukan replica set) tidak support transaction penuh,
+      // kita biarkan error throw ke controller.
+      console.error("Gagal membuat tenant & role:", err);
+      throw err;
+    }
   }
 
   async update(id, payload) {
@@ -83,6 +130,8 @@ class TenantService {
   }
 
   async delete(id) {
+    // Note: Menghapus tenant idealnya juga menghapus Role & RolePermission terkait (Cascade Delete)
+    // Tapi untuk saat ini kita fokus hapus tenant-nya saja dulu.
     const deleted = await Tenant.findByIdAndDelete(id).lean();
     if (!deleted) return null;
 

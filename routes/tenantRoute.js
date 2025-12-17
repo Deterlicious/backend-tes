@@ -1,12 +1,14 @@
 const express = require("express");
 const router = express.Router();
-
 const tenantController = require("../controllers/tenantController");
+const authAkun = require("../middleware/authAkun");
 
-// Utility wrapper agar Express tidak kehilangan konteks `this`
+// Wrapper utility
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(tenantController, req, res, next)).catch(next);
 };
+
+router.use(authAkun); // Proteksi global: semua route butuh token akun
 
 router
   .route("/")

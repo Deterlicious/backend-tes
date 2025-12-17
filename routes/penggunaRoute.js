@@ -1,51 +1,50 @@
 const express = require("express");
 const router = express.Router();
 const penggunaController = require("../controllers/penggunaController");
-const authPengguna = require("../middleware/authPengguna");
+const authAkun = require("../middleware/authAkun");
 const { checkPermission } = require("../middleware/authorizePermission");
 
-// Wrapper
+// Wrapper utility
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(penggunaController, req, res, next)).catch(next);
 };
 
-// PUBLIC ROUTES (Auth)
+router.use(authAkun); // Proteksi global: semua route butuh token akun
+
 router.post("/pin-login", wrap(penggunaController.loginPin));
 router.post("/pin-refresh", wrap(penggunaController.refreshToken));
 router.post("/register-owner", wrap(penggunaController.create)); // Public Register
 router.get("/login-list/:tenantID", wrap(penggunaController.getForLoginScreen));
-
-// PROTECTED ROUTES (CRUD)
-router.post("/pin-logout", authPengguna, wrap(penggunaController.logout));
+router.post("/pin-logout", wrap(penggunaController.logout));
 
 // CRUD Staff (Butuh Permission 'kelola-staff')
-router.post("/", 
-  authPengguna, 
-  checkPermission("kelola-staff"), 
+router.post(
+  "/",
+  checkPermission("kelola-staff"),
   wrap(penggunaController.create)
 );
 
-router.get("/", 
-  authPengguna, 
+router.get(
+  "/",
   checkPermission("kelola-staff"),
   wrap(penggunaController.getAll)
 );
 
-router.get("/:id", 
-  authPengguna, 
-  checkPermission("kelola-staff"), 
+router.get(
+  "/:id",
+  checkPermission("kelola-staff"),
   wrap(penggunaController.getById)
 );
 
-router.put("/:id", 
-  authPengguna, 
-  checkPermission("kelola-staff"), 
+router.put(
+  "/:id",
+  checkPermission("kelola-staff"),
   wrap(penggunaController.update)
 );
 
-router.delete("/:id", 
-  authPengguna, 
-  checkPermission("kelola-staff"), 
+router.delete(
+  "/:id",
+  checkPermission("kelola-staff"),
   wrap(penggunaController.delete)
 );
 

@@ -2,6 +2,7 @@ const tenantService = require("../services/tenantService");
 const createError = require("http-errors");
 
 class TenantController {
+  
   async getAll(req, res, next) {
     try {
       const tenants = await tenantService.getAll();
@@ -24,8 +25,13 @@ class TenantController {
 
   async create(req, res, next) {
     try {
-      // Kirim req.user.id (didapat dari middleware auth) ke service
-      const userId = req.user ? req.user.id : null;
+      // Middleware 'authAkun' menyimpan payload token di 'req.userDecoded'
+      // Jika menggunakan 'req.user', hasilnya undefined/null.
+      const userId = req.userDecoded?.id;
+
+      if (!userId) {
+        throw createError(401, "Identitas akun tidak ditemukan dalam token.");
+      }
 
       const result = await tenantService.create(req.body, userId);
 
@@ -33,7 +39,11 @@ class TenantController {
         return res.status(400).json({ errors: result.error });
       }
 
-      res.status(201).json({ data: result });
+      // Response diperjelas
+      res.status(201).json({ 
+        message: "Toko berhasil dibuat.", 
+        data: result 
+      });
     } catch (err) {
       next(err);
     }
@@ -49,7 +59,7 @@ class TenantController {
 
       if (!result) throw createError(404, "Tenant tidak ditemukan");
 
-      res.json({ data: result });
+      res.json({ message: "Data toko diperbarui", data: result });
     } catch (err) {
       next(err);
     }
@@ -60,7 +70,7 @@ class TenantController {
       const deleted = await tenantService.delete(req.params.id);
       if (!deleted) throw createError(404, "Tenant tidak ditemukan");
 
-      res.json({ message: "Berhasil dihapus" });
+      res.json({ message: "Toko berhasil dihapus" });
     } catch (err) {
       next(err);
     }
