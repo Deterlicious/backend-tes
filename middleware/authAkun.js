@@ -21,30 +21,44 @@ module.exports = async (req, res, next) => {
     } catch (err) {
       // Bedakan error Expired vs Invalid/Malformed
       if (err.name === "TokenExpiredError") {
-        throw createError(401, "Sesi berakhir (Token Expired). Silakan refresh token.");
+        throw createError(
+          401,
+          "Sesi berakhir (Token Expired). Silakan refresh token."
+        );
       }
       throw createError(403, "Token tidak valid.");
     }
 
     // Ambil data Akun
-    const akun = await Akun.findById(decoded.id).select("device role tenantID");
-    if (!akun) throw createError(401, "Akun tidak ditemukan atau telah dihapus.");
+    const akun = await Akun.findById(decoded.id)
+      .select("device role tenantID")
+      .lean();
+    if (!akun)
+      throw createError(401, "Akun tidak ditemukan atau telah dihapus.");
 
     // Cek Device
-    const currentDevice = akun.device.find(d => d.deviceID === decoded.deviceID);
+    const currentDevice = akun.device.find(
+      (d) => d.deviceID === decoded.deviceID
+    );
     if (!currentDevice) {
       throw createError(401, "Perangkat tidak dikenali. Silakan login ulang.");
     }
 
     // Cek Token Version (Logout Paksa / Security Breach)
-    if (decoded.version !== undefined && currentDevice.tokenVersion !== decoded.version) {
-      throw createError(401, "Sesi telah kedaluwarsa di perangkat ini. Silakan login ulang.");
+    if (
+      decoded.version !== undefined &&
+      currentDevice.tokenVersion !== decoded.version
+    ) {
+      throw createError(
+        401,
+        "Sesi telah kedaluwarsa di perangkat ini. Silakan login ulang."
+      );
     }
 
     // Attach ke Request
-    req.akun = akun; 
+    req.akun = akun;
     req.userDecoded = decoded;
-    
+
     next();
   } catch (err) {
     next(err); // Lempar ke Global Error Handler

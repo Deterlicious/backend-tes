@@ -1,65 +1,103 @@
 const Pengguna = require("../models/penggunaModel");
+const jwt = require("jsonwebtoken"); // Tambahan untuk login staff
 const redis = require("../config/redis");
 const { validatePenggunaPayload } = require("../validators/penggunaValidator");
 const createError = require("http-errors");
 
-// CACHE KEYS (Sama seperti sebelumnya)
+const PENGGUNA_JWT_SECRET = process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
+
 const KEY_LIST = (tenantID) => `pengguna:list:${tenantID}`;
 const KEY_DETAIL = (id) => `pengguna:detail:${id}`;
-const KEY_LOGIN_SCREEN = (tenantID) => `pengguna:loginscreen:${tenantID}`;
 
 class PenggunaService {
   
+  // Method Helper untuk Token Staff (Sederhana, Single Session)
+  generateToken(pengguna) {
+    return jwt.sign(
+      { 
+        id: pengguna._id, 
+        role: pengguna.roleID, 
+        version: pengguna.tokenVersion // Version control sederhana
+      }, 
+      PENGGUNA_JWT_SECRET, 
+      { expiresIn: "12h" } // Shift kerja biasanya < 12 jam
+    );
+  }
+
   async clearCache(tenantID, userID) {
     await redis.del(KEY_LIST(tenantID));
-    await redis.del(KEY_LOGIN_SCREEN(tenantID));
     if (userID) await redis.del(KEY_DETAIL(userID));
   }
+
+  // --- FITUR LOGIN (Yang sebelumnya hilang) ---
+  async login(payload) {
+    const { email, pin } = payload; // Login staff biasanya Email/Username + PIN
+
+    const pengguna = await Pengguna.findOne({ email }).populate("roleID");
+    if (!pengguna) throw createError(404, "Staf tidak ditemukan");
+
+    // Asumsi di model Pengguna ada method comparePin
+    const isMatch = await pengguna.comparePin(pin); 
+    if (!isMatch) throw createError(400, "PIN salah");
+
+    // Update Token Version (Logout di device lain)
+    pengguna.tokenVersion = Math.floor(1000 + Math.random() * 9000);
+    await pengguna.save();
+
+    const token = this.generateToken(pengguna);
+
+    return {
+        user: {
+            id: pengguna._id,
+            nama: pengguna.nama,
+            role: pengguna.roleID.namaRole,
+            tenantID: pengguna.tenantID
+        },
+        token
+    };
+  }
   
-  // Method ini harus diproteksi agar Owner B tidak bisa "mengintip" detail staff Toko A
   async getById(id, requesterTenantID) {
     const cached = await redis.get(KEY_DETAIL(id));
     if (cached) {
         const parsed = JSON.parse(cached);
-        // Validasi Cache: Pastikan cache milik tenant yang sama
         if (parsed.tenantID !== requesterTenantID.toString()) return null;
         return parsed;
     }
 
-    // Cari berdasarkan ID DAN TenantID
     const user = await Pengguna.findOne({ _id: id, tenantID: requesterTenantID })
       .populate("roleID", "namaRole")
       .populate("posisiID", "namaPosisi")
       .select("-pin")
       .lean();
 
-    if (!user) return null; // Jika ID ada tapi beda Tenant, return null
+    if (!user) throw createError(404, "Staf tidak ditemukan"); // REVISI: Throw error
 
     await redis.set(KEY_DETAIL(id), JSON.stringify(user), "EX", 60);
     return user;
   }
 
   async create(payload) {
-     return await Pengguna.create(payload); // Simplifikasi
+     const validation = validatePenggunaPayload(payload);
+     if (!validation.valid) throw createError(400, validation.errors[0]);
+
+     const newUser = await Pengguna.create(payload);
+     await this.clearCache(payload.tenantID);
+     return newUser;
   }
 
   async update(id, payload, requesterTenantID) {
     const validation = validatePenggunaPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
-    // Security: Hapus tenantID dari payload agar tidak bisa dipindah paksa
-    delete payload.tenantID;
+    delete payload.tenantID; // Security
 
-    // Gunakan findOne dengan 2 syarat
     const user = await Pengguna.findOne({ _id: id, tenantID: requesterTenantID });
     
-    // Jika user tidak ditemukan (atau user ada tapi milik tenant lain)
-    if (!user) return null; 
+    // REVISI: Throw error 404 jika tidak ketemu
+    if (!user) throw createError(404, "Staf tidak ditemukan atau akses ditolak");
 
-    // Update fields
     Object.assign(user, payload); 
-    
-    // Save (Trigger pre-save hook PIN hash)
     const updated = await user.save(); 
 
     await this.clearCache(requesterTenantID, id);
@@ -69,7 +107,7 @@ class PenggunaService {
   async delete(id, requesterTenantID) {
     const user = await Pengguna.findOne({ _id: id, tenantID: requesterTenantID });
     
-    if (!user) return null; // Tidak ketemu atau beda tenant
+    if (!user) throw createError(404, "Staf tidak ditemukan");
 
     await user.deleteOne();
     await this.clearCache(requesterTenantID, id);

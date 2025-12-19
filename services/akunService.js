@@ -50,10 +50,10 @@ class AkunService {
 
   async register(payload) {
     const validation = validateRegister(payload);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     const existing = await Akun.findOne({ email: payload.email });
-    if (existing) return { error: ["Email sudah digunakan"] };
+    if (existing) throw createError(409, "Email sudah terdaftar.");
 
     const newUser = await Akun.create(payload);
     await redis.del(KEY_ALL_USERS); 
@@ -64,7 +64,7 @@ class AkunService {
   async login(payload) {
     // Validasi Input
     const validation = validateLogin(payload);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     const { email, password, deviceID, deviceType } = payload;
 
@@ -118,17 +118,13 @@ class AkunService {
     const tokens = this.generateTokens(user, device);
 
     // Filter return user data (jangan kirim password/history)
-    const userResponse = {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        tenantID: user.tenantID,
-        currentDevice: device.deviceID
-    };
-
     return { 
-      user: userResponse, 
+      id: user._id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+      tenantID: user.tenantID,
+      currentDevice: device.deviceID,
       tokens, 
       message: isNewDevice ? "Login berhasil (Device Baru)" : "Login berhasil" 
     };
