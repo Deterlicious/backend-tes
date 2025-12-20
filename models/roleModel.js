@@ -17,6 +17,12 @@ const roleSchema = new mongoose.Schema({
     default: null,
     trim: true,
   },
+  permissions: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Permission",
+    },
+  ],
 });
 
 // COMPOUND INDEX: Unik per Tenant

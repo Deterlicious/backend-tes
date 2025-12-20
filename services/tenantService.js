@@ -2,7 +2,6 @@ const Tenant = require("../models/tenantModel");
 const Akun = require("../models/akunModel");
 const Role = require("../models/roleModel");
 const Permission = require("../models/permissionModel");
-const RolePermission = require("../models/rolePermissionModel");
 const redis = require("../config/redis");
 const { validateTenantPayload } = require("../validators/tenantValidator");
 const createError = require("http-errors");
@@ -11,7 +10,6 @@ const CACHE_KEY_ALL = "tenants:all";
 const CACHE_KEY_ID = (id) => `tenants:${id}`;
 
 class TenantService {
-
   async getAll() {
     const cached = await redis.get(CACHE_KEY_ALL);
     if (cached) return JSON.parse(cached);
@@ -33,43 +31,75 @@ class TenantService {
     return tenant;
   }
 
-  async createWithOwner(payload, userId) {
+  async createWithOwner(payload, akunID) {
+    // 1. Validasi Payload Tenant
     const validation = validateTenantPayload(payload);
     if (!validation.valid) {
       throw createError(400, validation.errors[0]);
     }
 
-    const user = await Akun.findById(userId);
-    if (!user) throw createError(404, "Akun tidak ditemukan.");
-    if (user.tenantID) {
+    // 2. Validasi Akun
+    const akun = await Akun.findById(akunID);
+    if (!akun) throw createError(404, "Akun tidak ditemukan.");
+    if (akun.tenantID) {
       throw createError(400, "Akun sudah memiliki tenant.");
     }
 
-    try {
-      const tenant = await Tenant.create(payload);
+    let tenant = null;
+    let ownerRole = null;
 
-      const ownerRole = await Role.create({
+    try {
+      // 3. Persiapkan data Permission terlebih dahulu
+      // Ambil semua ID permission yang ada di database
+      const permissions = await Permission.find().select("_id").lean();
+      const permissionIDs = permissions.map((p) => p._id);
+
+      // 4. Buat Tenant
+      tenant = await Tenant.create(payload);
+
+      // 5. Buat Role Owner (Langsung isi permission di sini)
+      // Asumsi: Schema Role memiliki field 'permissions' bertipe Array of ObjectId
+      ownerRole = await Role.create({
         tenantID: tenant._id,
         namaRole: "Owner",
-        deskripsi: "Role otomatis dengan akses penuh"
+        deskripsi: "Role otomatis dengan akses penuh",
+        permissions: permissionIDs, // <--- PERUBAHAN UTAMA: Langsung inject semua ID
       });
 
-      const permissions = await Permission.find().select("_id");
-      if (permissions.length > 0) {
-        const rolePerm = permissions.map(p => ({
+      // 6. Update Akun (Link ke Tenant & Role baru)
+      const updatedAkun = await Akun.findByIdAndUpdate(
+        akunID,
+        {
           tenantID: tenant._id,
           roleID: ownerRole._id,
-          permissionID: p._id
-        }));
-        await RolePermission.insertMany(rolePerm);
+        },
+        { new: true, runValidators: true }
+      );
+
+      if (!updatedAkun) {
+        throw createError(500, "Gagal mengupdate akun.");
       }
 
+      // 7. Bersihkan cache
       await redis.del(CACHE_KEY_ALL);
 
-      return { tenant, ownerRole };
-
+      return {
+        tenant,
+        akun: updatedAkun,
+        role: ownerRole,
+      };
     } catch (err) {
-      console.error("Create tenant failed:", err);
+      // ROLLBACK MANUAL
+      // Jika error, hapus tenant dan role yang sempat terbuat
+      if (tenant) {
+        await Tenant.deleteOne({ _id: tenant._id });
+      }
+
+      if (ownerRole) {
+        await Role.deleteOne({ _id: ownerRole._id });
+        // Tidak perlu menghapus RolePermission lagi karena kita tidak membuatnya terpisah
+      }
+
       throw err;
     }
   }
@@ -89,7 +119,7 @@ class TenantService {
 
     const updated = await Tenant.findByIdAndUpdate(id, payload, {
       new: true,
-      runValidators: true
+      runValidators: true,
     }).lean();
 
     if (!updated) return null;
