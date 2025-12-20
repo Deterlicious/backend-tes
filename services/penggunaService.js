@@ -1,26 +1,26 @@
 const Pengguna = require("../models/penggunaModel");
-const jwt = require("jsonwebtoken"); // Tambahan untuk login staff
+const jwt = require("jsonwebtoken");
 const redis = require("../config/redis");
 const { validatePenggunaPayload } = require("../validators/penggunaValidator");
 const createError = require("http-errors");
 
-const PENGGUNA_JWT_SECRET = process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
+const JWT_SECRET = process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
 
 const KEY_LIST = (tenantID) => `pengguna:list:${tenantID}`;
 const KEY_DETAIL = (id) => `pengguna:detail:${id}`;
 
 class PenggunaService {
-  
-  // Method Helper untuk Token Staff (Sederhana, Single Session)
+
   generateToken(pengguna) {
     return jwt.sign(
-      { 
-        id: pengguna._id, 
-        role: pengguna.roleID, 
-        version: pengguna.tokenVersion // Version control sederhana
-      }, 
-      PENGGUNA_JWT_SECRET, 
-      { expiresIn: "12h" } // Shift kerja biasanya < 12 jam
+      {
+        id: pengguna._id,
+        tenantID: pengguna.tenantID,
+        roleID: pengguna.roleID,
+        version: pengguna.tokenVersion
+      },
+      JWT_SECRET,
+      { expiresIn: "12h" }
     );
   }
 
@@ -29,88 +29,110 @@ class PenggunaService {
     if (userID) await redis.del(KEY_DETAIL(userID));
   }
 
-  // --- FITUR LOGIN (Yang sebelumnya hilang) ---
-  async login(payload) {
-    const { email, pin } = payload; // Login staff biasanya Email/Username + PIN
+  async login({ nama, pin }) {
+    const pengguna = await Pengguna.findOne({ nama })
+      .populate("roleID", "namaRole")
+      .lean(false);
 
-    const pengguna = await Pengguna.findOne({ email }).populate("roleID");
-    if (!pengguna) throw createError(404, "Staf tidak ditemukan");
+    if (!pengguna) {
+      throw createError(404, "Pengguna tidak ditemukan");
+    }
 
-    // Asumsi di model Pengguna ada method comparePin
-    const isMatch = await pengguna.comparePin(pin); 
-    if (!isMatch) throw createError(400, "PIN salah");
+    const isMatch = await pengguna.comparePin(pin);
+    if (!isMatch) {
+      throw createError(400, "PIN salah");
+    }
 
-    // Update Token Version (Logout di device lain)
-    pengguna.tokenVersion = Math.floor(1000 + Math.random() * 9000);
+    pengguna.tokenVersion = Date.now();
     await pengguna.save();
 
     const token = this.generateToken(pengguna);
 
     return {
-        user: {
-            id: pengguna._id,
-            nama: pengguna.nama,
-            role: pengguna.roleID.namaRole,
-            tenantID: pengguna.tenantID
-        },
-        token
+      token,
+      user: {
+        nama: pengguna.nama,
+        role: pengguna.roleID.namaRole,
+      }
     };
   }
-  
-  async getById(id, requesterTenantID) {
-    const cached = await redis.get(KEY_DETAIL(id));
-    if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed.tenantID !== requesterTenantID.toString()) return null;
-        return parsed;
-    }
 
-    const user = await Pengguna.findOne({ _id: id, tenantID: requesterTenantID })
-      .populate("roleID", "namaRole")
-      .populate("posisiID", "namaPosisi")
+  async getAll(tenantID) {
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
+
+    const users = await Pengguna.find({ tenantID })
       .select("-pin")
+      .populate("roleID", "namaRole")
       .lean();
 
-    if (!user) throw createError(404, "Staf tidak ditemukan"); // REVISI: Throw error
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(users), "EX", 60);
+    return users;
+  }
+
+  async getById(id, tenantID) {
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== tenantID.toString()) {
+        throw createError(403, "Akses lintas tenant ditolak");
+      }
+      return parsed;
+    }
+
+    const user = await Pengguna.findOne({ _id: id, tenantID })
+      .select("-pin")
+      .populate("roleID", "namaRole")
+      .lean();
+
+    if (!user) throw createError(404, "Pengguna tidak ditemukan");
 
     await redis.set(KEY_DETAIL(id), JSON.stringify(user), "EX", 60);
     return user;
   }
 
-  async create(payload) {
-     const validation = validatePenggunaPayload(payload);
-     if (!validation.valid) throw createError(400, validation.errors[0]);
+  async create(payload, tenantID) {
+    const validation = validatePenggunaPayload(payload);
+    if (!validation.valid) {
+      throw createError(400, validation.errors[0]);
+    }
 
-     const newUser = await Pengguna.create(payload);
-     await this.clearCache(payload.tenantID);
-     return newUser;
+    payload.tenantID = tenantID;
+
+    const user = await Pengguna.create(payload);
+    await this.clearCache(tenantID);
+
+    return user;
   }
 
-  async update(id, payload, requesterTenantID) {
+  async update(id, payload, tenantID) {
+    delete payload.tenantID;
+
     const validation = validatePenggunaPayload(payload, true);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
+    if (!validation.valid) {
+      throw createError(400, validation.errors[0]);
+    }
 
-    delete payload.tenantID; // Security
+    const user = await Pengguna.findOne({ _id: id, tenantID });
+    if (!user) {
+      throw createError(404, "Pengguna tidak ditemukan");
+    }
 
-    const user = await Pengguna.findOne({ _id: id, tenantID: requesterTenantID });
-    
-    // REVISI: Throw error 404 jika tidak ketemu
-    if (!user) throw createError(404, "Staf tidak ditemukan atau akses ditolak");
+    Object.assign(user, payload);
+    const updated = await user.save();
 
-    Object.assign(user, payload); 
-    const updated = await user.save(); 
-
-    await this.clearCache(requesterTenantID, id);
+    await this.clearCache(tenantID, id);
     return updated;
   }
 
-  async delete(id, requesterTenantID) {
-    const user = await Pengguna.findOne({ _id: id, tenantID: requesterTenantID });
-    
-    if (!user) throw createError(404, "Staf tidak ditemukan");
+  async delete(id, tenantID) {
+    const user = await Pengguna.findOne({ _id: id, tenantID });
+    if (!user) {
+      throw createError(404, "Pengguna tidak ditemukan");
+    }
 
     await user.deleteOne();
-    await this.clearCache(requesterTenantID, id);
+    await this.clearCache(tenantID, id);
     return true;
   }
 }

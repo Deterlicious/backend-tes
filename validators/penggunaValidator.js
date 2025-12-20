@@ -1,14 +1,11 @@
-const validator = require("validator");
 const mongoose = require("mongoose");
+const validator = require("validator");
 
 function validatePenggunaPayload(data, isUpdate = false) {
   const errors = [];
 
   // Mandatory Fields (Create)
   if (!isUpdate) {
-    if (!data.tenantID || !mongoose.Types.ObjectId.isValid(data.tenantID)) {
-      errors.push("tenantID wajib diisi dan valid");
-    }
     if (!data.nama || validator.isEmpty(data.nama + "")) {
       errors.push("nama wajib diisi");
     }
@@ -17,7 +14,7 @@ function validatePenggunaPayload(data, isUpdate = false) {
     }
   }
 
-  // Format Validation (Create & Update)
+  // PIN Validation
   if (data.pin) {
     if (data.pin.length < 6) {
       errors.push("PIN minimal 6 karakter");
@@ -39,15 +36,6 @@ function validatePenggunaPayload(data, isUpdate = false) {
   return { valid: true };
 }
 
-function validateLoginPayload(data) {
-  const errors = [];
-  if (!data.pin) errors.push("PIN wajib diisi");
-  if (!data.tenantID || !mongoose.Types.ObjectId.isValid(data.tenantID)) {
-    errors.push("Tenant ID tidak valid");
-  }
-  
-  if (errors.length > 0) return { valid: false, errors };
-  return { valid: true };
-}
-
-module.exports = { validatePenggunaPayload, validateLoginPayload };
+module.exports = {
+  validatePenggunaPayload,
+};

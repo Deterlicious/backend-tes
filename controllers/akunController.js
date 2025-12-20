@@ -18,7 +18,6 @@ class AkunController {
   async register(req, res, next) {
     try {
       const result = await akunService.register(req.body);
-      if (result.error) return res.status(400).json({ errors: result.error });
       res.status(201).json({ message: "Registrasi berhasil", data: result });
     } catch (err) { next(err); }
   }
@@ -69,7 +68,6 @@ class AkunController {
       // Client boleh lihat profil sendiri
       const userId = req.userDecoded.id; 
       const user = await akunService.getProfile(userId);
-      if (!user) return res.status(404).json({ message: "Akun tidak ditemukan" });
       res.json(user);
     } catch (err) { next(err); }
   }
@@ -94,18 +92,8 @@ class AkunController {
   async deleteUserByAdmin(req, res, next) {
     try {
       const targetUserId = req.params.id;
-      
-      // Proteksi: Admin tidak boleh menghapus dirinya sendiri lewat route ini (opsional)
-      if (targetUserId === req.userDecoded.id) {
-          return res.status(400).json({ message: "Tidak dapat menghapus akun sendiri via Admin Route." });
-      }
-
-      const deleted = await Akun.findByIdAndDelete(targetUserId);
-      if (!deleted) return res.status(404).json({ message: "User tidak ditemukan" });
-
-      // Hapus cache terkait
-      await akunService.clearCache(targetUserId);
-
+      const requesterId = req.userDecoded.id;
+      await akunService.deleteUserByAdmin(targetUserId, requesterId);
       res.json({ message: "Akun berhasil dihapus oleh Super Admin" });
     } catch (err) { next(err); }
   }
@@ -121,7 +109,6 @@ class AkunController {
     try {
       const userId = req.userDecoded.id;
       const result = await deviceService.addDevice(userId, req.body);
-      if (result.error) return res.status(400).json({ errors: result.error });
       res.status(201).json({ message: "Device added", data: result });
     } catch (err) { next(err); }
   }
@@ -130,7 +117,6 @@ class AkunController {
     try {
       const userId = req.userDecoded.id;
       const result = await deviceService.promoteDevice(userId, req.body.deviceID);
-      if (result.error) return res.status(400).json({ errors: result.error });
       res.json({ message: "Device promoted", data: result });
     } catch (err) { next(err); }
   }

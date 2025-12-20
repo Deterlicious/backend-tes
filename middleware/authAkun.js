@@ -5,12 +5,12 @@ const createError = require("http-errors");
 
 const AKUN_JWT_SECRET = process.env.AKUN_JWT_SECRET || "akun_secret";
 
-module.exports = async (req, res, next) => {
+async function authAkun(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      throw createError(401, "Akses ditolak. Token Akun tidak ditemukan.");
+      throw createError(401, "Akses ditolak. Token akun tidak ditemukan.");
     }
 
     const token = authHeader.split(" ")[1];
@@ -19,48 +19,76 @@ module.exports = async (req, res, next) => {
     try {
       decoded = jwt.verify(token, AKUN_JWT_SECRET);
     } catch (err) {
-      // Bedakan error Expired vs Invalid/Malformed
       if (err.name === "TokenExpiredError") {
         throw createError(
           401,
-          "Sesi berakhir (Token Expired). Silakan refresh token."
+          "Sesi berakhir (Token expired). Silakan login ulang."
         );
       }
       throw createError(403, "Token tidak valid.");
     }
 
-    // Ambil data Akun
+    // Ambil data akun
     const akun = await Akun.findById(decoded.id)
-      .select("device role tenantID")
+      .select("device role tenantID roleID")
       .lean();
-    if (!akun)
+
+    if (!akun) {
       throw createError(401, "Akun tidak ditemukan atau telah dihapus.");
-
-    // Cek Device
-    const currentDevice = akun.device.find(
-      (d) => d.deviceID === decoded.deviceID
-    );
-    if (!currentDevice) {
-      throw createError(401, "Perangkat tidak dikenali. Silakan login ulang.");
     }
 
-    // Cek Token Version (Logout Paksa / Security Breach)
-    if (
-      decoded.version !== undefined &&
-      currentDevice.tokenVersion !== decoded.version
-    ) {
-      throw createError(
-        401,
-        "Sesi telah kedaluwarsa di perangkat ini. Silakan login ulang."
+    // Validasi device (jika deviceID ada di token)
+    if (decoded.deviceID) {
+      const currentDevice = akun.device?.find(
+        (d) => d.deviceID === decoded.deviceID
       );
+
+      if (!currentDevice) {
+        throw createError(
+          401,
+          "Perangkat tidak dikenali. Silakan login ulang."
+        );
+      }
+
+      // Validasi token version (logout paksa / revoke)
+      if (
+        decoded.version !== undefined &&
+        currentDevice.tokenVersion !== decoded.version
+      ) {
+        throw createError(
+          401,
+          "Sesi telah berakhir di perangkat ini. Silakan login ulang."
+        );
+      }
     }
 
-    // Attach ke Request
-    req.akun = akun;
+    req.akunContext = {
+      akunID: akun._id,
+      roleAkun: akun.role,
+      tenantID: decoded.tenantID || null,
+      roleID: decoded.roleID || null,
+    };
+
     req.userDecoded = decoded;
 
     next();
   } catch (err) {
-    next(err); // Lempar ke Global Error Handler
+    next(err);
   }
+}
+
+authAkun.requireTenant = function (req, res, next) {
+  if (!req.akunContext?.tenantID) {
+    return next(createError(403, "Akun belum terikat tenant."));
+  }
+  next();
 };
+
+authAkun.requireRole = function (req, res, next) {
+  if (!req.akunContext?.roleID) {
+    return next(createError(403, "Role tidak ditemukan."));
+  }
+  next();
+};
+
+module.exports = authAkun;

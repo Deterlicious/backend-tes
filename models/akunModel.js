@@ -59,12 +59,32 @@ const akunSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    
+    // --- LEVEL AKSES SAAS (JANGAN UBAH) ---
+    // Membedakan Tuan (Admin) dan Klien (Owner Toko)
     role: {
       type: String,
       enum: ["client", "admin"],
       default: "client",
     },
+
+    // --- LEVEL AKSES TOKO (TAMBAHAN BARU) ---
+    // Menyimpan ID Role "Owner" yang dibuat otomatis saat Create Tenant
+    // Agar bisa dipakai saat register-owner pengguna
+    roleID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role",
+      default: null,
+    },
+
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      default: null,
+    },
+
     device: [deviceSchema],
+    
     maxPrimaryDevice: {
       type: Number,
       min: 1,
@@ -78,19 +98,11 @@ const akunSchema = new mongoose.Schema(
       default: 1,
     },
     deviceHistory: [deviceHistorySchema],
-    tenantID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Tenant",
-      default: null,
-      required: false,
-    },
   },
   { timestamps: true }
 );
 
-// COMPOUND INDEX: 
-// Menggantikan index single 'tenantID' dan 'role'
-// Mempercepat query filtering di dashboard admin
+// Index disesuaikan agar performa query admin tetap cepat
 akunSchema.index({ tenantID: 1, role: 1 });
 
 akunSchema.pre("save", async function (next) {

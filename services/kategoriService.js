@@ -5,7 +5,7 @@ const createError = require("http-errors");
 
 // CACHE KEYS
 const CACHE_KEY_LIST = (tenantID) => `kategori:list:${tenantID}`;
-const CACHE_KEY_DETAIL = (id) => `kategori:detail:${id}`;
+const CACHE_KEY_DETAIL = (tenantID, id) => `kategori:detail:${tenantID}:${id}`;
 
 class KategoriService {
   async getAll(tenantID) {
@@ -31,18 +31,18 @@ class KategoriService {
     return categories;
   }
 
-  async getById(id) {
-    const key = CACHE_KEY_DETAIL(id);
+  async getById(id, tenantID) {
+    const key = CACHE_KEY_DETAIL(tenantID, id);
 
     // Cek Cache
     const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
     // DB
-    const kategori = await Kategori.findById(id)
+    Kategori.findOne({ _id: id, tenantID })
       .populate("tenantID", "namaToko")
       .lean();
-    
+
     if (!kategori) return null;
 
     // Cache
@@ -74,7 +74,7 @@ class KategoriService {
     }
   }
 
-  async update(id, payload) {
+  async update(id, payload, tenantID) {
     // Validasi
     const validation = validateKategoriPayload(payload, true);
     if (!validation.valid) return { error: validation.errors };
@@ -84,7 +84,7 @@ class KategoriService {
 
     try {
       // Update DB
-      const updated = await Kategori.findByIdAndUpdate(id, payload, {
+      Kategori.findOneAndUpdate({ _id: id, tenantID }, payload, {
         new: true,
         runValidators: true,
       }).lean();
@@ -93,7 +93,7 @@ class KategoriService {
 
       // Invalidate Cache (List Tenant & Detail ID)
       await redis.del(CACHE_KEY_LIST(updated.tenantID));
-      await redis.del(CACHE_KEY_DETAIL(id));
+      await redis.del(CACHE_KEY_DETAIL(tenantID, id));
 
       return updated;
     } catch (err) {
@@ -106,10 +106,10 @@ class KategoriService {
   }
 
   async delete(id) {
-    const target = await Kategori.findById(id).lean();
+    const target = await Kategori.findOne({ _id: id, tenantID }).lean();
     if (!target) return null;
 
-    await Kategori.deleteOne({ _id: id });
+    await Kategori.deleteOne({ _id: id, tenantID });
 
     // Cleanup Cache
     await redis.del(CACHE_KEY_LIST(target.tenantID));

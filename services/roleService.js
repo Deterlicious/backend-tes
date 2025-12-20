@@ -12,16 +12,13 @@ class RoleService {
   async getAll(tenantID) {
     if (!tenantID) throw createError(400, "tenantID required");
 
-    // Cek Cache
     const cached = await redis.get(KEY_LIST(tenantID));
     if (cached) return JSON.parse(cached);
 
-    // DB Query
     const roles = await Role.find({ tenantID })
-      .sort({ namaRole: 1 }) // Urutkan A-Z agar rapi di dropdown
+      .sort({ namaRole: 1 }) 
       .lean();
 
-    // Set Cache (1 Jam)
     if (roles.length > 0) {
       await redis.set(KEY_LIST(tenantID), JSON.stringify(roles), "EX", 3600);
     }
@@ -46,10 +43,7 @@ class RoleService {
 
     try {
       const role = await Role.create(payload);
-      
-      // Invalidate Cache List
       await redis.del(KEY_LIST(payload.tenantID));
-      
       return role;
     } catch (err) {
       if (err.code === 11000) {
@@ -59,6 +53,23 @@ class RoleService {
     }
   }
 
+  async createOwnerRole(tenantID) {
+    const payload = {
+      tenantID,
+      namaRole: "Owner",
+      deskripsi: "Role sistem untuk pemilik toko (Full Access).",
+      permissions: [] // TODO: Isi dengan Semua Permission ID yang tersedia
+    };
+
+    // 2. Buat Role Langsung (Bypass validasi publik karena ini system action)
+    const role = await Role.create(payload);
+
+    // 3. Invalidate Cache
+    await redis.del(KEY_LIST(tenantID));
+
+    return role;
+  }
+
   async update(id, payload) {
     const validation = validateRolePayload(payload, true);
     if (!validation.valid) return { error: validation.errors };
@@ -66,9 +77,9 @@ class RoleService {
     delete payload.tenantID; // Security
 
     try {
-      // Logic Khusus: Jangan biarkan user mengubah nama role "Owner"
-      // untuk mencegah kebingungan sistem, tapi deskripsi boleh diubah.
       const currentRole = await Role.findById(id);
+      
+      // Proteksi Nama Role Owner
       if (currentRole && currentRole.namaRole === "Owner" && payload.namaRole) {
          if (payload.namaRole !== "Owner") {
             return { error: ["Role Owner tidak dapat diubah namanya"] };
@@ -82,7 +93,6 @@ class RoleService {
 
       if (!updated) return null;
 
-      // Invalidate Cache
       await redis.del(KEY_LIST(updated.tenantID));
       await redis.del(KEY_DETAIL(id));
 
@@ -97,14 +107,12 @@ class RoleService {
     const role = await Role.findById(id);
     if (!role) return null;
 
-    // Proteksi: Jangan hapus Role Owner
     if (role.namaRole === "Owner") {
         throw createError(403, "Role Owner tidak dapat dihapus (System Protected)");
     }
 
     await role.deleteOne();
 
-    // Invalidate Cache
     await redis.del(KEY_LIST(role.tenantID));
     await redis.del(KEY_DETAIL(id));
 
