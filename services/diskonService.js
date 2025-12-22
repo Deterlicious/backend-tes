@@ -1,147 +1,130 @@
-// diskonService.js
 const Diskon = require("../models/diskonModel");
 const mongoose = require("mongoose");
+const redis = require("../config/redis");
 const createError = require("http-errors");
 const { validateDiskonPayload } = require("../validators/diskonValidator");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+// --- CACHE KEYS (Sesuai Standar AkunService) ---
+const KEY_LIST = (tenantID) => `diskon:list:${tenantID}`;
+const KEY_DETAIL = (id) => `diskon:detail:${id}`;
 
 class DiskonService {
-  // Helper: Menangani Error Mongoose (Dipindahkan dari Controller)
-  handleDbError(error, defaultMessage = "Gagal memproses data Diskon") {
+  // --- CACHE HELPER ---
+  async clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
+  // --- PRIVATE DB ERROR HANDLER (#) ---
+  #handleDbError(error) {
     if (error.code === 11000) {
       const field = Object.keys(error.keyValue);
-      return createError(400, {
-        message: `Gagal menambahkan/memperbarui. ${field} '${error.keyValue[field]}' sudah terdaftar (dalam tenant yang sama).`,
-      });
+      return createError(400, `Data ${field} sudah terdaftar di tenant ini.`);
     }
     if (error.name === "ValidationError") {
-      let errors = {};
-      Object.keys(error.errors).forEach((key) => {
-        errors[key] = error.errors[key].message;
-      });
-      return createError(400, {
-        message: "Validasi data gagal. Cek detail errors.",
-        errors: errors,
-      });
+      return createError(400, Object.values(error.errors)[0].message);
     }
     if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
+      return createError(400, "Format ID tidak valid.");
     }
-    return createError(500, error.message || defaultMessage);
+    return createError(500, error.message);
   }
 
   // --- CREATE ---
   async create(payload) {
     const validation = validateDiskonPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
       const diskon = await Diskon.create(payload);
+
+      // Invalidate list cache agar data real-time muncul di GET ALL
+      await this.clearCache(null, payload.tenantID);
+
       return diskon;
     } catch (error) {
-      throw this.handleDbError(error, "Gagal menambahkan Diskon.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
 
-    const diskon = await Diskon.find({ tenantID }).sort({
-      status: -1,
-      nilai: -1,
-    });
+    // 1. Cek Cache Redis
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
+
+    // 2. Query DB dengan .lean() untuk performa (Sesuai Standar Teman Anda)
+    const diskon = await Diskon.find({ tenantID })
+      .sort({ status: -1, createdAt: -1 })
+      .lean();
 
     if (diskon.length === 0)
-      throw createError(404, "Tidak ada data Diskon untuk tenant ini.");
+      throw createError(404, "Data diskon tidak ditemukan.");
 
+    // 3. Simpan ke Cache (Expired 5 menit)
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(diskon), "EX", 300);
     return diskon;
   }
 
   // --- READ BY ID ---
-  async getById(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Diskon dan Tenant ID wajib disertakan dan harus valid."
-      );
+  async getById(id, tenantID) {
+    // 1. Cek Cache Detail
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      // Validasi kepemilikan data di tingkat cache
+      if (data.tenantID.toString() !== tenantID.toString())
+        throw createError(403, "Akses ditolak.");
+      return data;
+    }
 
-    const diskon = await Diskon.findOne({ _id: id, tenantID }); // KEAMANAN: Filter ID & tenantID
+    // 2. Query DB
+    const diskon = await Diskon.findOne({ _id: id, tenantID }).lean();
+    if (!diskon) throw createError(404, "Diskon tidak ditemukan.");
 
-    if (!diskon)
-      throw createError(
-        404,
-        "Diskon tidak ditemukan atau Anda tidak memiliki akses."
-      );
-
+    // 3. Set Cache Detail
+    await redis.set(KEY_DETAIL(id), JSON.stringify(diskon), "EX", 600);
     return diskon;
   }
 
   // --- UPDATE ---
-  async update(tenantID, id, payload) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Diskon dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  async update(id, tenantID, payload) {
     const validation = validateDiskonPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
-      // KEAMANAN KRITIS: Update hanya jika _id dan tenantID cocok
-      const diskon = await Diskon.findOneAndUpdate(
-        { _id: id, tenantID: tenantID },
-        validation.updates,
-        { new: true, runValidators: true, context: "query" }
-      );
+      const updated = await Diskon.findOneAndUpdate(
+        { _id: id, tenantID },
+        { $set: validation.updates },
+        { new: true, runValidators: true }
+      ).lean();
 
-      if (!diskon)
-        throw createError(
-          404,
-          "Diskon tidak ditemukan atau Anda tidak memiliki akses."
-        );
+      if (!updated)
+        throw createError(404, "Data tidak ditemukan atau akses ditolak.");
 
-      return diskon;
+      // Bersihkan Cache agar data baru langsung tampil (Real-time)
+      await this.clearCache(id, tenantID);
+
+      return updated;
     } catch (error) {
-      throw this.handleDbError(error, "Gagal memperbarui Diskon.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- DELETE ---
-  async delete(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Diskon dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  async delete(id, tenantID) {
     try {
-      // KEAMANAN KRITIS: Delete hanya jika _id dan tenantID cocok
-      const deletedDiskon = await Diskon.findOneAndDelete({
-        _id: id,
-        tenantID: tenantID,
-      });
+      const deleted = await Diskon.findOneAndDelete({ _id: id, tenantID });
+      if (!deleted) throw createError(404, "Data tidak ditemukan.");
 
-      if (!deletedDiskon)
-        throw createError(
-          404,
-          "Diskon tidak ditemukan atau Anda tidak memiliki akses."
-        );
+      // Bersihkan Cache
+      await this.clearCache(id, tenantID);
 
       return { message: "Diskon berhasil dihapus" };
     } catch (error) {
-      throw this.handleDbError(error, "Gagal menghapus Diskon.");
+      throw this.#handleDbError(error);
     }
   }
 }

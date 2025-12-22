@@ -1,174 +1,135 @@
-// asetService.js
 const Aset = require("../models/asetModel");
 const mongoose = require("mongoose");
+const redis = require("../config/redis"); // Path disesuaikan dengan AkunService
 const createError = require("http-errors");
-const redis = require("../utils/redisClient"); // Redis Client
-const { validateAsetPayload } = require("../validators/asetValidator"); // Import Validator
+const { validateAsetPayload } = require("../validators/asetValidator");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-// --- Helper: Cache Keys ---
-const keyAsetList = (tenantID) => `aset:tenant:${tenantID}`;
-const keyAsetDetail = (id) => `aset:detail:${id}`;
+// --- CACHE KEYS (Konsisten dengan pola AkunService) ---
+const KEY_LIST = (tenantID) => `aset:list:${tenantID}`;
+const KEY_DETAIL = (id) => `aset:detail:${id}`;
 
 class AsetService {
-  // Helper untuk menangani error Mongoose dan lainnya
-  handleServiceError(error, defaultMessage = "Gagal memproses data Aset") {
-    // ... (Tambahkan logika error handling Mongoose/Duplikasi jika diperlukan) ...
+  // --- CACHE HELPER ---
+  async clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
+  // --- PRIVATE ERROR HANDLER (#) ---
+  #handleDbError(error) {
     if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
+      return createError(400, "Format ID tidak valid.");
     }
-    return createError(500, error.message || defaultMessage);
+    if (error.name === "ValidationError") {
+      return createError(400, Object.values(error.errors)[0].message);
+    }
+    return createError(500, error.message);
   }
 
   // --- CREATE ---
   async create(payload) {
+    // 1. Validasi Input (Ambil error pertama sesuai standar Akun)
     const validation = validateAsetPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
-      const newAset = new Aset(payload);
-      const savedAset = await newAset.save();
+      const newAset = await Aset.create(payload);
 
-      // Invalidate Cache List
-      await redis.del(keyAsetList(payload.tenantID));
+      // 2. Clear Cache List Tenant
+      await this.clearCache(null, payload.tenantID);
 
-      return savedAset;
+      return newAset;
     } catch (error) {
-      throw this.handleServiceError(error, "Gagal menambahkan Aset.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
 
-    const cacheKey = keyAsetList(tenantID);
-    const cachedData = await redis.get(cacheKey);
+    // 1. Cek Redis Cache
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
 
-    if (cachedData) {
-      return JSON.parse(cachedData);
-    }
+    // 2. Query DB dengan .lean() dan Populate
+    const asets = await Aset.find({ tenantID })
+      .populate("tipeAsetID", "namaTipeAset deskripsi")
+      .sort({ createdAt: -1 })
+      .lean();
 
-    try {
-      // Populate tipeAsetID
-      const asets = await Aset.find({ tenantID }).populate(
-        "tipeAsetID",
-        "namaTipeAset deskripsi"
-      );
+    if (asets.length === 0)
+      throw createError(404, "Data Aset tidak ditemukan.");
 
-      if (asets.length === 0)
-        throw createError(404, "Tidak ada data Aset untuk tenant ini.");
+    // 3. Simpan ke Cache (Expire 300 detik/5 menit)
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(asets), "EX", 300);
 
-      // Cache Miss: Simpan ke Redis (Expire 60 detik)
-      await redis.setEx(cacheKey, 60, JSON.stringify(asets));
-      return asets;
-    } catch (error) {
-      throw this.handleServiceError(error, "Gagal mengambil daftar Aset.");
-    }
+    return asets;
   }
 
   // --- READ BY ID ---
-  async getById(id) {
-    if (!isValidObjectId(id))
-      throw createError(400, "Format ID Aset tidak valid.");
-
-    const cacheKey = keyAsetDetail(id);
-    const cachedData = await redis.get(cacheKey);
-
-    if (cachedData) {
-      return JSON.parse(cachedData);
+  async getById(id, tenantID) {
+    // 1. Cek Cache Detail
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      // Security Check: Anti-ID-Tampering
+      if (data.tenantID.toString() !== tenantID.toString())
+        throw createError(403, "Akses ditolak.");
+      return data;
     }
 
-    try {
-      const aset = await Aset.findById(id).populate(
-        "tipeAsetID",
-        "namaTipeAset deskripsi"
-      );
+    // 2. Query DB dengan isolasi Tenant
+    const aset = await Aset.findOne({ _id: id, tenantID })
+      .populate("tipeAsetID", "namaTipeAset deskripsi")
+      .lean();
 
-      if (!aset) throw createError(404, "Aset tidak ditemukan");
+    if (!aset) throw createError(404, "Aset tidak ditemukan.");
 
-      // Cache Miss: Simpan ke Redis (Expire 60 detik)
-      await redis.setEx(cacheKey, 60, JSON.stringify(aset));
-      return aset;
-    } catch (error) {
-      throw this.handleServiceError(error, "Gagal mengambil detail Aset.");
-    }
+    // 3. Simpan ke Cache Detail (Expire 600 detik)
+    await redis.set(KEY_DETAIL(id), JSON.stringify(aset), "EX", 600);
+
+    return aset;
   }
 
   // --- UPDATE ---
-  async update(tenantID, id, payload) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Aset dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  async update(id, tenantID, payload) {
+    // 1. Validasi Input
     const validation = validateAsetPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
-      // KEAMANAN KRITIS: Filter berdasarkan _id dan tenantID
-      const updatedAset = await Aset.findOneAndUpdate(
-        { _id: id, tenantID: tenantID },
-        validation.updates,
+      // 2. Update dengan filter tenantID (Keamanan Kritis)
+      const updated = await Aset.findOneAndUpdate(
+        { _id: id, tenantID },
+        { $set: validation.updates },
         { new: true, runValidators: true }
-      );
+      ).lean();
 
-      if (!updatedAset)
-        throw createError(
-          404,
-          "Aset tidak ditemukan atau Anda tidak memiliki akses."
-        );
+      if (!updated)
+        throw createError(404, "Aset tidak ditemukan atau akses ditolak.");
 
-      // Invalidate Cache
-      await redis.del(keyAsetDetail(id));
-      await redis.del(keyAsetList(tenantID)); // Gunakan tenantID dari request karena sudah divalidasi
+      // 3. Invalidate Cache
+      await this.clearCache(id, tenantID);
 
-      return updatedAset;
+      return updated;
     } catch (error) {
-      throw this.handleServiceError(error, "Gagal memperbarui Aset.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- DELETE ---
-  async delete(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Aset dan Tenant ID wajib disertakan dan harus valid."
-      );
+  async delete(id, tenantID) {
+    // 1. Delete dengan filter tenantID murni dari token
+    const deleted = await Aset.findOneAndDelete({ _id: id, tenantID });
 
-    try {
-      // KEAMANAN KRITIS: Filter berdasarkan _id dan tenantID
-      const deletedAset = await Aset.findOneAndDelete({
-        _id: id,
-        tenantID: tenantID,
-      });
+    if (!deleted)
+      throw createError(404, "Aset tidak ditemukan atau akses ditolak.");
 
-      if (!deletedAset)
-        throw createError(
-          404,
-          "Aset tidak ditemukan atau Anda tidak memiliki akses."
-        );
+    // 2. Clear Cache
+    await this.clearCache(id, tenantID);
 
-      // Invalidate Cache
-      await redis.del(keyAsetDetail(id));
-      await redis.del(keyAsetList(tenantID));
-
-      return { message: "Aset berhasil dihapus" };
-    } catch (error) {
-      throw this.handleServiceError(error, "Gagal menghapus Aset.");
-    }
+    return { message: "Aset berhasil dihapus" };
   }
 }
 

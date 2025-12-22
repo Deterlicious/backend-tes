@@ -1,16 +1,24 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const jurnalStokController = require('../controllers/jurnalStokController'); // Sesuaikan path
+const jurnalStokController = require("../controllers/jurnalStokController");
+const authPengguna = require("../middleware/authPengguna");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(jurnalStokController.createJurnalStok)
-    .get(jurnalStokController.getAllJurnalStok); // Wajib filter tenantID
+/**
+ * 🛠️ ASYNC WRAPPER
+ * Menangkap error dari fungsi async dan meneruskannya ke Global Error Handler
+ */
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(jurnalStokController.getJurnalStokById) // Hanya menggunakan ID
-    .put(jurnalStokController.updateJurnalStok) // Hanya menggunakan ID
-    .delete(jurnalStokController.deleteJurnalStok); // Hanya menggunakan ID
+// --- PROTECTED ROUTES ---
+// Mengaktifkan autentikasi untuk semua endpoint di bawah ini
+router.use(authPengguna);
+
+router.post("/", wrap(jurnalStokController.createJurnalStok));
+router.get("/", wrap(jurnalStokController.getAllJurnalStok));
+router.get("/:id", wrap(jurnalStokController.getJurnalStokById));
+router.put("/:id", wrap(jurnalStokController.updateJurnalStok));
+router.delete("/:id", wrap(jurnalStokController.deleteJurnalStok));
 
 module.exports = router;

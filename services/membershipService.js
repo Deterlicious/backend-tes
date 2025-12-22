@@ -1,186 +1,173 @@
-// membershipService.js
 const Membership = require("../models/membershipModel");
 const mongoose = require("mongoose");
+const redis = require("../config/redis"); // Mengikuti path AkunService
 const createError = require("http-errors");
 const {
   validateMembershipPayload,
-} = require("../validators/memberhsipValidator"); // Import Validator
+} = require("../validators/memberhsipValidator");
 
-// Asumsi model PaketMembership diimpor di scope ini (diperlukan untuk CREATE/UPDATE)
+// Model pendukung
 const PaketMembership =
   mongoose.models.PaketMembership || require("../models/paketMembershipModel");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-/**
- * Helper untuk menghitung dan membandingkan tanggal kadaluarsa.
- * @throws {Error} Jika tanggal kadaluarsa tidak sesuai.
- */
-async function validateExpiryLogic(
-  paketId,
-  tanggalMulai,
-  tanggalKadaluarsaInput
-) {
-  const paket = await PaketMembership.findById(paketId);
-  if (!paket) throw createError(400, "Paket Membership tidak ditemukan.");
-
-  const tglMulai = new Date(tanggalMulai);
-  tglMulai.setHours(0, 0, 0, 0);
-
-  const tglKadaluarsaSeharusnya = new Date(tglMulai);
-  tglKadaluarsaSeharusnya.setDate(tglMulai.getDate() + paket.durasiHari);
-  tglKadaluarsaSeharusnya.setHours(23, 59, 59, 999);
-
-  const tglKadaluarsaInput = new Date(tanggalKadaluarsaInput);
-  const tglKadaluarsaInputNormalized = new Date(tglKadaluarsaInput);
-  tglKadaluarsaInputNormalized.setHours(23, 59, 59, 999);
-
-  if (
-    tglKadaluarsaInputNormalized.getTime() !== tglKadaluarsaSeharusnya.getTime()
-  ) {
-    const tglSeharusnyaString = tglKadaluarsaSeharusnya
-      .toISOString()
-      .split("T")[0];
-    throw createError(400, {
-      message: "Tanggal Kadaluarsa tidak sesuai dengan durasi paket.",
-      error: `Tanggal Kadaluarsa seharusnya: ${tglSeharusnyaString} (berdasarkan paket ${paket.durasiHari} hari).`,
-    });
-  }
-}
+// --- CACHE KEYS (Standar AkunService) ---
+const KEY_LIST = (tenantID) => `membership:list:${tenantID}`;
+const KEY_DETAIL = (id) => `membership:detail:${id}`;
 
 class MembershipService {
+  // --- CACHE HELPER ---
+  async clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
+  // --- PRIVATE LOGIC: VALIDASI MASA AKTIF ---
+  async #validateExpiryLogic(paketId, tanggalMulai, tanggalKadaluarsaInput) {
+    const paket = await PaketMembership.findById(paketId).lean();
+    if (!paket) throw createError(400, "Paket Membership tidak ditemukan.");
+
+    const tglMulai = new Date(tanggalMulai);
+    tglMulai.setHours(0, 0, 0, 0);
+
+    const tglSeharusnya = new Date(tglMulai);
+    tglSeharusnya.setDate(tglMulai.getDate() + paket.durasiHari);
+    tglSeharusnya.setHours(23, 59, 59, 999);
+
+    const tglInput = new Date(tanggalKadaluarsaInput);
+    tglInput.setHours(23, 59, 59, 999);
+
+    if (tglInput.getTime() !== tglSeharusnya.getTime()) {
+      const tglString = tglSeharusnya.toISOString().split("T")[0];
+      throw createError(
+        400,
+        `Tanggal Kadaluarsa tidak valid. Seharusnya: ${tglString} (Paket ${paket.durasiHari} hari).`
+      );
+    }
+  }
+
   // --- CREATE ---
   async create(payload) {
-    // 1. Validasi Input Dasar
+    // 1. Validasi Input (Ambil error pertama sesuai standar Akun)
     const validation = validateMembershipPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
-    // 2. Validasi Logika Bisnis Tanggal (Memanggil helper)
-    await validateExpiryLogic(
+    // 2. Validasi Logika Bisnis
+    await this.#validateExpiryLogic(
       payload.paketMembershipID,
       payload.tanggalMulai,
       payload.tanggalKadaluarsa
     );
 
     try {
-      const membership = await Membership.create(payload);
-      return membership;
+      const newMembership = await Membership.create(payload);
+
+      // 3. Invalidate List Cache
+      await this.clearCache(null, payload.tenantID);
+
+      return newMembership;
     } catch (error) {
-      if (error.code === 11000) {
-        throw createError(
-          400,
-          `Gagal menambahkan. Penjualan ID '${payload.penjualanID}' sudah digunakan.`
-        );
-      }
+      if (error.code === 11000)
+        throw createError(400, "Penjualan ID sudah digunakan.");
       throw createError(500, error.message);
     }
   }
 
   // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
 
-    const membership = await Membership.find({ tenantID })
+    // 1. Cek Cache
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
+
+    // 2. Query DB dengan .lean()
+    const memberships = await Membership.find({ tenantID })
       .populate("PelangganID", "namaPelanggan nomorHp")
       .populate("paketMembershipID", "namaPaket durasiHari")
       .populate("penjualanID", "nomorFaktur")
-      .sort({ tanggalMulai: -1 });
+      .sort({ tanggalMulai: -1 })
+      .lean();
 
-    if (membership.length === 0)
-      throw createError(404, "Tidak ada data Membership untuk tenant ini.");
+    // 3. Set Cache (EX: 300 detik)
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(memberships), "EX", 300);
 
-    return membership;
+    return memberships;
   }
 
   // --- READ BY ID ---
-  async getById(id) {
-    if (!isValidObjectId(id)) throw createError(400, "Format ID tidak valid.");
+  async getById(id, tenantID) {
+    // 1. Cek Cache
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      // Security Check: Pastikan tenantID cocok (Anti-Tampering)
+      if (data.tenantID.toString() !== tenantID.toString())
+        throw createError(403, "Akses ditolak.");
+      return data;
+    }
 
-    const membership = await Membership.findById(id)
+    // 2. Query DB dengan isolasi Tenant
+    const membership = await Membership.findOne({ _id: id, tenantID })
       .populate("PelangganID", "namaPelanggan nomorHp")
       .populate("paketMembershipID", "namaPaket durasiHari")
-      .populate("penjualanID", "nomorFaktur");
+      .populate("penjualanID", "nomorFaktur")
+      .lean();
 
     if (!membership) throw createError(404, "Membership tidak ditemukan.");
+
+    // 3. Set Cache
+    await redis.set(KEY_DETAIL(id), JSON.stringify(membership), "EX", 600);
+
     return membership;
   }
 
   // --- UPDATE ---
-  async update(id, payload) {
-    if (!isValidObjectId(id)) throw createError(400, "Format ID tidak valid.");
-
-    // 1. Validasi Input & Whitelisting/Field Asing Check
+  async update(id, tenantID, payload) {
+    // 1. Validasi Input
     const validation = validateMembershipPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     const updates = validation.updates;
 
-    // 2. Validasi Logika Khusus (Tanggal/Paket Membership)
+    // 2. Cek Eksistensi & Hak Akses
+    const current = await Membership.findOne({ _id: id, tenantID }).lean();
+    if (!current) throw createError(404, "Membership tidak ditemukan.");
+
+    // 3. Validasi Logika Tanggal jika ada perubahan terkait
     if (
       updates.paketMembershipID ||
       updates.tanggalMulai ||
       updates.tanggalKadaluarsa
     ) {
-      const currentMembership = await Membership.findById(id);
-      if (!currentMembership)
-        throw createError(404, "Membership tidak ditemukan.");
-
-      const newPaketID =
-        updates.paketMembershipID || currentMembership.paketMembershipID;
-      const newTanggalMulai =
-        updates.tanggalMulai || currentMembership.tanggalMulai;
-      const newTanggalKadaluarsa =
-        updates.tanggalKadaluarsa || currentMembership.tanggalKadaluarsa;
-
-      // Validasi ulang dengan data yang sudah digabungkan (lama + baru)
-      await validateExpiryLogic(
-        newPaketID,
-        newTanggalMulai,
-        newTanggalKadaluarsa
+      await this.#validateExpiryLogic(
+        updates.paketMembershipID || current.paketMembershipID,
+        updates.tanggalMulai || current.tanggalMulai,
+        updates.tanggalKadaluarsa || current.tanggalKadaluarsa
       );
     }
 
-    try {
-      const membership = await Membership.findByIdAndUpdate(id, updates, {
-        new: true,
-        runValidators: true,
-        context: "query",
-      });
+    // 4. Update DB
+    const updated = await Membership.findOneAndUpdate(
+      { _id: id, tenantID },
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).lean();
 
-      if (!membership) throw createError(404, "Membership tidak ditemukan");
+    // 5. Clear Cache
+    await this.clearCache(id, tenantID);
 
-      return membership;
-    } catch (error) {
-      if (error.name === "ValidationError") {
-        throw createError(400, {
-          message: "Validasi gagal.",
-          errors: error.errors,
-        });
-      }
-      throw createError(400, error.message);
-    }
+    return updated;
   }
 
   // --- DELETE ---
-  async delete(id) {
-    if (!isValidObjectId(id)) throw createError(400, "Format ID tidak valid.");
+  async delete(id, tenantID) {
+    // Hapus dengan filter tenantID untuk keamanan penuh
+    const deleted = await Membership.findOneAndDelete({ _id: id, tenantID });
+    if (!deleted)
+      throw createError(404, "Data tidak ditemukan atau akses ditolak.");
 
-    const membership = await Membership.findById(id);
-    if (!membership) throw createError(404, "Membership tidak ditemukan");
-
-    await Membership.findByIdAndDelete(id);
-
-    // NOTE: Di sini Anda mungkin perlu menambahkan logika bisnis
-    // seperti membatalkan status member pada dokumen Pelanggan yang bersangkutan.
+    // Clear Cache
+    await this.clearCache(id, tenantID);
 
     return { message: "Membership berhasil dihapus" };
   }

@@ -1,87 +1,107 @@
-// diskonController.js
-const DiskonService = require("../services/diskonService");
+const diskonService = require("../services/diskonService");
 const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
-    });
-  }
-  res
-    .status(500)
-    .json({ message: error.message || "Kesalahan internal server." });
-};
+class DiskonController {
+  /**
+   * ✅ CREATE: Tambah Diskon
+   * tenantID diambil otomatis dari token untuk keamanan multi-tenant.
+   */
+  async createDiskon(req, res, next) {
+    try {
+      const payload = {
+        ...req.body,
+        tenantID: req.pengguna.tenantID, // Injeksi otomatis dari middleware
+      };
 
-// ===============================================
-// ✅ CREATE: Tambah Diskon
-// ===============================================
-exports.createDiskon = async (req, res) => {
-  try {
-    const newDiskon = await DiskonService.create(req.body);
-    res
-      .status(201)
-      .json({ message: "Diskon berhasil ditambahkan", data: newDiskon });
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const newDiskon = await diskonService.create(payload);
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID (Query)
-// ===============================================
-exports.getAllDiskon = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const diskon = await DiskonService.getAll(tenantID);
-    res.status(200).json(diskon);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(201).json({
+        success: true,
+        message: "Diskon berhasil ditambahkan",
+        data: newDiskon,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ BY ID (Query: tenantID, Params: id)
-// ===============================================
-exports.getDiskonById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { tenantID } = req.query; // Wajib ada untuk keamanan
-    const diskon = await DiskonService.getById(tenantID, id);
-    res.status(200).json(diskon);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+  /**
+   * ✅ READ ALL: Daftar Diskon per Tenant
+   * Menghapus ketergantungan pada req.query.tenantID.
+   */
+  async getAllDiskon(req, res, next) {
+    try {
+      const tenantID = req.pengguna.tenantID;
+      const diskon = await diskonService.getAll(tenantID);
 
-// ===============================================
-// ✅ UPDATE Diskon (Query: tenantID, Params: id)
-// ===============================================
-exports.updateDiskon = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const updatedDiskon = await DiskonService.update(tenantID, id, req.body);
-    res
-      .status(200)
-      .json({ message: "Diskon berhasil diperbarui", data: updatedDiskon });
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(200).json({
+        success: true,
+        total: diskon.length,
+        data: diskon,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ DELETE Diskon (Query: tenantID, Params: id)
-// ===============================================
-exports.deleteDiskon = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const result = await DiskonService.delete(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+  /**
+   * ✅ READ BY ID: Detail Diskon
+   * Memastikan ID yang diminta adalah milik tenant yang login.
+   */
+  async getDiskonById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const diskon = await diskonService.getById(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        data: diskon,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+
+  /**
+   * ✅ UPDATE: Ubah Data Diskon
+   */
+  async updateDiskon(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const updatedDiskon = await diskonService.update(id, tenantID, req.body);
+
+      res.status(200).json({
+        success: true,
+        message: "Diskon berhasil diperbarui",
+        data: updatedDiskon,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * ✅ DELETE: Hapus Diskon
+   */
+  async deleteDiskon(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const result = await diskonService.delete(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+}
+
+module.exports = new DiskonController();

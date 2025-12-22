@@ -1,16 +1,29 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const paketMembershipController = require('../controllers/paketMembershipController'); // Sesuaikan path
+const paketMembershipController = require("../controllers/paketMembershipController");
+const authPengguna = require("../middleware/authPengguna");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(paketMembershipController.createPaketMembership)
-    .get(paketMembershipController.getAllPaketMembership); // Wajib filter tenantID
+/**
+ * 🛠️ WRAPPER UTILITY
+ * Menangani async/await dan memastikan error diteruskan ke next(err).
+ */
+const wrap = (fn) => (req, res, next) => {
+  if (!fn) {
+    return next(
+      new Error("Handler tidak ditemukan di PaketMembershipController!")
+    );
+  }
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(paketMembershipController.getPaketMembershipById)
-    .put(paketMembershipController.updatePaketMembership)
-    .delete(paketMembershipController.deletePaketMembership);
+// --- PROTECTED ROUTES ---
+// Semua operasional paket membership wajib login (req.pengguna)
+router.use(authPengguna);
+
+router.post("/", wrap(paketMembershipController.createPaketMembership));
+router.get("/", wrap(paketMembershipController.getAllPaketMembership));
+router.get("/:id", wrap(paketMembershipController.getPaketMembershipById));
+router.put("/:id", wrap(paketMembershipController.updatePaketMembership));
+router.delete("/:id", wrap(paketMembershipController.deletePaketMembership));
 
 module.exports = router;

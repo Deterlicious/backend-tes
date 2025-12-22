@@ -1,226 +1,166 @@
-// bebanOperasionalService.js
 const BebanOperasional = require("../models/bebanOperasionalModel");
-const AkunKas = require("../models/akunKasModel"); // Diperlukan untuk logika bisnis saldo
+const AkunKas = require("../models/akunKasModel");
 const mongoose = require("mongoose");
+const redis = require("../config/redis");
 const createError = require("http-errors");
 const {
   validateBebanPayload,
 } = require("../validators/bebanOperasionalValidator");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+// --- CACHE KEYS ---
+const KEY_LIST = (tenantID) => `beban:list:${tenantID}`;
+const KEY_DETAIL = (id) => `beban:detail:${id}`;
 
 class BebanOperasionalService {
-  // Helper: Menangani Error Mongoose (Dipindahkan dari Controller)
-  handleDbError(
-    error,
-    defaultMessage = "Gagal memproses data Beban Operasional"
-  ) {
+  // --- CACHE HELPER ---
+  async clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
+  // --- PRIVATE DB ERROR HANDLER (#) ---
+  #handleDbError(error) {
     if (error.name === "ValidationError") {
-      let errors = {};
-      Object.keys(error.errors).forEach((key) => {
-        errors[key] = error.errors[key].message;
-      });
-      return createError(400, {
-        message: "Validasi data gagal. Cek detail errors.",
-        errors: errors,
-      });
+      return createError(400, Object.values(error.errors)[0].message);
     }
     if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
+      return createError(400, "Format ID tidak valid.");
     }
-    return createError(500, error.message || defaultMessage);
+    return createError(500, error.message);
   }
 
   // --- CREATE ---
   async create(payload) {
     const validation = validateBebanPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
     try {
-      // 1. BUAT DOKUMEN BEBAN
-      const bebanOperasional = await BebanOperasional.create([payload], {
-        session,
-      });
-
-      // 2. LOGIKA BISNIS: KURANGI SALDO AKUN KAS
-      // Perlu memastikan AkunKasID valid dan milik tenant yang sama sebelum update
-      const updateResult = await AkunKas.updateOne(
+      // 1. Update Saldo Akun Kas terlebih dahulu (Pengecekan akses & saldo)
+      const updateKas = await AkunKas.findOneAndUpdate(
         { _id: payload.akunKasID, tenantID: payload.tenantID },
         { $inc: { saldo: -payload.jumlah } },
-        { session }
+        { new: true }
       );
 
-      // Validasi apakah update saldo berhasil (Akun Kas ditemukan)
-      if (updateResult.matchedCount === 0) {
-        throw createError(
-          400,
-          "Akun Kas tidak ditemukan atau bukan milik tenant ini."
-        );
+      if (!updateKas) {
+        throw createError(400, "Akun Kas tidak ditemukan atau akses ditolak.");
       }
 
-      await session.commitTransaction();
-      return bebanOperasional[0];
+      // 2. Buat Dokumen Beban
+      const newBeban = await BebanOperasional.create(payload);
+
+      // 3. Invalidate Cache
+      await this.clearCache(null, payload.tenantID);
+
+      return newBeban;
     } catch (error) {
-      await session.abortTransaction();
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal menambahkan Beban Operasional.");
-    } finally {
-      session.endSession();
+      throw createError.isHttpError(error) ? error : this.#handleDbError(error);
     }
   }
 
   // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
 
-    const bebanOperasional = await BebanOperasional.find({ tenantID })
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
+
+    const beban = await BebanOperasional.find({ tenantID })
       .populate("akunKasID", "namaAkun nomorAkun")
       .populate("kategoriBebanID", "namaKategori")
-      .populate("dicatatOleh", "nama")
-      .sort({ tanggal: -1, createdAt: -1 });
+      .sort({ tanggal: -1, createdAt: -1 })
+      .lean();
 
-    if (bebanOperasional.length === 0)
-      throw createError(
-        404,
-        "Tidak ada data Beban Operasional untuk tenant ini."
-      );
+    if (beban.length === 0)
+      throw createError(404, "Data beban tidak ditemukan.");
 
-    return bebanOperasional;
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(beban), "EX", 300);
+    return beban;
   }
 
   // --- READ BY ID ---
-  async getById(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Beban dan Tenant ID wajib disertakan dan harus valid."
-      );
+  async getById(id, tenantID) {
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      if (data.tenantID.toString() !== tenantID.toString())
+        throw createError(403, "Akses ditolak.");
+      return data;
+    }
 
-    const bebanOperasional = await BebanOperasional.findOne({
-      _id: id,
-      tenantID,
-    }) // KEAMANAN: Filter ID & tenantID
+    const beban = await BebanOperasional.findOne({ _id: id, tenantID })
       .populate("akunKasID", "namaAkun nomorAkun")
       .populate("kategoriBebanID", "namaKategori")
-      .populate("dicatatOleh", "nama");
+      .lean();
 
-    if (!bebanOperasional)
-      throw createError(
-        404,
-        "Beban Operasional tidak ditemukan atau Anda tidak memiliki akses."
-      );
+    if (!beban) throw createError(404, "Beban tidak ditemukan.");
 
-    return bebanOperasional;
+    await redis.set(KEY_DETAIL(id), JSON.stringify(beban), "EX", 600);
+    return beban;
   }
 
   // --- UPDATE ---
-  async update(tenantID, id, payload) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Beban dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  async update(id, tenantID, payload) {
     const validation = validateBebanPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    // console.log("Payload Jumlah yang diterima:", payload.jumlah);
+    // console.log("Tipe Data Jumlah:", typeof payload.jumlah);
+
+    if (!validation.valid) throw createError(400, validation.errors[0]);
+
     try {
-      // 1. AMBIL DATA LAMA DAN LAKUKAN UPDATE
+      // 1. Ambil data lama untuk kalkulasi saldo
       const oldBeban = await BebanOperasional.findOne({ _id: id, tenantID });
-      if (!oldBeban)
-        throw createError(
-          404,
-          "Beban Operasional tidak ditemukan atau Anda tidak memiliki akses."
-        );
+      if (!oldBeban) throw createError(404, "Data tidak ditemukan.");
 
-      const updatedBeban = await BebanOperasional.findByIdAndUpdate(
-        id,
-        validation.updates,
-        { new: true, runValidators: true, session }
-      );
-
-      // 2. LOGIKA BISNIS: ADJUST SALDO
-      // Logika ini kompleks: Batalkan transaksi lama, terapkan transaksi baru.
-
-      // Revert transaksi lama: Kembalikan jumlah lama ke akun kas lama
+      // 2. Revert saldo lama
       await AkunKas.updateOne(
         { _id: oldBeban.akunKasID, tenantID },
-        { $inc: { saldo: oldBeban.jumlah } },
-        { session }
+        { $inc: { saldo: oldBeban.jumlah } }
       );
 
-      // Terapkan transaksi baru: Kurangi jumlah baru dari akun kas baru
+      // 3. Update data Beban
+      const updated = await BebanOperasional.findOneAndUpdate(
+        { _id: id, tenantID },
+        { $set: validation.updates },
+        { new: true, runValidators: true }
+      ).lean();
+
+      // 4. Terapkan saldo baru
       const newJumlah = payload.jumlah || oldBeban.jumlah;
-      const newAkunKasID = payload.akunKasID || oldBeban.akunKasID;
+      const newAkunID = payload.akunKasID || oldBeban.akunKasID;
 
       await AkunKas.updateOne(
-        { _id: newAkunKasID, tenantID },
-        { $inc: { saldo: -newJumlah } },
-        { session }
+        { _id: newAkunID, tenantID },
+        { $inc: { saldo: -newJumlah } }
       );
 
-      await session.commitTransaction();
-      return updatedBeban;
+      await this.clearCache(id, tenantID);
+      return updated;
     } catch (error) {
-      await session.abortTransaction();
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal memperbarui Beban Operasional.");
-    } finally {
-      session.endSession();
+      throw createError.isHttpError(error) ? error : this.#handleDbError(error);
     }
   }
 
   // --- DELETE ---
-  async delete(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Beban dan Tenant ID wajib disertakan dan harus valid."
-      );
-
-    const session = await mongoose.startSession();
-    session.startTransaction();
+  async delete(id, tenantID) {
     try {
-      // 1. HAPUS DOKUMEN BEBAN (Ambil data sebelum dihapus untuk rollback saldo)
-      const deletedBeban = await BebanOperasional.findOneAndDelete(
-        { _id: id, tenantID },
-        { session }
-      );
+      const deleted = await BebanOperasional.findOneAndDelete({
+        _id: id,
+        tenantID,
+      });
+      if (!deleted) throw createError(404, "Data tidak ditemukan.");
 
-      if (!deletedBeban)
-        throw createError(
-          404,
-          "Beban Operasional tidak ditemukan atau Anda tidak memiliki akses."
-        );
-
-      // 2. LOGIKA BISNIS: KEMBALIKAN SALDO AKUN KAS
+      // Kembalikan saldo Akun Kas
       await AkunKas.updateOne(
-        { _id: deletedBeban.akunKasID, tenantID },
-        { $inc: { saldo: deletedBeban.jumlah } },
-        { session }
+        { _id: deleted.akunKasID, tenantID },
+        { $inc: { saldo: deleted.jumlah } }
       );
 
-      await session.commitTransaction();
+      await this.clearCache(id, tenantID);
       return { message: "Beban Operasional berhasil dihapus" };
     } catch (error) {
-      await session.abortTransaction();
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal menghapus Beban Operasional.");
-    } finally {
-      session.endSession();
+      throw createError.isHttpError(error) ? error : this.#handleDbError(error);
     }
   }
 }

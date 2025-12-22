@@ -1,134 +1,134 @@
 const AkunKas = require("../models/akunKasModel");
 const mongoose = require("mongoose");
+const redis = require("../config/redis");
 const createError = require("http-errors");
 const { validateAkunKasPayload } = require("../validators/akunKasValidator");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+// --- CACHE KEYS (Mengikuti Standar AkunService) ---
+const KEY_LIST = (tenantID) => `akunkas:list:${tenantID}`;
+const KEY_DETAIL = (id) => `akunkas:detail:${id}`;
 
 class AkunKasService {
-  // Helper: Menangani Error Mongoose (Dipindahkan dari Controller)
-  handleDbError(error, defaultMessage = "Gagal memproses data Akun Kas") {
+  // --- CACHE HELPER ---
+  async clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
+  // --- PRIVATE DB ERROR HANDLER (Clean & Reusable) ---
+  #handleDbError(error) {
     if (error.code === 11000) {
-      const field = Object.keys(error.keyValue);
-      return createError(400, {
-        message: `Gagal menambahkan/memperbarui. ${field} '${error.keyValue[field]}' sudah terdaftar (dalam tenant yang sama).`,
-      });
+      return createError(
+        400,
+        "Nama atau Kode Akun Kas sudah terdaftar dalam tenant ini."
+      );
     }
     if (error.name === "ValidationError") {
-      // Konversi Mongoose ValidationError menjadi format http-errors
-      let errors = {};
-      Object.keys(error.errors).forEach((key) => {
-        errors[key] = error.errors[key].message;
-      });
-      return createError(400, {
-        message: "Validasi data gagal. Cek detail errors.",
-        errors: errors,
-      });
+      return createError(400, Object.values(error.errors)[0].message);
     }
-    if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
-    }
-    return createError(500, error.message || defaultMessage);
+    return createError(500, error.message);
   }
 
   // --- CREATE ---
   async create(payload) {
+    // 1. Validasi Input Dasar
     const validation = validateAkunKasPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
       const akunKas = await AkunKas.create(payload);
+
+      // 2. Invalidate List Cache agar data terbaru muncul
+      await this.clearCache(null, payload.tenantID);
+
       return akunKas;
     } catch (error) {
-      throw this.handleDbError(error, "Gagal menambahkan Akun Kas.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
 
-    const akunKas = await AkunKas.find({ tenantID }).sort({ createdAt: -1 });
+    // 1. Cek Redis Cache
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
+
+    // 2. Query DB dengan .lean()
+    const akunKas = await AkunKas.find({ tenantID })
+      .sort({ createdAt: -1 })
+      .lean();
 
     if (akunKas.length === 0)
-      throw createError(404, "Tidak ada data Akun Kas untuk tenant ini.");
+      throw createError(404, "Data Akun Kas tidak ditemukan.");
+
+    // 3. Simpan ke Cache (300 detik)
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(akunKas), "EX", 300);
 
     return akunKas;
   }
 
   // --- READ BY ID ---
-  async getById(id) {
-    if (!isValidObjectId(id)) throw createError(400, "Format ID tidak valid.");
-
-    try {
-      const akunKas = await AkunKas.findById(id);
-      if (!akunKas) throw createError(404, "Akun Kas tidak ditemukan.");
-      return akunKas;
-    } catch (error) {
-      throw this.handleDbError(error, "Gagal mengambil Akun Kas.");
+  async getById(id, tenantID) {
+    // 1. Cek Detail Cache
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      // Anti-Tampering: Pastikan tenantID sesuai
+      if (data.tenantID.toString() !== tenantID.toString())
+        throw createError(403, "Akses ditolak.");
+      return data;
     }
+
+    // 2. Query DB dengan isolasi tenant
+    const akunKas = await AkunKas.findOne({ _id: id, tenantID }).lean();
+    if (!akunKas) throw createError(404, "Akun Kas tidak ditemukan.");
+
+    // 3. Simpan ke Cache (600 detik)
+    await redis.set(KEY_DETAIL(id), JSON.stringify(akunKas), "EX", 600);
+
+    return akunKas;
   }
 
   // --- UPDATE ---
-  async update(tenantID, id, payload) {
-    if (!isValidObjectId(tenantID) || !isValidObjectId(id))
-      throw createError(
-        400,
-        "Parameter tenantID dan ID wajib disertakan dan harus valid."
-      );
-
+  async update(id, tenantID, payload) {
+    // 1. Validasi Input
     const validation = validateAkunKasPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
-      // KEAMANAN KRITIS: Update hanya jika _id dan tenantID cocok
-      const akunKas = await AkunKas.findOneAndUpdate(
+      // 2. Update dengan filter tenantID (Hanya bisa ubah milik sendiri)
+      const updated = await AkunKas.findOneAndUpdate(
         { _id: id, tenantID },
-        validation.updates,
+        { $set: validation.updates },
         { new: true, runValidators: true, context: "query" }
-      );
+      ).lean();
 
-      if (!akunKas)
-        throw createError(
-          404,
-          "Akun Kas tidak ditemukan atau Anda tidak memiliki akses."
-        );
-      return akunKas;
+      if (!updated)
+        throw createError(404, "Data tidak ditemukan atau akses ditolak.");
+
+      // 3. Clear Cache Detail & List
+      await this.clearCache(id, tenantID);
+
+      return updated;
     } catch (error) {
-      throw this.handleDbError(error, "Gagal memperbarui Akun Kas.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- DELETE ---
-  async delete(tenantID, id) {
-    if (!isValidObjectId(tenantID) || !isValidObjectId(id))
-      throw createError(
-        400,
-        "Parameter tenantID dan ID wajib disertakan dan harus valid."
-      );
+  async delete(id, tenantID) {
+    // 1. Delete dengan filter tenantID murni dari token
+    const deleted = await AkunKas.findOneAndDelete({ _id: id, tenantID });
 
-    try {
-      // KEAMANAN KRITIS: Delete hanya jika _id dan tenantID cocok
-      const akunKas = await AkunKas.findOneAndDelete({ _id: id, tenantID });
+    if (!deleted)
+      throw createError(404, "Data tidak ditemukan atau akses ditolak.");
 
-      if (!akunKas)
-        throw createError(
-          404,
-          "Akun Kas tidak ditemukan atau Anda tidak memiliki akses."
-        );
-      return { message: "Akun Kas berhasil dihapus" };
-    } catch (error) {
-      throw this.handleDbError(error, "Gagal menghapus Akun Kas.");
-    }
+    // 2. Clear Cache
+    await this.clearCache(id, tenantID);
+
+    return { message: "Akun Kas berhasil dihapus" };
   }
 }
 

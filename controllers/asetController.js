@@ -1,83 +1,101 @@
-// asetController.js
-const AsetService = require("../services/asetService");
+const asetService = require("../services/asetService");
 const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    // Menggunakan 'error.errors' untuk menampilkan detail validasi Mongoose/Custom
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
-    });
-  }
-  res
-    .status(500)
-    .json({ message: error.message || "Kesalahan internal server." });
-};
+class AsetController {
+  // --- CREATE ---
+  async createAset(req, res, next) {
+    try {
+      /**
+       * 🔐 KEAMANAN: Memastikan data aset terikat ke tenant yang login.
+       * Payload tenantID dipaksa dari req.pengguna (hasil decode token).
+       */
+      const payload = {
+        ...req.body,
+        tenantID: req.pengguna.tenantID,
+      };
 
-// ===============================================
-// ✅ CREATE: Tambah Aset
-// ===============================================
-exports.createAset = async (req, res) => {
-  try {
-    const newAset = await AsetService.create(req.body);
-    res.status(201).json(newAset);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const newAset = await asetService.create(payload);
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID (Query)
-// ===============================================
-exports.getAllAset = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const asets = await AsetService.getAll(tenantID);
-    res.status(200).json(asets);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(201).json({
+        success: true,
+        message: "Aset berhasil ditambahkan",
+        data: newAset,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ BY ID (Params)
-// ===============================================
-exports.getAsetById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const aset = await AsetService.getById(id);
-    res.status(200).json(aset);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+  // --- READ ALL ---
+  async getAllAset(req, res, next) {
+    try {
+      // Mengambil tenantID dari identitas user (bukan query string yang bisa diubah)
+      const tenantID = req.pengguna.tenantID;
 
-// ===============================================
-// ✅ UPDATE Aset (Query: tenantID, Params: id)
-// ===============================================
-exports.updateAset = async (req, res) => {
-  try {
-    const { tenantID } = req.query; // Wajib ada untuk keamanan
-    const { id } = req.params;
-    const updatedAset = await AsetService.update(tenantID, id, req.body);
-    res.status(200).json(updatedAset);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const asets = await asetService.getAll(tenantID);
 
-// ===============================================
-// ✅ DELETE Aset (Query: tenantID, Params: id)
-// ===============================================
-exports.deleteAset = async (req, res) => {
-  try {
-    const { tenantID } = req.query; // Wajib ada untuk keamanan
-    const { id } = req.params;
-    const result = await AsetService.delete(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(200).json({
+        success: true,
+        total: asets.length,
+        data: asets,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+
+  // --- READ BY ID ---
+  async getAsetById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      // Melakukan pengecekan detail aset dengan filter tenantID di level service
+      const aset = await asetService.getById(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        data: aset,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // --- UPDATE ---
+  async updateAset(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const updatedAset = await asetService.update(id, tenantID, req.body);
+
+      res.status(200).json({
+        success: true,
+        message: "Aset berhasil diperbarui",
+        data: updatedAset,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // --- DELETE ---
+  async deleteAset(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const result = await asetService.delete(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+}
+
+module.exports = new AsetController();

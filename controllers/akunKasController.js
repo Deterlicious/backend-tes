@@ -1,85 +1,105 @@
-// akunKasController.js
-const AkunKasService = require("../services/akunKasService");
+const akunKasService = require("../services/akunKasService");
 const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    // Menggunakan 'error.errors' untuk menampilkan detail validasi Mongoose
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
-    });
-  }
-  res.status(500).json({ message: error.message });
-};
+class AkunKasController {
+  // --- CREATE ---
+  async createAkunKas(req, res, next) {
+    try {
+      /**
+       * KEAMANAN: Memaksa tenantID dari token (req.pengguna).
+       * Mencegah user menyuntikkan data ke tenant orang lain.
+       */
+      const payload = {
+        ...req.body,
+        tenantID: req.pengguna.tenantID,
+      };
 
-// ===============================================
-// ✅ CREATE: Tambah Akun Kas
-// ===============================================
-exports.createAkunKas = async (req, res) => {
-  try {
-    const newAkunKas = await AkunKasService.create(req.body);
-    res
-      .status(201)
-      .json({ message: "Akun Kas berhasil ditambahkan", data: newAkunKas });
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const newAkunKas = await akunKasService.create(payload);
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID
-// ===============================================
-exports.getAllAkunKas = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const akunKas = await AkunKasService.getAll(tenantID);
-    res.status(200).json(akunKas);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(201).json({
+        success: true,
+        message: "Akun Kas berhasil ditambahkan",
+        data: newAkunKas,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ BY ID
-// ===============================================
-exports.getAkunKasById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const akunKas = await AkunKasService.getById(id);
-    res.status(200).json(akunKas);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+  // --- READ ALL ---
+  async getAllAkunKas(req, res, next) {
+    try {
+      // Mengambil tenantID dari token, bukan dari query string (lebih aman)
+      const tenantID = req.pengguna.tenantID;
 
-// ===============================================
-// ✅ UPDATE Akun Kas berdasarkan tenantID dan ID
-// ===============================================
-exports.updateAkunKas = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const updatedAkunKas = await AkunKasService.update(tenantID, id, req.body);
-    res
-      .status(200)
-      .json({ message: "Akun Kas berhasil diperbarui", data: updatedAkunKas });
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const akunKas = await akunKasService.getAll(tenantID);
 
-// ===============================================
-// ✅ DELETE Akun Kas berdasarkan tenantID dan IDs
-// ===============================================
-exports.deleteAkunKas = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const result = await AkunKasService.delete(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(200).json({
+        success: true,
+        total: akunKas.length,
+        data: akunKas,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+
+  // --- READ BY ID ---
+  async getAkunKasById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      // Passing tenantID ke service untuk memastikan isolasi data
+      const akunKas = await akunKasService.getById(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        data: akunKas,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // --- UPDATE ---
+  async updateAkunKas(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const updatedAkunKas = await akunKasService.update(
+        id,
+        tenantID,
+        req.body
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Akun Kas berhasil diperbarui",
+        data: updatedAkunKas,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // --- DELETE ---
+  async deleteAkunKas(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const result = await akunKasService.delete(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+}
+
+module.exports = new AkunKasController();

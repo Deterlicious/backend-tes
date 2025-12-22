@@ -1,94 +1,111 @@
-// jurnalStokController.js
-const JurnalStokService = require("../services/jurnalStokService");
+const jurnalStokService = require("../services/jurnalStokService");
 const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
-    });
-  }
-  res
-    .status(500)
-    .json({ message: error.message || "Kesalahan internal server." });
-};
+class JurnalStokController {
+  /**
+   * ✅ CREATE: Tambah Jurnal Stok
+   * tenantID dan dicatatOleh (jika ada) diambil otomatis dari token.
+   */
+  async createJurnalStok(req, res, next) {
+    try {
+      const payload = {
+        ...req.body,
+        tenantID: req.pengguna.tenantID, // Injeksi otomatis dari token
+        dicatatOleh: req.pengguna.id || req.pengguna._id,
+      };
 
-// ===============================================
-// ✅ CREATE: Tambah Jurnal Stok
-// ===============================================
-exports.createJurnalStok = async (req, res) => {
-  try {
-    const newJurnal = await JurnalStokService.create(req.body);
-    res
-      .status(201)
-      .json({ message: "Jurnal Stok berhasil ditambahkan", data: newJurnal });
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const newJurnal = await jurnalStokService.create(payload);
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID (Query)
-// ===============================================
-exports.getAllJurnalStok = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const jurnalStok = await JurnalStokService.getAll(tenantID);
-    res.status(200).json(jurnalStok);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(201).json({
+        success: true,
+        message: "Jurnal Stok berhasil ditambahkan",
+        data: newJurnal,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ BY ID (Query: tenantID, Params: id)
-// ===============================================
-exports.getJurnalStokById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { tenantID } = req.query; // Wajib ada untuk keamanan
-    const jurnalStok = await JurnalStokService.getById(tenantID, id);
-    res.status(200).json(jurnalStok);
-  } catch (error) {
-    handleServiceError(res, error);
+  /**
+   * ✅ READ ALL: Filter berdasarkan tenant pengguna
+   */
+  async getAllJurnalStok(req, res, next) {
+    try {
+      const tenantID = req.pengguna.tenantID;
+      const jurnalStok = await jurnalStokService.getAll(tenantID);
+
+      res.status(200).json({
+        success: true,
+        total: jurnalStok.length,
+        data: jurnalStok,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ UPDATE Jurnal Stok (Query: tenantID, Params: id)
-// ===============================================
-exports.updateJurnalStok = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const updatedJurnal = await JurnalStokService.update(
-      tenantID,
-      id,
-      req.body
-    );
-    res
-      .status(200)
-      .json({
+  /**
+   * ✅ READ BY ID: Detail Jurnal Stok
+   * Keamanan: Validasi bahwa data yang diminta milik tenant yang login
+   */
+  async getJurnalStokById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const jurnalStok = await jurnalStokService.getById(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        data: jurnalStok,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * ✅ UPDATE: Perbarui Jurnal Stok
+   */
+  async updateJurnalStok(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const updatedJurnal = await jurnalStokService.update(
+        id,
+        tenantID,
+        req.body
+      );
+
+      res.status(200).json({
+        success: true,
         message: "Jurnal Stok berhasil diperbarui",
         data: updatedJurnal,
       });
-  } catch (error) {
-    handleServiceError(res, error);
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ DELETE Jurnal Stok (Query: tenantID, Params: id)
-// ===============================================
-exports.deleteJurnalStok = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const result = await JurnalStokService.delete(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+  /**
+   * ✅ DELETE: Hapus Jurnal Stok
+   */
+  async deleteJurnalStok(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const result = await jurnalStokService.delete(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+}
+
+module.exports = new JurnalStokController();

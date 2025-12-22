@@ -1,153 +1,110 @@
-// izinCutiService.js
 const IzinCuti = require("../models/izinCutiModel");
 const mongoose = require("mongoose");
 const createError = require("http-errors");
-const redis = require("../utils/redisClient");
+const redis = require("../config/redis"); // Menggunakan config redis standar
 const { validateIzinCutiPayload } = require("../validators/izinCutiValidator");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-// --- Helper: Cache Keys ---
-const keyIzinList = (tenantID) => `izincuti:tenant:${tenantID}`;
-const keyIzinDetail = (id) => `izincuti:detail:${id}`;
+// --- CACHE KEYS (Sesuai Standar AkunService) ---
+const KEY_LIST = (tenantID) => `izincuti:list:${tenantID}`;
+const KEY_DETAIL = (id) => `izincuti:detail:${id}`;
 
 class IzinCutiService {
-  // Helper: Menangani Error Mongoose
-  handleDbError(error, defaultMessage = "Gagal memproses data Izin Cuti") {
+  // --- CACHE HELPER ---
+  async clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
+  // --- PRIVATE DB ERROR HANDLER (#) ---
+  #handleDbError(error) {
     if (error.name === "ValidationError") {
-      let errors = {};
-      Object.keys(error.errors).forEach((key) => {
-        errors[key] = error.errors[key].message;
-      });
-      return createError(400, {
-        message: "Validasi data gagal. Cek detail errors.",
-        errors: errors,
-      });
+      // Mengambil pesan error pertama dari Mongoose validation
+      return createError(400, Object.values(error.errors)[0].message);
     }
     if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
+      return createError(400, "Format ID tidak valid.");
     }
-    return createError(500, error.message || defaultMessage);
+    return createError(500, error.message || "Kesalahan Database.");
   }
 
   // --- CREATE ---
   async create(payload) {
     const validation = validateIzinCutiPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
-      const newIzinCuti = new IzinCuti(payload);
-      const savedIzinCuti = await newIzinCuti.save();
+      const newIzinCuti = await IzinCuti.create(payload);
 
-      // Invalidate Cache List
-      await redis.del(keyIzinList(payload.tenantID));
+      // Invalidate cache list agar data baru muncul
+      await this.clearCache(null, payload.tenantID);
 
-      return savedIzinCuti;
+      return newIzinCuti;
     } catch (error) {
-      throw this.handleDbError(error, "Gagal menambahkan Izin Cuti.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
 
-    const cacheKey = keyIzinList(tenantID);
-    const cachedData = await redis.get(cacheKey);
+    // 1. Cek Cache Redis
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
 
-    if (cachedData) {
-      return JSON.parse(cachedData);
-    }
+    // 2. Query DB dengan populate sesuai kebutuhan UI
+    const data = await IzinCuti.find({ tenantID })
+      .populate("penggunaID", "nama email")
+      .populate("dicatatOleh", "nama")
+      .sort({ createdAt: -1 })
+      .lean(); // Performa lebih cepat
 
-    try {
-      const data = await IzinCuti.find({ tenantID })
-        .populate("tenantID", "namaToko")
-        .populate("penggunaID", "nama email")
-        .populate("dicatatOleh", "nama")
-        .sort({ createdAt: -1 });
+    if (data.length === 0)
+      throw createError(404, "Data izin/cuti tidak ditemukan.");
 
-      if (data.length === 0)
-        throw createError(404, "Tidak ada data Izin/Cuti untuk tenant ini.");
-
-      // Cache Miss: Simpan ke Redis (Expire 60 detik)
-      await redis.setEx(cacheKey, 60, JSON.stringify(data));
-      return data;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal mengambil daftar Izin Cuti.");
-    }
+    // 3. Simpan ke Cache (Expire 5 menit/300 detik)
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(data), "EX", 300);
+    return data;
   }
 
   // --- READ BY ID ---
-  async getById(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Izin dan Tenant ID wajib disertakan dan harus valid."
-      );
-
-    const cacheKey = keyIzinDetail(id);
-    const cachedData = await redis.get(cacheKey);
-
-    if (cachedData) {
-      // Catatan: Data cache ini tidak diverifikasi tenantID-nya, asumsi caching dilakukan setelah filter
-      return JSON.parse(cachedData);
+  async getById(id, tenantID) {
+    // 1. Cek Cache Detail
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      // Validasi kepemilikan data di tingkat cache (Keamanan Berlapis)
+      if (data.tenantID.toString() !== tenantID.toString())
+        throw createError(403, "Akses ditolak.");
+      return data;
     }
 
-    try {
-      // KEAMANAN KRITIS: Filter ID & tenantID
-      const izinCuti = await IzinCuti.findOne({ _id: id, tenantID })
-        .populate("tenantID", "namaToko")
-        .populate("penggunaID", "nama email")
-        .populate("dicatatOleh", "nama");
+    // 2. Query DB
+    const izinCuti = await IzinCuti.findOne({ _id: id, tenantID })
+      .populate("penggunaID", "nama email")
+      .populate("dicatatOleh", "nama")
+      .lean();
 
-      if (!izinCuti)
-        throw createError(
-          404,
-          "Data izin/cuti tidak ditemukan atau Anda tidak memiliki akses."
-        );
+    if (!izinCuti)
+      throw createError(404, "Data tidak ditemukan atau akses ditolak.");
 
-      // Cache Miss: Simpan ke Redis (Expire 60 detik)
-      await redis.setEx(cacheKey, 60, JSON.stringify(izinCuti));
-      return izinCuti;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal mengambil detail Izin Cuti.");
-    }
+    // 3. Set Cache Detail
+    await redis.set(KEY_DETAIL(id), JSON.stringify(izinCuti), "EX", 600);
+    return izinCuti;
   }
 
   // --- UPDATE ---
-  async update(tenantID, id, payload) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Izin dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  async update(id, tenantID, payload) {
     const validation = validateIzinCutiPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
       const updates = validation.updates;
 
-      // 1. Ambil data lama untuk validasi silang (tanggalMulai/Selesai)
+      // Ambil data lama untuk validasi logika tanggal
       const oldIzin = await IzinCuti.findOne({ _id: id, tenantID });
-      if (!oldIzin)
-        throw createError(
-          404,
-          "Data izin/cuti tidak ditemukan atau Anda tidak memiliki akses."
-        );
+      if (!oldIzin) throw createError(404, "Data tidak ditemukan.");
 
-      // 2. Validasi Logika Tanggal Lanjutan (gabungan data lama dan baru)
       const newStart = updates.tanggalMulai || oldIzin.tanggalMulai;
       const newEnd = updates.tanggalSelesai || oldIzin.tanggalSelesai;
 
@@ -158,60 +115,38 @@ class IzinCutiService {
         );
       }
 
-      // 3. Update DB: Hanya jika _id dan tenantID cocok
-      const updatedIzin = await IzinCuti.findOneAndUpdate(
-        { _id: id, tenantID: tenantID },
-        updates,
+      const updated = await IzinCuti.findOneAndUpdate(
+        { _id: id, tenantID },
+        { $set: updates },
         { new: true, runValidators: true }
       )
         .populate("penggunaID", "nama")
-        .populate("dicatatOleh", "nama");
+        .lean();
 
-      if (!updatedIzin)
-        throw createError(
-          404,
-          "Data izin/cuti tidak ditemukan atau Anda tidak memiliki akses."
-        );
+      if (!updated) throw createError(404, "Gagal memperbarui data.");
 
-      // Invalidate Cache
-      await redis.del(keyIzinDetail(id));
-      await redis.del(keyIzinList(tenantID));
+      // Bersihkan Cache
+      await this.clearCache(id, tenantID);
 
-      return updatedIzin;
+      return updated;
     } catch (error) {
       if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal memperbarui Izin Cuti.");
+      throw this.#handleDbError(error);
     }
   }
 
   // --- DELETE ---
-  async delete(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Izin dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  async delete(id, tenantID) {
     try {
-      // KEAMANAN KRITIS: Delete hanya jika _id dan tenantID cocok
-      const deletedIzin = await IzinCuti.findOneAndDelete({
-        _id: id,
-        tenantID: tenantID,
-      });
+      const deleted = await IzinCuti.findOneAndDelete({ _id: id, tenantID });
+      if (!deleted) throw createError(404, "Data tidak ditemukan.");
 
-      if (!deletedIzin)
-        throw createError(
-          404,
-          "Data izin/cuti tidak ditemukan atau Anda tidak memiliki akses."
-        );
-
-      // Invalidate Cache
-      await redis.del(keyIzinDetail(id));
-      await redis.del(keyIzinList(tenantID));
+      // Bersihkan Cache
+      await this.clearCache(id, tenantID);
 
       return { message: "Data izin/cuti berhasil dihapus" };
     } catch (error) {
-      throw this.handleDbError(error, "Gagal menghapus Izin Cuti.");
+      throw this.#handleDbError(error);
     }
   }
 }

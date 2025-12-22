@@ -1,16 +1,25 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const diskonController = require('../controllers/diskonController'); // Sesuaikan path
+const diskonController = require("../controllers/diskonController");
+const authPengguna = require("../middleware/authPengguna");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(diskonController.createDiskon)
-    .get(diskonController.getAllDiskon); // Wajib filter tenantID
+/**
+ * 🛠️ WRAPPER UTILITY
+ * Memastikan error async ditangkap dan diteruskan ke middleware error handler global
+ * sesuai dengan pola next(err) yang digunakan di Controller.
+ */
+const wrap = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(diskonController.getDiskonById)
-    .put(diskonController.updateDiskon)
-    .delete(diskonController.deleteDiskon);
+// --- PROTECTED ROUTES ---
+// Seluruh endpoint diskon dilindungi oleh authPengguna
+router.use(authPengguna);
+
+router.post("/", wrap(diskonController.createDiskon));
+router.get("/", wrap(diskonController.getAllDiskon));
+router.get("/:id", wrap(diskonController.getDiskonById));
+router.put("/:id", wrap(diskonController.updateDiskon));
+router.delete("/:id", wrap(diskonController.deleteDiskon));
 
 module.exports = router;

@@ -1,100 +1,108 @@
-// bebanOperasionalController.js
-const BebanOperasionalService = require("../services/bebanOperasionalService");
+const bebanOperasionalService = require("../services/bebanOperasionalService");
 const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
-    });
-  }
-  res
-    .status(500)
-    .json({ message: error.message || "Kesalahan internal server." });
-};
+class BebanOperasionalController {
+  // --- CREATE ---
+  async createBebanOperasional(req, res, next) {
+    try {
+      /**
+       * 🔐 KEAMANAN: Injeksi data dari token (req.pengguna).
+       * tenantID: Memastikan transaksi tercatat di tenant yang benar.
+       * dicatatOleh: Otomatis mengambil ID akun yang sedang login.
+       */
+      const payload = {
+        ...req.body,
+        tenantID: req.pengguna.tenantID,
+        dicatatOleh: req.pengguna._id, //default dari mongoDB itu _id bukan id
+      };
 
-// ===============================================
-// ✅ CREATE: Tambah Beban Operasional
-// ===============================================
-exports.createBebanOperasional = async (req, res) => {
-  try {
-    const newBeban = await BebanOperasionalService.create(req.body);
-    res
-      .status(201)
-      .json({
+      // console.log("Payload yang dikirim ke Service:", payload); // debugging isi payload
+      const newBeban = await bebanOperasionalService.create(payload);
+
+      res.status(201).json({
+        success: true,
         message: "Beban Operasional berhasil ditambahkan",
         data: newBeban,
       });
-  } catch (error) {
-    handleServiceError(res, error);
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID (Query)
-// ===============================================
-exports.getAllBebanOperasional = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const bebanOperasional = await BebanOperasionalService.getAll(tenantID);
-    res.status(200).json(bebanOperasional);
-  } catch (error) {
-    handleServiceError(res, error);
+  // --- READ ALL ---
+  async getAllBebanOperasional(req, res, next) {
+    try {
+      // Mengambil tenantID murni dari token untuk mencegah lintas data tenant
+      const tenantID = req.pengguna.tenantID;
+
+      const bebanOperasional = await bebanOperasionalService.getAll(tenantID);
+
+      res.status(200).json({
+        success: true,
+        total: bebanOperasional.length,
+        data: bebanOperasional,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ BY ID (Query: tenantID, Params: id)
-// ===============================================
-exports.getBebanOperasionalById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { tenantID } = req.query; // Wajib ada untuk keamanan
-    const bebanOperasional = await BebanOperasionalService.getById(
-      tenantID,
-      id
-    );
-    res.status(200).json(bebanOperasional);
-  } catch (error) {
-    handleServiceError(res, error);
+  // --- READ BY ID ---
+  async getBebanOperasionalById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      // Service akan memvalidasi apakah ID tersebut milik tenantID yang login
+      const beban = await bebanOperasionalService.getById(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        data: beban,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ UPDATE Beban Operasional (Query: tenantID, Params: id)
-// ===============================================
-exports.updateBebanOperasional = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const updatedBeban = await BebanOperasionalService.update(
-      tenantID,
-      id,
-      req.body
-    );
-    res
-      .status(200)
-      .json({
+  // --- UPDATE ---
+  async updateBebanOperasional(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const updatedBeban = await bebanOperasionalService.update(
+        id,
+        tenantID,
+        req.body
+      );
+
+      res.status(200).json({
+        success: true,
         message: "Beban Operasional berhasil diperbarui",
         data: updatedBeban,
       });
-  } catch (error) {
-    handleServiceError(res, error);
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ DELETE Beban Operasional (Query: tenantID, Params: id)
-// ===============================================
-exports.deleteBebanOperasional = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const result = await BebanOperasionalService.delete(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+  // --- DELETE ---
+  async deleteBebanOperasional(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const result = await bebanOperasionalService.delete(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+}
+
+module.exports = new BebanOperasionalController();

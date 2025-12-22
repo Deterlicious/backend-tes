@@ -51,7 +51,7 @@ const JurnalStokSchema = new mongoose.Schema(
     // FK: Dicatat oleh User atau Staff
     dicatatOleh: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // Mengganti 'Pengguna' menjadi 'User' agar konsisten
+      ref: "Pengguna", // Mengganti 'Pengguna' menjadi 'User' agar konsisten
       required: [true, "Pencatat wajib diisi."],
       index: true,
     },

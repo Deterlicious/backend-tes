@@ -1,16 +1,29 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const bebanOperasionalController = require('../controllers/bebanOperasionalController'); // Sesuaikan path
+const bebanOperasionalController = require("../controllers/bebanOperasionalController");
+const authPengguna = require("../middleware/authPengguna");
 
-// Route untuk CREATE dan READ ALL
-router.route('/')
-    .post(bebanOperasionalController.createBebanOperasional)
-    .get(bebanOperasionalController.getAllBebanOperasional); // Wajib filter tenantID
+/**
+ * 🛠️ WRAPPER UTILITY
+ * Memastikan error async ditangkap dan diteruskan ke middleware error handler global.
+ */
+const wrap = (fn) => (req, res, next) => {
+  if (!fn) {
+    return next(
+      new Error(`Handler tidak ditemukan untuk route: ${req.originalUrl}`)
+    );
+  }
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
 
-// Route untuk READ BY ID, UPDATE, dan DELETE
-router.route('/:id')
-    .get(bebanOperasionalController.getBebanOperasionalById)
-    .put(bebanOperasionalController.updateBebanOperasional)
-    .delete(bebanOperasionalController.deleteBebanOperasional);
+// --- PROTECTED ROUTES ---
+// Mengunci seluruh endpoint Beban Operasional dengan Authentication
+router.use(authPengguna);
+
+router.post("/", wrap(bebanOperasionalController.createBebanOperasional));
+router.get("/", wrap(bebanOperasionalController.getAllBebanOperasional));
+router.get("/:id", wrap(bebanOperasionalController.getBebanOperasionalById));
+router.put("/:id", wrap(bebanOperasionalController.updateBebanOperasional));
+router.delete("/:id", wrap(bebanOperasionalController.deleteBebanOperasional));
 
 module.exports = router;

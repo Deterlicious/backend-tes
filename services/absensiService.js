@@ -2,143 +2,144 @@ const Absensi = require("../models/absensiModel");
 const mongoose = require("mongoose");
 const redis = require("../utils/redisClient");
 const createError = require("http-errors");
-const { validateAbsensiPayload } = require("../validators/absensiValidator"); // Import Validator
+const { validateAbsensiPayload } = require("../validators/absensiValidator");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-// --- Helper: Cache Keys ---
-const keyAbsensiList = (tenantID) => `absensi:tenant:${tenantID}`;
-const keyAbsensiDetail = (id) => `absensi:detail:${id}`;
+// --- CACHE KEYS (Mengikuti Standar AkunService Teman Anda) ---
+const KEY_LIST = (tenantID) => `absensi:list:${tenantID}`;
+const KEY_DETAIL = (id) => `absensi:detail:${id}`;
 
 class AbsensiService {
+  // --- CACHE HELPER ---
+  // Membersihkan cache setelah mutasi (create/update/delete)
+  async clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
   // --- CREATE ---
   async create(payload) {
-    // 1. Validasi Input
+    // 1. Validasi (Sesuai standar throw error teman Anda)
     const validation = validateAbsensiPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) {
+      throw createError(400, validation.errors[0]); // Ambil error pertama
+    }
 
-    // 2. Validasi Logika Waktu (Harus dilakukan di service karena butuh semua field)
-    if (new Date(payload.waktuPulang) <= new Date(payload.waktuMasuk)) {
+    const { waktuMasuk, waktuPulang, tenantID } = payload;
+
+    // 2. Business Logic: Validasi Waktu
+    if (new Date(waktuPulang) <= new Date(waktuMasuk)) {
       throw createError(400, "Waktu pulang harus setelah waktu masuk.");
     }
 
-    try {
-      const newAbsensi = await Absensi.create(payload);
-      await redis.del(keyAbsensiList(payload.tenantID)); // Cache Invalidation
+    // 3. Simpan ke DB
+    const newAbsensi = await Absensi.create(payload);
 
-      return newAbsensi;
-    } catch (error) {
-      throw createError(500, error.message);
-    }
+    // 4. Invalidate Cache List Tenant
+    await this.clearCache(null, tenantID);
+
+    return newAbsensi;
   }
 
-  // --- READ ALL ---
+  // --- GET ALL (READ) ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID diperlukan.");
 
-    const cacheKey = keyAbsensiList(tenantID);
-    const cachedData = await redis.get(cacheKey);
+    // 1. Cek Cache Redis
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
 
-    if (cachedData) return JSON.parse(cachedData);
-
+    // 2. Query DB dengan .lean() untuk performa tinggi
     const absensi = await Absensi.find({ tenantID })
-      .populate("tenantID", "namaToko status")
-      .populate("penggunaID", "nama role")
-      .sort({ tanggal: -1 });
+      .populate("penggunaID", "username nama email")
+      .sort({ tanggal: -1 })
+      .lean();
 
-    await redis.setEx(cacheKey, 60, JSON.stringify(absensi));
+    // 3. Set Cache (EX: 300 detik / 5 menit sesuai standar profil)
+    if (absensi.length > 0) {
+      await redis.set(KEY_LIST(tenantID), JSON.stringify(absensi), "EX", 300);
+    }
+
     return absensi;
   }
 
-  // --- READ BY ID ---
-  async getById(id) {
-    if (!isValidObjectId(id)) throw createError(400, "Format ID tidak valid.");
+  // --- GET BY ID ---
+  async getById(id, tenantID) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw createError(400, "ID Absensi tidak valid.");
+    }
 
-    const cacheKey = keyAbsensiDetail(id);
-    const cachedData = await redis.get(cacheKey);
+    // 1. Cek Cache Detail
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      // Keamanan: Pastikan data di cache tetap milik tenant yang benar
+      if (data.tenantID.toString() !== tenantID.toString()) {
+        throw createError(403, "Akses ditolak.");
+      }
+      return data;
+    }
 
-    if (cachedData) return JSON.parse(cachedData);
+    // 2. Query DB dengan Filter Tenant ID (Keamanan Isolasi)
+    const absensi = await Absensi.findOne({ _id: id, tenantID })
+      .populate("penggunaID", "username nama")
+      .lean();
 
-    const absensi = await Absensi.findById(id)
-      .populate("tenantID")
-      .populate("penggunaID");
+    if (!absensi) throw createError(404, "Data absensi tidak ditemukan.");
 
-    if (!absensi) throw createError(404, "Data absensi tidak ditemukan");
+    // 3. Set Cache Detail
+    await redis.set(KEY_DETAIL(id), JSON.stringify(absensi), "EX", 600); // 10 Menit
 
-    await redis.setEx(cacheKey, 60, JSON.stringify(absensi));
     return absensi;
   }
 
   // --- UPDATE ---
-  async update(id, payload) {
-    if (!isValidObjectId(id)) throw createError(400, "Format ID tidak valid.");
-
-    // 1. Validasi Input & Whitelisting
-    const validation = validateAbsensiPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
-
-    const updates = validation.updates; // Data yang sudah dicleaning/whitelisted
-
-    // 2. Hitung Ulang Durasi Kerja (Logika Bisnis Waktu)
-    if (updates.waktuMasuk || updates.waktuPulang) {
-      const currentData = await Absensi.findById(id);
-      if (!currentData) throw createError(404, "Data absensi tidak ditemukan");
-
-      const masuk = updates.waktuMasuk
-        ? new Date(updates.waktuMasuk)
-        : new Date(currentData.waktuMasuk);
-      const pulang = updates.waktuPulang
-        ? new Date(updates.waktuPulang)
-        : new Date(currentData.waktuPulang);
-
-      if (pulang <= masuk) {
-        throw createError(400, "Waktu pulang harus setelah waktu masuk.");
-      }
-
-      const durasiMs = pulang - masuk;
-      updates.durasiKerja = parseFloat(
-        (durasiMs / (1000 * 60 * 60)).toFixed(2)
-      );
+  async update(id, tenantID, payload) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw createError(400, "ID tidak valid.");
     }
 
+    // 1. Validasi Input
+    const validation = validateAbsensiPayload(payload, true);
+    if (!validation.valid) {
+      throw createError(400, validation.errors[0]);
+    }
+
+    const updates = validation.updates;
+
+    // 2. Cek eksistensi dan kepemilikan data sebelum update
+    const currentData = await Absensi.findOne({ _id: id, tenantID }).lean();
+    if (!currentData) throw createError(404, "Data tidak ditemukan.");
+
     // 3. Update DB
-    const absensi = await Absensi.findByIdAndUpdate(id, updates, {
-      new: true,
-      runValidators: true,
-    });
+    const updated = await Absensi.findOneAndUpdate(
+      { _id: id, tenantID },
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).lean();
 
-    if (!absensi) throw createError(404, "Data absensi tidak ditemukan");
+    // 4. Bersihkan Cache (Detail & List)
+    await this.clearCache(id, tenantID);
 
-    // 4. Cache Invalidation
-    await redis.del(keyAbsensiDetail(id));
-    await redis.del(keyAbsensiList(absensi.tenantID));
-
-    return absensi;
+    return updated;
   }
 
   // --- DELETE ---
-  async delete(id) {
-    if (!isValidObjectId(id)) throw createError(400, "Format ID tidak valid.");
+  async delete(id, tenantID) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw createError(400, "ID tidak valid.");
+    }
 
-    const absensi = await Absensi.findById(id);
-    if (!absensi) throw createError(404, "Data absensi tidak ditemukan");
+    // Hanya hapus jika ID dan tenantID cocok
+    const deleted = await Absensi.findOneAndDelete({ _id: id, tenantID });
 
-    await Absensi.findByIdAndDelete(id);
+    if (!deleted) {
+      throw createError(404, "Data tidak ditemukan atau akses ditolak.");
+    }
 
-    // Cache Invalidation
-    await redis.del(keyAbsensiDetail(id));
-    await redis.del(keyAbsensiList(absensi.tenantID));
+    // Bersihkan Cache
+    await this.clearCache(id, tenantID);
 
-    return { message: "Data absensi berhasil dihapus" };
+    return true;
   }
 }
 

@@ -1,87 +1,108 @@
-// izinCutiController.js
-const IzinCutiService = require("../services/izinCutiService");
+const izinCutiService = require("../services/izinCutiService");
 const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
-    });
-  }
-  res
-    .status(500)
-    .json({ message: error.message || "Kesalahan internal server." });
-};
+class IzinCutiController {
+  /**
+   * ✅ CREATE: Tambah Izin Cuti
+   * tenantID dan dicatatOleh diambil otomatis dari token.
+   */
+  async createIzinCuti(req, res, next) {
+    try {
+      const payload = {
+        ...req.body,
+        tenantID: req.pengguna.tenantID, // Otomatis dari middleware
+        dicatatOleh: req.pengguna._id, // ID akun yang sedang login
+      };
 
-// ===============================================
-// ✅ CREATE: Tambah Izin Cuti
-// ===============================================
-exports.createIzinCuti = async (req, res) => {
-  try {
-    const newIzinCuti = await IzinCutiService.create(req.body);
-    res.status(201).json(newIzinCuti);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      // console.log("Payload yang dikirim ke Service:", payload); // cek isi payload
+      const newIzinCuti = await izinCutiService.create(payload);
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID (Query)
-// ===============================================
-exports.getAllIzinCuti = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const data = await IzinCutiService.getAll(tenantID);
-    res.status(200).json(data);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(201).json({
+        success: true,
+        message: "Izin/Cuti berhasil dicatat",
+        data: newIzinCuti,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ BY ID (Query: tenantID, Params: id)
-// ===============================================
-exports.getIzinCutiById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { tenantID } = req.query; // Wajib ada untuk keamanan
-    const izinCuti = await IzinCutiService.getById(tenantID, id);
-    res.status(200).json(izinCuti);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+  /**
+   * ✅ READ ALL: Filter berdasarkan tenant pengguna
+   */
+  async getAllIzinCuti(req, res, next) {
+    try {
+      const tenantID = req.pengguna.tenantID;
+      const data = await izinCutiService.getAll(tenantID);
 
-// ===============================================
-// ✅ UPDATE Izin Cuti (Query: tenantID, Params: id)
-// ===============================================
-exports.updateIzinCuti = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const updatedIzinCuti = await IzinCutiService.update(
-      tenantID,
-      id,
-      req.body
-    );
-    res.status(200).json(updatedIzinCuti);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(200).json({
+        success: true,
+        total: data.length,
+        data: data,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ DELETE Izin Cuti (Query: tenantID, Params: id)
-// ===============================================
-exports.deleteIzinCuti = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const result = await IzinCutiService.delete(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+  /**
+   * ✅ READ BY ID: Detail Izin Cuti
+   * Keamanan: Memastikan ID data sesuai dengan tenantID pengguna
+   */
+  async getIzinCutiById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const izinCuti = await izinCutiService.getById(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        data: izinCuti,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+
+  /**
+   * ✅ UPDATE: Perbarui data Izin Cuti
+   */
+  async updateIzinCuti(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const updated = await izinCutiService.update(id, tenantID, req.body);
+
+      res.status(200).json({
+        success: true,
+        message: "Data berhasil diperbarui",
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * ✅ DELETE: Hapus data Izin Cuti
+   */
+  async deleteIzinCuti(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const result = await izinCutiService.delete(id, tenantID);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+}
+
+module.exports = new IzinCutiController();

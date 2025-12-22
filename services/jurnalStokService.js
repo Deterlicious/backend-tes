@@ -1,226 +1,172 @@
-// jurnalStokService.js
 const JurnalStok = require("../models/jurnalStokModel");
-// Asumsi: Model Inventory / Stok per Lokasi
 const Inventory = require("../models/inventoryModel");
 const mongoose = require("mongoose");
 const createError = require("http-errors");
+const redis = require("../config/redis");
 const { validateJurnalPayload } = require("../validators/jurnalStokValidator");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-// Helper: Tentukan operasi update stok (+/-)
-const getStokOperation = (tipe) => {
-  switch (tipe) {
-    case "masuk":
-      return 1; // +jumlah
-    case "keluar":
-      return -1; // -jumlah
-    case "penyesuaian":
-      return 1; // Untuk penyesuaian, kita asumsikan defaultnya menambah, atau ubah logika di controller/validator jika ada status penyesuaian 'minus'
-    default:
-      return 0;
-  }
-};
+// --- CACHE KEYS ---
+const KEY_LIST = (tenantID) => `jurnalstok:list:${tenantID}`;
+const KEY_DETAIL = (id) => `jurnalstok:detail:${id}`;
 
 class JurnalStokService {
-  // Helper: Menangani Error Mongoose
-  handleDbError(error, defaultMessage = "Gagal memproses data Jurnal Stok") {
+  // --- PRIVATE HELPERS (#) ---
+  #getStokOperation(tipe) {
+    const ops = { masuk: 1, keluar: -1, penyesuaian: 1 };
+    return ops[tipe] || 0;
+  }
+
+  #handleDbError(error) {
     if (error.name === "ValidationError") {
-      let errors = {};
-      Object.keys(error.errors).forEach((key) => {
-        errors[key] = error.errors[key].message;
-      });
-      return createError(400, {
-        message: "Validasi data gagal. Cek detail errors.",
-        errors: errors,
-      });
+      return createError(400, Object.values(error.errors)[0].message);
     }
     if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
+      return createError(400, "Format ID tidak valid.");
     }
-    return createError(500, error.message || defaultMessage);
-  } // --- CREATE ---
+    return createError(500, error.message || "Kesalahan Database.");
+  }
 
+  async #clearCache(id, tenantID) {
+    if (id) await redis.del(KEY_DETAIL(id));
+    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  }
+
+  // --- CREATE ---
   async create(payload) {
     const validation = validateJurnalPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      }); // Tidak ada session lagi
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
-      // Asumsi: payload mencakup locationID, bahanBakuID, tenantID
-      const { bahanBakuID, locationID, tenantID, tipe, jumlah } = payload; // 1. BUAT DOKUMEN JURNAL STOK
+      const { bahanBakuID, locationID, tenantID, tipe, jumlah } = payload;
 
-      const jurnalStok = await JurnalStok.create(payload); // 2. LOGIKA BISNIS: UPDATE STOK BAHAN BAKU (Inventory/Stok per Lokasi)
+      // 1. Simpan Jurnal
+      const jurnalStok = await JurnalStok.create(payload);
 
-      const operation = getStokOperation(tipe);
-      const amount = operation * jumlah; // Menggunakan findOneAndUpdate dengan $inc (atomik pada satu dokumen)
+      // 2. Update Stok secara Atomik menggunakan $inc
+      const amount = this.#getStokOperation(tipe) * jumlah;
 
-      const updateResult = await Inventory.findOneAndUpdate(
-        {
-          bahanBakuID: bahanBakuID,
-          locationID: locationID,
-          tenantID: tenantID,
-        },
+      await Inventory.findOneAndUpdate(
+        { bahanBakuID, locationID, tenantID },
         { $inc: { stok: amount } },
-        { new: true } // Opsi { new: true } untuk mendapatkan dokumen stok yang baru
+        { upsert: true, new: true } // Upsert: buat baru jika belum ada
       );
 
-      if (!updateResult) {
-        // Jika stok tidak ditemukan, buat entri stok baru (asumsi: stok awal 0)
-        await Inventory.create({
-          bahanBakuID,
-          locationID,
-          tenantID,
-          stok: amount, // Jumlah awal adalah jumlah yang masuk/keluar
-        });
-      } // Tidak ada commitTransaction
-
+      await this.#clearCache(null, tenantID);
       return jurnalStok;
     } catch (error) {
-      // Tidak ada abortTransaction
-      throw this.handleDbError(error, "Gagal menambahkan Jurnal Stok.");
+      throw this.#handleDbError(error);
     }
-  } // --- READ ALL ---
+  }
 
+  // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+    if (!tenantID) throw createError(400, "Tenant ID wajib ada.");
 
-    try {
-      const jurnalStok = await JurnalStok.find({ tenantID })
-        .populate("bahanBakuID", "namaBahan satuan")
-        .populate("dicatatOleh", "nama")
-        .sort({ tanggal: -1, createdAt: -1 });
+    const cached = await redis.get(KEY_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
 
-      if (jurnalStok.length === 0)
-        throw createError(404, "Tidak ada data Jurnal Stok untuk tenant ini.");
+    const data = await JurnalStok.find({ tenantID })
+      .populate("bahanBakuID", "namaBahan satuan")
+      .populate("dicatatOleh", "nama")
+      .sort({ tanggal: -1, createdAt: -1 })
+      .lean();
 
-      return jurnalStok;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal mengambil daftar Jurnal Stok.");
+    if (data.length === 0)
+      throw createError(404, "Data jurnal stok tidak ditemukan.");
+
+    await redis.set(KEY_LIST(tenantID), JSON.stringify(data), "EX", 300);
+    return data;
+  }
+
+  // --- READ BY ID ---
+  async getById(id, tenantID) {
+    const cached = await redis.get(KEY_DETAIL(id));
+    if (cached) {
+      const data = JSON.parse(cached);
+      if (data.tenantID.toString() !== tenantID.toString())
+        throw createError(403, "Akses ditolak.");
+      return data;
     }
-  } // --- READ BY ID ---
 
-  async getById(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Jurnal dan Tenant ID wajib disertakan dan harus valid."
-      );
+    const jurnalStok = await JurnalStok.findOne({ _id: id, tenantID })
+      .populate("bahanBakuID", "namaBahan satuan")
+      .populate("dicatatOleh", "nama")
+      .lean();
 
-    try {
-      const jurnalStok = await JurnalStok.findOne({ _id: id, tenantID })
-        .populate("bahanBakuID", "namaBahan satuan")
-        .populate("dicatatOleh", "nama");
+    if (!jurnalStok) throw createError(404, "Jurnal stok tidak ditemukan.");
 
-      if (!jurnalStok)
-        throw createError(
-          404,
-          "Jurnal Stok tidak ditemukan atau Anda tidak memiliki akses."
-        );
+    await redis.set(KEY_DETAIL(id), JSON.stringify(jurnalStok), "EX", 600);
+    return jurnalStok;
+  }
 
-      return jurnalStok;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(error, "Gagal mengambil detail Jurnal Stok.");
-    }
-  } // --- UPDATE ---
-
-  async update(tenantID, id, payload) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Jurnal dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  // --- UPDATE ---
+  async update(id, tenantID, payload) {
     const validation = validateJurnalPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     try {
-      const updates = validation.updates; // 1. Ambil data lama dan pastikan kepemilikan
-
+      const updates = validation.updates;
       const oldJurnal = await JurnalStok.findOne({ _id: id, tenantID });
-      if (!oldJurnal)
-        throw createError(
-          404,
-          "Jurnal Stok tidak ditemukan atau Anda tidak memiliki akses."
-        );
+      if (!oldJurnal) throw createError(404, "Jurnal tidak ditemukan.");
 
-      const oldAmount = getStokOperation(oldJurnal.tipe) * oldJurnal.jumlah; // Jumlah stok yang terpengaruh oleh transaksi lama // Karena tipe jurnal tidak boleh berubah saat update, kita hanya menghitung newAmount berdasarkan newJumlah
+      // Hitung selisih stok (Delta)
+      const oldAmount =
+        this.#getStokOperation(oldJurnal.tipe) * oldJurnal.jumlah;
       const newAmount =
-        getStokOperation(oldJurnal.tipe) * (updates.jumlah || oldJurnal.jumlah);
+        this.#getStokOperation(oldJurnal.tipe) *
+        (updates.jumlah || oldJurnal.jumlah);
+      const diffAmount = newAmount - oldAmount;
 
-      // Hitung selisih perubahan stok (yang lama dikembalikan, yang baru diterapkan)
-      const diffAmount = newAmount - oldAmount; // 2. UPDATE JURNAL (Dilakukan pertama agar segera mencatat perubahan)
-
-      const updatedJurnal = await JurnalStok.findOneAndUpdate(
-        { _id: id, tenantID: tenantID },
-        updates,
+      const updated = await JurnalStok.findOneAndUpdate(
+        { _id: id, tenantID },
+        { $set: updates },
         { new: true, runValidators: true }
-      );
+      ).lean();
 
-      if (!updatedJurnal)
-        throw createError(404, "Gagal memperbarui Jurnal Stok."); // 3. LOGIKA BISNIS: TERAPKAN PERUBAHAN STOK (Menggunakan $inc diffAmount)
+      // Terapkan selisih ke Inventory
+      if (diffAmount !== 0) {
+        await Inventory.updateOne(
+          {
+            bahanBakuID: updated.bahanBakuID,
+            locationID: updated.locationID,
+            tenantID,
+          },
+          { $inc: { stok: diffAmount } }
+        );
+      }
 
-      await Inventory.updateOne(
-        {
-          bahanBakuID: updatedJurnal.bahanBakuID,
-          locationID: updatedJurnal.locationID,
-          tenantID,
-        },
-        { $inc: { stok: diffAmount } } // Terapkan selisih antara nilai lama dan baru
-      );
-
-      return updatedJurnal;
+      await this.#clearCache(id, tenantID);
+      return updated;
     } catch (error) {
-      throw this.handleDbError(error, "Gagal memperbarui Jurnal Stok.");
+      if (createError.isHttpError(error)) throw error;
+      throw this.#handleDbError(error);
     }
-  } // --- DELETE ---
+  }
 
-  async delete(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Jurnal dan Tenant ID wajib disertakan dan harus valid."
-      );
-
+  // --- DELETE ---
+  async delete(id, tenantID) {
     try {
-      // 1. HAPUS DOKUMEN JURNAL (Ambil data sebelum dihapus)
-      const deletedJurnal = await JurnalStok.findOneAndDelete({
-        _id: id,
-        tenantID: tenantID,
-      });
+      const deleted = await JurnalStok.findOneAndDelete({ _id: id, tenantID });
+      if (!deleted) throw createError(404, "Jurnal tidak ditemukan.");
 
-      if (!deletedJurnal)
-        throw createError(
-          404,
-          "Jurnal Stok tidak ditemukan atau Anda tidak memiliki akses."
-        ); // 2. LOGIKA BISNIS: KEMBALIKAN STOK BAHAN BAKU (Reverse Transaction)
-
-      const amountToReverse =
-        getStokOperation(deletedJurnal.tipe) * deletedJurnal.jumlah;
-      const reverseAmount = -amountToReverse; // Jika masuk (+), dikembalikan jadi (-)
+      // Kembalikan stok (Reverse)
+      const reverseAmount = -(
+        this.#getStokOperation(deleted.tipe) * deleted.jumlah
+      );
 
       await Inventory.updateOne(
         {
-          bahanBakuID: deletedJurnal.bahanBakuID,
-          locationID: deletedJurnal.locationID,
+          bahanBakuID: deleted.bahanBakuID,
+          locationID: deleted.locationID,
           tenantID,
         },
         { $inc: { stok: reverseAmount } }
       );
 
+      await this.#clearCache(id, tenantID);
       return { message: "Jurnal Stok berhasil dihapus" };
     } catch (error) {
-      throw this.handleDbError(error, "Gagal menghapus Jurnal Stok.");
+      throw this.#handleDbError(error);
     }
   }
 }

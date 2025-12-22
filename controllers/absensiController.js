@@ -1,63 +1,107 @@
-const AbsensiService = require("../services/absensiService"); // Sesuaikan path
+const absensiService = require("../services/absensiService");
 const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    return res
-      .status(error.statusCode)
-      .json({ message: error.message, errors: error.errors });
-  }
-  res.status(500).json({ message: error.message });
-};
+class AbsensiController {
+  // --- CREATE ---
+  async createAbsensi(req, res, next) {
+    try {
+      /**
+       * SINKRONISASI: Menggunakan req.pengguna sesuai standar middleware authPengguna.
+       * Keamanan: tenantID dan penggunaID dipaksa diambil dari token (bukan body).
+       */
+      const payload = {
+        ...req.body,
+        tenantID: req.pengguna.tenantID,
+        penggunaID: req.pengguna._id,
+      };
 
-exports.createAbsensi = async (req, res) => {
-  try {
-    const newAbsensi = await AbsensiService.create(req.body);
-    res
-      .status(201)
-      .json({ message: "Absensi berhasil dibuat", data: newAbsensi });
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const result = await absensiService.create(payload);
 
-exports.getAllAbsensi = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const absensi = await AbsensiService.getAll(tenantID);
-    res.json(absensi);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.status(201).json({
+        success: true,
+        message: "Absensi berhasil dibuat",
+        data: result,
+      });
+    } catch (err) {
+      next(err); // Error dari service (createError) akan otomatis ditangkap di sini
+    }
   }
-};
 
-exports.getAbsensiById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const absensi = await AbsensiService.getById(id);
-    res.json(absensi);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+  // --- GET ALL ---
+  async getAllAbsensi(req, res, next) {
+    try {
+      // Isolasi data: Mengambil tenantID dari identitas pengguna yang terverifikasi
+      const tenantID = req.pengguna.tenantID;
 
-exports.updateAbsensi = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const absensi = await AbsensiService.update(id, req.body);
-    res.json(absensi);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+      const absensi = await absensiService.getAll(tenantID);
 
-exports.deleteAbsensi = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await AbsensiService.delete(id);
-    res.json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+      res.json({
+        success: true,
+        message: "Data absensi berhasil diambil",
+        total: absensi.length,
+        data: absensi,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+
+  // --- GET BY ID ---
+  async getAbsensiById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const absensi = await absensiService.getById(id, tenantID);
+
+      // Jika service tidak throw error tapi data kosong, pastikan 404 tetap terjaga
+      if (!absensi) {
+        throw createError(404, "Data absensi tidak ditemukan.");
+      }
+
+      res.json({
+        success: true,
+        data: absensi,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // --- UPDATE ---
+  async updateAbsensi(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      const updated = await absensiService.update(id, tenantID, req.body);
+
+      res.json({
+        success: true,
+        message: "Absensi berhasil diperbarui",
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // --- DELETE ---
+  async deleteAbsensi(req, res, next) {
+    try {
+      const { id } = req.params;
+      const tenantID = req.pengguna.tenantID;
+
+      await absensiService.delete(id, tenantID);
+
+      res.json({
+        success: true,
+        message: "Data absensi berhasil dihapus",
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+}
+
+module.exports = new AbsensiController();

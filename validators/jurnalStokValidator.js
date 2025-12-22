@@ -2,7 +2,7 @@
 const mongoose = require("mongoose");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-const VALID_TIPE = ["masuk", "keluar", "penyesuaian"];
+const VALID_TIPE = ["Masuk", "Keluar"];
 
 /**
  * Validasi payload untuk operasi CREATE/UPDATE Jurnal Stok.
@@ -20,7 +20,7 @@ function validateJurnalPayload(data, isUpdate = false) {
       errors.push("Tenant ID wajib diisi dan formatnya harus valid.");
     if (!data.bahanBakuID || !isValidObjectId(data.bahanBakuID))
       errors.push("Bahan Baku ID wajib diisi dan formatnya harus valid.");
-    if (!data.tipe || !VALID_TIPE.includes(data.tipe))
+    if (!data.tipeKoreksi || !VALID_TIPE.includes(data.tipeKoreksi))
       errors.push(`Tipe Jurnal tidak valid. Pilih: ${VALID_TIPE.join(", ")}.`);
     if (typeof data.jumlah !== "number" || data.jumlah <= 0)
       errors.push("Jumlah wajib diisi dan harus berupa angka positif.");
