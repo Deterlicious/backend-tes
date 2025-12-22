@@ -1,12 +1,27 @@
 const kategoriService = require("../services/kategoriService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class KategoriController {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({ nama: permissionName });
+    if (!permissionDoc) return false;
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+    return hasAccess;
+  }
+
   async getAll(req, res, next) {
     try {
       const tenantID = req.pengguna.tenantID;
-      if (!req.pengguna.permissions.includes("kategori:read")) {
-        throw createError(403, "Anda tidak memiliki akses melihat kategori");
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kategori"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kategori");
       }
       const result = await kategoriService.getAll(tenantID);
       res.json({ data: result });
@@ -17,9 +32,14 @@ class KategoriController {
 
   async getById(req, res, next) {
     try {
-      const { tenantID, permissions } = req.pengguna;
-      if (!permissions.includes("kategori:read")) {
-        throw createError(403, "Anda tidak memiliki akses melihat kategori");
+      const tenantID = req.pengguna;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kategori"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kategori");
       }
       const result = await kategoriService.getById(req.params.id, tenantID);
       if (!result) throw createError(404, "Kategori tidak ditemukan");
@@ -31,8 +51,13 @@ class KategoriController {
 
   async create(req, res, next) {
     try {
-      if (!req.pengguna.permissions.includes("kategori:create")) {
-        throw createError(403, "Anda tidak memiliki akses membuat kategori");
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kategori"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kategori");
       }
       const payload = {
         ...req.body,
@@ -52,8 +77,13 @@ class KategoriController {
 
   async update(req, res, next) {
     try {
-      if (!req.pengguna.permissions.includes("kategori:update")) {
-        throw createError(403, "Anda tidak memiliki akses mengubah kategori");
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kategori"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kategori");
       }
       const result = await kategoriService.update(req.params.id, req.body);
       if (result?.error) {
@@ -68,9 +98,15 @@ class KategoriController {
 
   async delete(req, res, next) {
     try {
-      if (!req.pengguna.permissions.includes("kategori:delete")) {
-        throw createError(403, "Anda tidak memiliki akses menghapus kategori");
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kategori"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kategori");
       }
+
       const result = await kategoriService.delete(req.params.id);
       if (!result) throw createError(404, "Kategori tidak ditemukan");
       res.json({ message: "Kategori berhasil dihapus" });
