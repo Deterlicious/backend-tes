@@ -8,15 +8,13 @@ function validateKategoriPayload(data, isUpdate = false) {
     if (!data.tenantID || !mongoose.Types.ObjectId.isValid(data.tenantID)) {
       errors.push("tenantID wajib diisi dan valid");
     }
+
     if (!data.namaKategori || validator.isEmpty(data.namaKategori + "")) {
       errors.push("namaKategori wajib diisi");
     }
   }
 
-  if (
-    data.namaKategori !== undefined &&
-    validator.isEmpty(data.namaKategori + "")
-  ) {
+  if (data.namaKategori !== undefined && validator.isEmpty(data.namaKategori + "")) {
     errors.push("namaKategori tidak boleh kosong");
   }
 

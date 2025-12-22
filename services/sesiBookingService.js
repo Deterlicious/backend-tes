@@ -3,7 +3,7 @@ const Penjualan = require("../models/penjualanModel");
 const Aset = require("../models/asetModel");
 const Tarif = require("../models/tarifModel");
 const Diskon = require("../models/diskonModel");
-const redis = require("../utils/redisClient");
+const redis = require("../config/redis");
 const { validateSesiBookingPayload } = require("../validators/sesiBookingValidator");
 const mongoose = require("mongoose");
 const createError = require("http-errors");
@@ -12,7 +12,6 @@ const CACHE_KEY_LIST = (tenantID) => `booking:tenant:${tenantID}`;
 const CACHE_KEY_DETAIL = (id) => `booking:detail:${id}`;
 
 class SesiBookingService {
-  
   _generateNomorFaktur() {
     const date = new Date();
     const yyyy = date.getFullYear();
@@ -29,17 +28,13 @@ class SesiBookingService {
     return `INV/${datePart}/${timePart}`;
   }
 
-  // --- LOGIC ENGINE: Mencari Tarif Terbaik ---
   async _findBestTarif(tenantID, tipeAsetID, waktuMulaiIso) {
     const bookingTime = new Date(waktuMulaiIso);
-    
-    // 1. Ekstrak Parameter Waktu
-    const dayOfWeek = bookingTime.getDay(); // 0 (Minggu) - 6 (Sabtu)
+    const dayOfWeek = bookingTime.getDay();
     const hours = String(bookingTime.getHours()).padStart(2, '0');
     const minutes = String(bookingTime.getMinutes()).padStart(2, '0');
     const timeString = `${hours}:${minutes}`;
 
-    // 2. Ambil SEMUA tarif yang relevan untuk Aset ini
     const tariffs = await Tarif.find({
       tenantID: tenantID,
       tipeAsetID: tipeAsetID
@@ -47,50 +42,41 @@ class SesiBookingService {
 
     if (!tariffs || tariffs.length === 0) return null;
 
-    // 3. FILTERING (Logic Engine)
     const candidates = tariffs.filter(t => {
-      // Cek Hari (Jika array kosong [], berarti berlaku tiap hari)
       if (t.hariAktif && t.hariAktif.length > 0) {
         if (!t.hariAktif.includes(dayOfWeek)) return false;
       }
 
-      // Cek Jam (String Compare "08:00" <= "14:00" <= "18:00")
       if (t.jamMulai && t.jamSelesai) {
-         if (timeString < t.jamMulai || timeString > t.jamSelesai) {
-            return false;
-         }
+        if (timeString < t.jamMulai || timeString > t.jamSelesai) {
+          return false;
+        }
       }
 
       return true;
     });
 
-    // 4. SORTING & SELECTION
     if (candidates.length > 0) {
       candidates.sort((a, b) => {
-        // Kriteria 1: Prioritas Tertinggi menang (Desc)
         if (b.prioritas !== a.prioritas) {
-            return b.prioritas - a.prioritas;
+          return b.prioritas - a.prioritas;
         }
-        // Kriteria 2 (Tie-Breaker): Jika prioritas sama, Harga Termurah menang (Asc)
-        return a.harga - b.harga; 
+        return a.harga - b.harga;
       });
-      
-      return candidates[0]; // Pemenang
+
+      return candidates[0];
     }
 
-    // 5. FALLBACK (Jika tidak ada yang cocok, cari Default)
     const defaultTariff = tariffs.find(t => t.isDefault === true);
     return defaultTariff || null;
   }
 
-  // --- CORE: Hitung Biaya (Support Manual & Auto) ---
   async _calculateCost(tenantID, asetID, tarifID, durasiMenit, waktuMulai) {
     const asset = await Aset.findById(asetID);
     if (!asset) throw createError(404, "Aset tidak ditemukan saat hitung biaya.");
 
     let tarif;
 
-    // KASUS A: Manual Override (Kasir memilih tarifID)
     if (tarifID) {
       tarif = await Tarif.findOne({ _id: tarifID, tenantID });
       if (!tarif) throw createError(404, "Tarif manual tidak ditemukan atau tidak valid.");
@@ -101,16 +87,13 @@ class SesiBookingService {
       if (!isValidForAsset) {
         throw createError(400, `Tarif '${tarif.namaTarif}' tidak berlaku untuk aset '${asset.namaAset}'.`);
       }
-    } 
-    // KASUS B: Auto Select (Pelanggan Web / tarifID kosong)
-    else {
+    } else {
       tarif = await this._findBestTarif(tenantID, asset.tipeAsetID, waktuMulai);
       if (!tarif) {
         throw createError(400, `Tidak ditemukan tarif yang cocok untuk waktu: ${waktuMulai}. Hubungi admin toko.`);
       }
     }
 
-    // Hitung Harga Final
     let hargaKotor = 0;
     if (tarif.basisPerhitungan === "per sesi") {
       hargaKotor = tarif.harga;
@@ -147,8 +130,6 @@ class SesiBookingService {
     return { nilaiPotongan: Math.ceil(nilaiPotongan), diskonObj: diskon };
   }
 
-  // --- CRUD METHODS ---
-
   async getAll(tenantID) {
     if (!tenantID) throw createError(400, "tenantID is required");
 
@@ -158,7 +139,7 @@ class SesiBookingService {
 
     const bookings = await SesiBooking.find({ tenantID })
       .populate("dataAset", "namaAset status")
-      .populate("dataPengguna", "nama") // Perbaikan: dataPengguna
+      .populate("dataPengguna", "nama")
       .populate("dataPelanggan", "namaPelanggan tipePelanggan")
       .populate({
         path: "dataPenjualan",
@@ -172,20 +153,25 @@ class SesiBookingService {
       .lean();
 
     if (bookings.length > 0) {
-      await redis.setEx(key, 60, JSON.stringify(bookings));
+      await redis.set(key, JSON.stringify(bookings), "EX", 300);
     }
 
     return bookings;
   }
 
-  async getById(id) {
+  async getById(id, requesterTenantID) {
     const key = CACHE_KEY_DETAIL(id);
     const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
 
-    const booking = await SesiBooking.findById(id)
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
+    }
+
+    const booking = await SesiBooking.findOne({ _id: id, tenantID: requesterTenantID })
       .populate("dataAset")
-      .populate("dataPengguna") // Perbaikan: dataPengguna
+      .populate("dataPengguna")
       .populate("dataPelanggan", "namaPelanggan tipePelanggan")
       .populate("tarifID", "namaTarif harga")
       .populate({
@@ -203,7 +189,7 @@ class SesiBookingService {
 
     if (!booking) return null;
 
-    await redis.setEx(key, 60, JSON.stringify(booking));
+    await redis.set(key, JSON.stringify(booking), "EX", 300);
     return booking;
   }
 
@@ -228,8 +214,7 @@ class SesiBookingService {
           payload.waktuMulai,
           payload.waktuSelesai
         );
-        if (isConflict)
-          return { error: ["Aset sedang digunakan pada jam tersebut."] };
+        if (isConflict) return { error: ["Aset sedang digunakan pada jam tersebut."] };
       }
 
       const start = new Date(payload.waktuMulai);
@@ -241,7 +226,6 @@ class SesiBookingService {
       let totalBiaya = 0;
       let namaTarifApplied = "";
       let finalTarifID = payload.tarifID;
-
       let diskonID = payload.dataDiskon || null;
 
       if (end) {
@@ -262,10 +246,7 @@ class SesiBookingService {
           finalTarifID = calcResult.tarifObj._id;
 
           if (diskonID) {
-            const diskonResult = await this._calculateDiscount(
-              diskonID,
-              hargaKotor
-            );
+            const diskonResult = await this._calculateDiscount(diskonID, hargaKotor);
             jumlahDiskon = diskonResult.nilaiPotongan;
           }
 
@@ -277,7 +258,6 @@ class SesiBookingService {
 
       const newPenjualanId = new mongoose.Types.ObjectId();
       const newBookingId = new mongoose.Types.ObjectId();
-      
       const namaItemJual = `Sewa ${targetAset.namaAset} (${namaTarifApplied})`;
 
       const itemPenjualanData = {
@@ -311,10 +291,7 @@ class SesiBookingService {
         _id: newBookingId,
         dataPenjualan: newPenjualanId,
         dataAset: payload.dataAset,
-        
-        // PERBAIKAN: Gunakan dataPengguna, bukan penggunaID
-        dataPengguna: payload.dataPengguna, 
-        
+        dataPengguna: payload.dataPengguna,
         tenantID: payload.tenantID,
         dataPelanggan: payload.dataPelanggan,
         waktuMulai: payload.waktuMulai,
@@ -322,7 +299,7 @@ class SesiBookingService {
         durasiMenit: durasiMenit,
         totalBiaya: totalBiaya,
         status: payload.status || "Aktif",
-        tarifID: finalTarifID, 
+        tarifID: finalTarifID,
       });
 
       await newPenjualan.save();
@@ -332,9 +309,9 @@ class SesiBookingService {
 
       const result = await SesiBooking.findById(newBookingId)
         .populate("dataAset", "namaAset")
-        .populate("dataPengguna", "nama") // Populate dataPengguna
+        .populate("dataPengguna", "nama")
         .populate("dataPelanggan", "namaPelanggan tipePelanggan")
-        .populate("tarifID", "namaTarif") 
+        .populate("tarifID", "namaTarif")
         .populate({
           path: "dataPenjualan",
           populate: {
@@ -350,37 +327,27 @@ class SesiBookingService {
     }
   }
 
-  async update(id, payload) {
+  async update(id, payload, requesterTenantID) {
     const validation = validateSesiBookingPayload(payload, true);
     if (!validation.valid) return { error: validation.errors };
 
-    // Hapus security fields
     delete payload.tenantID;
     delete payload.dataPenjualan;
-    // Note: dataPengguna dibiarkan agar bisa diupdate jika perlu
 
     try {
-      const currentBooking = await SesiBooking.findById(id);
+      const currentBooking = await SesiBooking.findOne({ _id: id, tenantID: requesterTenantID });
       if (!currentBooking) return null;
 
       if (payload.dataAset) {
         const targetAset = await Aset.findById(payload.dataAset);
         if (!targetAset) return { error: ["Aset tidak ditemukan."] };
-        if (
-          targetAset.tenantID.toString() !== currentBooking.tenantID.toString()
-        ) {
-          return {
-            error: ["Akses Ditolak: Aset ini bukan milik tenant Anda."],
-          };
+        if (targetAset.tenantID.toString() !== currentBooking.tenantID.toString()) {
+          return { error: ["Akses Ditolak: Aset ini bukan milik tenant Anda."] };
         }
       }
 
-      const start = payload.waktuMulai
-        ? new Date(payload.waktuMulai)
-        : currentBooking.waktuMulai;
-      const end = payload.waktuSelesai
-        ? new Date(payload.waktuSelesai)
-        : currentBooking.waktuSelesai;
+      const start = payload.waktuMulai ? new Date(payload.waktuMulai) : currentBooking.waktuMulai;
+      const end = payload.waktuSelesai ? new Date(payload.waktuSelesai) : currentBooking.waktuSelesai;
 
       if (end && end <= start) {
         return { error: ["Waktu selesai harus setelah waktu mulai."] };
@@ -390,11 +357,10 @@ class SesiBookingService {
         payload.waktuMulai ||
         payload.waktuSelesai ||
         payload.dataAset ||
-        payload.tarifID !== undefined || 
+        payload.tarifID !== undefined ||
         payload.dataDiskon !== undefined
       ) {
         const asetToCheck = payload.dataAset || currentBooking.dataAset;
-        
         const conflict = await SesiBooking.findOne({
           _id: { $ne: id },
           dataAset: asetToCheck,
@@ -427,19 +393,14 @@ class SesiBookingService {
           } else if (payload.dataDiskon === null) {
             diskonID = null;
           } else {
-            const existingPenjualan = await Penjualan.findById(
-              currentBooking.dataPenjualan
-            );
+            const existingPenjualan = await Penjualan.findById(currentBooking.dataPenjualan);
             if (existingPenjualan && existingPenjualan.itemPenjualan[0]) {
               diskonID = existingPenjualan.itemPenjualan[0].diskonID;
             }
           }
 
           if (diskonID) {
-            const diskonResult = await this._calculateDiscount(
-              diskonID,
-              hargaKotor
-            );
+            const diskonResult = await this._calculateDiscount(diskonID, hargaKotor);
             jumlahDiskon = diskonResult.nilaiPotongan;
           }
 
@@ -464,14 +425,15 @@ class SesiBookingService {
         }
       }
 
-      const updated = await SesiBooking.findByIdAndUpdate(id, payload, {
-        new: true,
-        runValidators: true,
-      })
+      const updated = await SesiBooking.findOneAndUpdate(
+        { _id: id, tenantID: requesterTenantID },
+        payload,
+        { new: true, runValidators: true }
+      )
       .populate("dataPengguna", "nama")
       .lean();
 
-      await redis.del(CACHE_KEY_LIST(updated.tenantID));
+      await redis.del(CACHE_KEY_LIST(requesterTenantID));
       await redis.del(CACHE_KEY_DETAIL(id));
 
       return updated;
@@ -480,11 +442,11 @@ class SesiBookingService {
     }
   }
 
-  async delete(id) {
-    const target = await SesiBooking.findById(id).lean();
-    if (!target) return null;
-    await SesiBooking.deleteOne({ _id: id });
-    await redis.del(CACHE_KEY_LIST(target.tenantID));
+  async delete(id, requesterTenantID) {
+    const result = await SesiBooking.deleteOne({ _id: id, tenantID: requesterTenantID });
+    if (result.deletedCount === 0) return null;
+
+    await redis.del(CACHE_KEY_LIST(requesterTenantID));
     await redis.del(CACHE_KEY_DETAIL(id));
     return true;
   }
@@ -501,11 +463,7 @@ class SesiBookingService {
   }
 
   async createBatch(payload) {
-    if (
-      !payload.items ||
-      !Array.isArray(payload.items) ||
-      payload.items.length === 0
-    ) {
+    if (!payload.items || !Array.isArray(payload.items) || payload.items.length === 0) {
       return { error: ["Daftar item booking (items) wajib diisi."] };
     }
 
@@ -516,15 +474,8 @@ class SesiBookingService {
       const bookingDocs = [];
 
       for (const [index, item] of payload.items.entries()) {
-        if (!item.dataAset || !item.waktuMulai) {
-          throw new Error(
-            `Item #${index + 1}: dataAset dan waktuMulai wajib diisi.`
-          );
-        }
-
         const targetAset = await Aset.findById(item.dataAset);
-        if (!targetAset)
-          throw new Error(`Item #${index + 1}: Aset tidak ditemukan.`);
+        if (!targetAset) throw new Error(`Item #${index + 1}: Aset tidak ditemukan.`);
 
         if (targetAset.tenantID.toString() !== payload.tenantID.toString()) {
           throw new Error(`Item #${index + 1}: Aset bukan milik tenant ini.`);
@@ -537,11 +488,7 @@ class SesiBookingService {
         );
 
         if (isConflict) {
-          throw new Error(
-            `Item #${index + 1}: Aset ${
-              targetAset.namaAset
-            } bentrok pada jam tersebut.`
-          );
+          throw new Error(`Item #${index + 1}: Aset ${targetAset.namaAset} bentrok pada jam tersebut.`);
         }
 
         const start = new Date(item.waktuMulai);
@@ -552,7 +499,6 @@ class SesiBookingService {
         let totalItem = 0;
         let namaTarifApplied = "";
         let finalTarifID = item.tarifID;
-
         const diskonID = item.dataDiskon || null;
 
         if (end) {
@@ -572,10 +518,7 @@ class SesiBookingService {
           finalTarifID = calcResult.tarifObj._id;
 
           if (diskonID) {
-            const diskonRes = await this._calculateDiscount(
-              diskonID,
-              hargaKotor
-            );
+            const diskonRes = await this._calculateDiscount(diskonID, hargaKotor);
             jumlahDiskon = diskonRes.nilaiPotongan;
           }
 
@@ -601,10 +544,7 @@ class SesiBookingService {
         bookingDocs.push({
           _id: newBookingId,
           tenantID: payload.tenantID,
-          
-          // PERBAIKAN: Gunakan dataPengguna dari payload utama
           dataPengguna: payload.dataPengguna,
-          
           dataPelanggan: payload.dataPelanggan,
           dataAset: item.dataAset,
           dataPenjualan: newPenjualanId,
@@ -613,7 +553,7 @@ class SesiBookingService {
           durasiMenit: durasiMenit,
           totalBiaya: totalItem,
           status: "Aktif",
-          tarifID: finalTarifID, 
+          tarifID: finalTarifID,
         });
       }
 

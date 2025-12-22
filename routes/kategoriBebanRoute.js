@@ -1,10 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const kategoriBebanController = require("../controllers/kategoriBebanController");
+const authPengguna = require("../middleware/authPengguna");
 
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(kategoriBebanController, req, res, next)).catch(next);
 };
+
+router.use(authPengguna);
 
 router
   .route("/")

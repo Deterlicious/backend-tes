@@ -27,11 +27,11 @@ const PelangganSchema = new mongoose.Schema(
     },
     saldoPiutang: {
       type: Number,
-      default: 0
+      default: 0,
     },
     poinLoyalitas: {
       type: Number,
-      default: 0
+      default: 0,
     },
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
@@ -40,7 +40,10 @@ const PelangganSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true, versionKey: false }
+  {
+    timestamps: true,
+    versionKey: false,
+  }
 );
 
 PelangganSchema.index({ tenantID: 1, namaPelanggan: 1 }, { unique: true });

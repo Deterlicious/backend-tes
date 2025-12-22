@@ -2,7 +2,7 @@ const Penjualan = require("../models/penjualanModel");
 const Diskon = require("../models/diskonModel");
 const Produk = require("../models/produkModel");
 const SesiBooking = require("../models/sesiBookingModel");
-const redis = require("../utils/redisClient");
+const redis = require("../config/redis");
 const { validatePenjualanPayload } = require("../validators/penjualanValidator");
 const createError = require("http-errors");
 const mongoose = require("mongoose");
@@ -79,24 +79,30 @@ class PenjualanService {
       .lean();
 
     const formatted = this._formatOutput(penjualans);
-    if (formatted.length > 0)
-      await redis.setEx(key, 60, JSON.stringify(formatted));
+    if (formatted.length > 0) {
+      await redis.set(key, JSON.stringify(formatted), "EX", 60);
+    }
     return formatted;
   }
 
-  async getById(id) {
+  async getById(id, requesterTenantID) {
     const key = CACHE_KEY_DETAIL(id);
     const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
+    
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
+    }
 
-    const penjualan = await Penjualan.findById(id)
+    const penjualan = await Penjualan.findOne({ _id: id, tenantID: requesterTenantID })
       .populate("dataPelanggan", "namaPelanggan tipePelanggan alamat email")
       .populate("itemPenjualan.diskonID", "namaDiskon tipe nilai")
       .lean();
 
     if (!penjualan) return null;
     const formatted = this._formatOutput(penjualan);
-    await redis.setEx(key, 60, JSON.stringify(formatted));
+    await redis.set(key, JSON.stringify(formatted), "EX", 60);
     return formatted;
   }
 
@@ -108,14 +114,11 @@ class PenjualanService {
       if (payload.itemPenjualan && payload.itemPenjualan.length > 0) {
         for (const item of payload.itemPenjualan) {
           if (item.produkID) {
-            const produkData = await Produk.findById(item.produkID);
-            if (!produkData)
-              return { error: [`Produk ID ${item.produkID} tidak ditemukan.`] };
-            if (produkData.tenantID.toString() !== payload.tenantID.toString()) {
-              return {
-                error: [`Produk "${produkData.namaProduk}" bukan milik tenant ini.`],
-              };
+            const produkData = await Produk.findOne({ _id: item.produkID, tenantID: payload.tenantID });
+            if (!produkData) {
+              return { error: [`Produk ID ${item.produkID} tidak ditemukan atau akses ditolak.`] };
             }
+            
             if (!item.namaProduk) item.namaProduk = produkData.namaProduk;
             if (item.hargaJual === undefined || item.hargaJual === null) {
               item.hargaJual = produkData.hargaJual;
@@ -145,10 +148,11 @@ class PenjualanService {
 
       return this._formatOutput(result);
     } catch (err) {
-      if (err.code === 11000)
+      if (err.code === 11000) {
         return {
           error: ["Gagal membuat faktur: Nomor Faktur duplikat. Coba lagi."],
         };
+      }
       throw err;
     }
   }
@@ -163,45 +167,22 @@ class PenjualanService {
     delete payload._id;
 
     try {
-      const currentData = await Penjualan.findById(id);
+      const currentData = await Penjualan.findOne({ _id: id, tenantID: requestedTenantID });
       if (!currentData) return null;
-
-      if (!requestedTenantID) {
-        return {
-          error: ["Akses Ditolak: Tenant ID wajib disertakan pada URL parameter."],
-        };
-      }
-      if (currentData.tenantID.toString() !== requestedTenantID.toString()) {
-        return {
-          error: [
-            "SECURITY ALERT: Anda mencoba mengubah data penjualan yang bukan milik Tenant ID tersebut.",
-          ],
-        };
-      }
 
       if (payload.dataDiskon !== undefined) {
         let diskonObj = null;
 
         if (payload.dataDiskon) {
-          diskonObj = await Diskon.findById(payload.dataDiskon);
+          diskonObj = await Diskon.findOne({ _id: payload.dataDiskon, tenantID: requestedTenantID });
           if (!diskonObj || diskonObj.status !== "Aktif") {
             return {
               error: ["Diskon Global tidak ditemukan atau tidak aktif"],
             };
           }
-          if (
-            diskonObj.tenantID.toString() !== currentData.tenantID.toString()
-          ) {
-            return {
-              error: ["Akses Ditolak: Diskon Global bukan milik tenant Anda."],
-            };
-          }
         }
 
-        if (
-          currentData.itemPenjualan &&
-          currentData.itemPenjualan.length > 0
-        ) {
+        if (currentData.itemPenjualan && currentData.itemPenjualan.length > 0) {
           currentData.itemPenjualan.forEach((item) => {
             this._applyDiscountToItem(item, diskonObj);
           });
@@ -222,24 +203,11 @@ class PenjualanService {
             if (targetItem) {
               let specificDiskonObj = null;
               if (inputItem.dataDiskon) {
-                specificDiskonObj = await Diskon.findById(inputItem.dataDiskon);
-                if (
-                  !specificDiskonObj ||
-                  specificDiskonObj.status !== "Aktif"
-                ) {
+                specificDiskonObj = await Diskon.findOne({ _id: inputItem.dataDiskon, tenantID: requestedTenantID });
+                if (!specificDiskonObj || specificDiskonObj.status !== "Aktif") {
                   return {
                     error: [
                       `Diskon Spesifik (ID: ${inputItem.dataDiskon}) tidak valid.`,
-                    ],
-                  };
-                }
-                if (
-                  specificDiskonObj.tenantID.toString() !==
-                  currentData.tenantID.toString()
-                ) {
-                  return {
-                    error: [
-                      "Akses Ditolak: Salah satu Diskon Spesifik bukan milik tenant Anda.",
                     ],
                   };
                 }
@@ -268,10 +236,7 @@ class PenjualanService {
 
       await currentData.save();
 
-      if (
-        currentData.jenisPenjualan === "booking" &&
-        currentData.itemPenjualan
-      ) {
+      if (currentData.jenisPenjualan === "booking" && currentData.itemPenjualan) {
         for (const item of currentData.itemPenjualan) {
           if (item.sesiBookingID) {
             await SesiBooking.findByIdAndUpdate(item.sesiBookingID, {
@@ -297,11 +262,11 @@ class PenjualanService {
     }
   }
 
-  async delete(id) {
-    const target = await Penjualan.findById(id).lean();
-    if (!target) return null;
-    await Penjualan.deleteOne({ _id: id });
-    await redis.del(CACHE_KEY_LIST(target.tenantID));
+  async delete(id, requesterTenantID) {
+    const result = await Penjualan.deleteOne({ _id: id, tenantID: requesterTenantID });
+    if (result.deletedCount === 0) return null;
+    
+    await redis.del(CACHE_KEY_LIST(requesterTenantID));
     await redis.del(CACHE_KEY_DETAIL(id));
     return true;
   }
@@ -310,17 +275,11 @@ class PenjualanService {
     if (!items || items.length === 0) return;
     for (const [index, item] of items.entries()) {
       if (item.diskonID) {
-        const diskon = await Diskon.findById(item.diskonID);
+        const diskon = await Diskon.findOne({ _id: item.diskonID, tenantID });
         if (!diskon || diskon.status === "Non-Aktif") {
           throw createError(
             400,
             `Item #${index + 1}: Diskon tidak valid atau Non-Aktif.`
-          );
-        }
-        if (tenantID && diskon.tenantID.toString() !== tenantID.toString()) {
-          throw createError(
-            403,
-            `Item #${index + 1}: Diskon "${diskon.namaDiskon}" bukan milik tenant Anda.`
           );
         }
       }

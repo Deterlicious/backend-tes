@@ -1,10 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const controller = require("../controllers/penjualanController");
+const authPengguna = require("../middleware/authPengguna");
 
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(controller, req, res, next)).catch(next);
 };
+
+router.use(authPengguna);
 
 router.post("/", wrap(controller.create));
 router.get("/", wrap(controller.getAll));
