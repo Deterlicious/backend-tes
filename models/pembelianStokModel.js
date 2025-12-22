@@ -83,7 +83,10 @@ const PembelianStokSchema = new mongoose.Schema(
       required: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    versionKey: false,
+  }
 );
 
 PembelianStokSchema.pre("validate", function (next) {
@@ -102,6 +105,7 @@ PembelianStokSchema.index(
   { tenantID: 1, nomorFaktur: 1 },
   { unique: true, sparse: true }
 );
+
 PembelianStokSchema.index({ tanggal: -1 });
 
 module.exports = mongoose.model("PembelianStok", PembelianStokSchema);

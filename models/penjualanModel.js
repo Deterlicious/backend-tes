@@ -121,8 +121,8 @@ PenjualanSchema.pre("validate", function (next) {
       const dsk = Number(item.jumlahDiskon) || 0;
 
       item.hargaKotor = hrg * jml;
-
       item.subtotal = item.hargaKotor - dsk;
+
       if (item.subtotal < 0) item.subtotal = 0;
 
       grandTotal += item.subtotal;

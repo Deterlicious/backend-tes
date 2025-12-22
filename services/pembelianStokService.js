@@ -7,6 +7,19 @@ const CACHE_KEY_LIST = (tenantID) => `pembelian:list:${tenantID}`;
 const CACHE_KEY_DETAIL = (id) => `pembelian:detail:${id}`;
 
 class PembelianStokService {
+  _generateNomorFaktur() {
+    const date = new Date();
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const hh = String(date.getHours()).padStart(2, "0");
+    const min = String(date.getMinutes()).padStart(2, "0");
+    const ss = String(date.getSeconds()).padStart(2, "0");
+    const ms = String(date.getMilliseconds()).padStart(3, "0");
+
+    return `INV/${yyyy}${mm}${dd}/${hh}${min}${ss}${ms}`;
+  }
+
   async getAll(tenantID) {
     if (!tenantID) throw createError(400, "tenantID is required");
 
@@ -27,12 +40,17 @@ class PembelianStokService {
     return data;
   }
 
-  async getById(id) {
+  async getById(id, requesterTenantID) {
     const key = CACHE_KEY_DETAIL(id);
     const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
 
-    const data = await PembelianStok.findById(id)
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
+    }
+
+    const data = await PembelianStok.findOne({ _id: id, tenantID: requesterTenantID })
       .populate("akunKasID", "namaAkun nomorAkun")
       .populate("items.bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
@@ -49,20 +67,23 @@ class PembelianStokService {
     if (!validation.valid) return { error: validation.errors };
 
     try {
-      const pembelian = await PembelianStok.create(payload);
+      if (!payload.nomorFaktur) {
+        payload.nomorFaktur = this._generateNomorFaktur();
+      }
 
+      const pembelian = await PembelianStok.create(payload);
       await redis.del(CACHE_KEY_LIST(payload.tenantID));
 
       return pembelian;
     } catch (err) {
       if (err.code === 11000) {
-        return { error: ["Nomor Faktur sudah digunakan di tenant ini"] };
+        return { error: ["Nomor Faktur otomatis bentrok, silakan coba lagi."] };
       }
       throw err;
     }
   }
 
-  async update(id, payload) {
+  async update(id, payload, requestedTenantID) {
     const validation = validatePembelianPayload(payload, true);
     if (!validation.valid) return { error: validation.errors };
 
@@ -70,15 +91,19 @@ class PembelianStokService {
     delete payload.createdAt;
 
     try {
-      const updated = await PembelianStok.findByIdAndUpdate(id, payload, {
-        new: true,
-        runValidators: true,
-        context: "query",
-      }).lean();
+      const updated = await PembelianStok.findOneAndUpdate(
+        { _id: id, tenantID: requestedTenantID },
+        payload,
+        {
+          new: true,
+          runValidators: true,
+          context: "query",
+        }
+      ).lean();
 
       if (!updated) return null;
 
-      await redis.del(CACHE_KEY_LIST(updated.tenantID));
+      await redis.del(CACHE_KEY_LIST(requestedTenantID));
       await redis.del(CACHE_KEY_DETAIL(id));
 
       return updated;
@@ -88,13 +113,11 @@ class PembelianStokService {
     }
   }
 
-  async delete(id) {
-    const target = await PembelianStok.findById(id).lean();
-    if (!target) return null;
+  async delete(id, requesterTenantID) {
+    const result = await PembelianStok.deleteOne({ _id: id, tenantID: requesterTenantID });
+    if (result.deletedCount === 0) return null;
 
-    await PembelianStok.deleteOne({ _id: id });
-
-    await redis.del(CACHE_KEY_LIST(target.tenantID));
+    await redis.del(CACHE_KEY_LIST(requesterTenantID));
     await redis.del(CACHE_KEY_DETAIL(id));
 
     return true;

@@ -3,15 +3,19 @@ const redis = require("../config/redis");
 const { validateKategoriPayload } = require("../validators/kategoriBebanValidator");
 const createError = require("http-errors");
 
-const CACHE_KEY_LIST = (tenantID) => `kategori_beban:list:${tenantID}`;
-const CACHE_KEY_DETAIL = (id) => `kategori_beban:detail:${id}`;
+const KEY_LIST = (tenantID) => `kategori_beban:list:${tenantID}`;
+const KEY_DETAIL = (id) => `kategori_beban:detail:${id}`;
 
 class KategoriBebanService {
-  async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "tenantID is required");
+  async clearCache(tenantID, id) {
+    await redis.del(KEY_LIST(tenantID));
+    if (id) await redis.del(KEY_DETAIL(id));
+  }
 
-    const key = CACHE_KEY_LIST(tenantID);
+  async getAll(tenantID) {
+    const key = KEY_LIST(tenantID);
     const cached = await redis.get(key);
+
     if (cached) return JSON.parse(cached);
 
     const data = await KategoriBeban.find({ tenantID })
@@ -21,15 +25,21 @@ class KategoriBebanService {
     if (data.length > 0) {
       await redis.set(key, JSON.stringify(data), "EX", 3600);
     }
+
     return data;
   }
 
-  async getById(id) {
-    const key = CACHE_KEY_DETAIL(id);
+  async getById(id, requesterTenantID) {
+    const key = KEY_DETAIL(id);
     const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
 
-    const data = await KategoriBeban.findById(id).lean();
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
+    }
+
+    const data = await KategoriBeban.findOne({ _id: id, tenantID: requesterTenantID }).lean();
     if (!data) return null;
 
     await redis.set(key, JSON.stringify(data), "EX", 3600);
@@ -42,58 +52,42 @@ class KategoriBebanService {
 
     try {
       const result = await KategoriBeban.create(payload);
-
-      await redis.del(CACHE_KEY_LIST(payload.tenantID));
-
+      await this.clearCache(payload.tenantID);
       return result;
     } catch (err) {
-      if (err.code === 11000) {
-        return { error: ["Nama kategori beban sudah ada di tenant ini"] };
-      }
+      if (err.code === 11000) return { error: ["Nama kategori sudah ada di tenant ini"] };
       throw err;
     }
   }
 
-  async update(id, payload) {
+  async update(id, payload, requesterTenantID) {
     const validation = validateKategoriPayload(payload, true);
     if (!validation.valid) return { error: validation.errors };
 
-    const updates = {};
-    if (payload.namaKategori) updates.namaKategori = payload.namaKategori;
-
-    if (Object.keys(updates).length === 0) {
-      return { error: ["Tidak ada data valid untuk diupdate"] };
-    }
+    delete payload.tenantID;
 
     try {
-      const updated = await KategoriBeban.findByIdAndUpdate(id, updates, {
-        new: true,
-        runValidators: true,
-      }).lean();
+      const updated = await KategoriBeban.findOneAndUpdate(
+        { _id: id, tenantID: requesterTenantID },
+        { $set: payload },
+        { new: true, runValidators: true }
+      ).lean();
 
       if (!updated) return null;
 
-      await redis.del(CACHE_KEY_LIST(updated.tenantID));
-      await redis.del(CACHE_KEY_DETAIL(id));
-
+      await this.clearCache(requesterTenantID, id);
       return updated;
     } catch (err) {
-      if (err.code === 11000) {
-        return { error: ["Nama kategori beban sudah digunakan"] };
-      }
+      if (err.code === 11000) return { error: ["Nama kategori sudah digunakan"] };
       throw err;
     }
   }
 
-  async delete(id) {
-    const target = await KategoriBeban.findById(id).lean();
-    if (!target) return null;
+  async delete(id, requesterTenantID) {
+    const result = await KategoriBeban.deleteOne({ _id: id, tenantID: requesterTenantID });
+    if (result.deletedCount === 0) return null;
 
-    await KategoriBeban.deleteOne({ _id: id });
-
-    await redis.del(CACHE_KEY_LIST(target.tenantID));
-    await redis.del(CACHE_KEY_DETAIL(id));
-
+    await this.clearCache(requesterTenantID, id);
     return true;
   }
 }

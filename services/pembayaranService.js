@@ -1,4 +1,6 @@
 const Pembayaran = require("../models/pembayaranModel");
+const Penjualan = require("../models/penjualanModel");
+const AkunKas = require("../models/akunKasModel");
 const redis = require("../config/redis");
 const { validatePembayaranPayload } = require("../validators/pembayaranValidator");
 const createError = require("http-errors");
@@ -26,12 +28,17 @@ class PembayaranService {
     return data;
   }
 
-  async getById(id) {
+  async getById(id, requesterTenantID) {
     const key = CACHE_KEY_DETAIL(id);
     const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
 
-    const data = await Pembayaran.findById(id)
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
+    }
+
+    const data = await Pembayaran.findOne({ _id: id, tenantID: requesterTenantID })
       .populate("penjualanID", "nomorFaktur totalBayar")
       .populate("akunKasID", "namaAkun nomorAkun")
       .lean();
@@ -47,8 +54,15 @@ class PembayaranService {
     if (!validation.valid) return { error: validation.errors };
 
     try {
-      const pembayaran = await Pembayaran.create(payload);
+      const [penjualanValid, akunKasValid] = await Promise.all([
+        Penjualan.findOne({ _id: payload.penjualanID, tenantID: payload.tenantID }),
+        AkunKas.findOne({ _id: payload.akunKasID, tenantID: payload.tenantID })
+      ]);
 
+      if (!penjualanValid) return { error: ["ID Penjualan tidak ditemukan atau akses ditolak."] };
+      if (!akunKasValid) return { error: ["ID Akun Kas tidak ditemukan atau akses ditolak."] };
+
+      const pembayaran = await Pembayaran.create(payload);
       await redis.del(CACHE_KEY_LIST(payload.tenantID));
 
       return pembayaran;
@@ -60,7 +74,7 @@ class PembayaranService {
     }
   }
 
-  async update(id, payload) {
+  async update(id, payload, requesterTenantID) {
     const validation = validatePembayaranPayload(payload, true);
     if (!validation.valid) return { error: validation.errors };
 
@@ -69,15 +83,24 @@ class PembayaranService {
     delete payload.createdAt;
 
     try {
-      const updated = await Pembayaran.findByIdAndUpdate(id, payload, {
-        new: true,
-        runValidators: true,
-        context: "query",
-      }).lean();
+      if (payload.akunKasID) {
+        const akunKasValid = await AkunKas.findOne({ _id: payload.akunKasID, tenantID: requesterTenantID });
+        if (!akunKasValid) return { error: ["ID Akun Kas tidak ditemukan."] };
+      }
+
+      const updated = await Pembayaran.findOneAndUpdate(
+        { _id: id, tenantID: requesterTenantID },
+        payload,
+        {
+          new: true,
+          runValidators: true,
+          context: "query",
+        }
+      ).lean();
 
       if (!updated) return null;
 
-      await redis.del(CACHE_KEY_LIST(updated.tenantID));
+      await redis.del(CACHE_KEY_LIST(requesterTenantID));
       await redis.del(CACHE_KEY_DETAIL(id));
 
       return updated;
@@ -86,13 +109,11 @@ class PembayaranService {
     }
   }
 
-  async delete(id) {
-    const target = await Pembayaran.findById(id).lean();
-    if (!target) return null;
+  async delete(id, requesterTenantID) {
+    const result = await Pembayaran.deleteOne({ _id: id, tenantID: requesterTenantID });
+    if (result.deletedCount === 0) return null;
 
-    await Pembayaran.deleteOne({ _id: id });
-
-    await redis.del(CACHE_KEY_LIST(target.tenantID));
+    await redis.del(CACHE_KEY_LIST(requesterTenantID));
     await redis.del(CACHE_KEY_DETAIL(id));
 
     return true;

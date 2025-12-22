@@ -1,10 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const jurnalTransferController = require("../controllers/jurnalTransferController");
+const authPengguna = require("../middleware/authPengguna");
 
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(jurnalTransferController, req, res, next)).catch(next);
 };
+
+router.use(authPengguna);
 
 router
   .route("/")

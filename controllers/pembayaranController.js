@@ -2,9 +2,13 @@ const pembayaranService = require("../services/pembayaranService");
 const createError = require("http-errors");
 
 class PembayaranController {
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
   async getAll(req, res, next) {
     try {
-      const { tenantID } = req.query;
+      const tenantID = this._getRequesterTenantID(req);
       const result = await pembayaranService.getAll(tenantID);
       res.json({ data: result });
     } catch (err) {
@@ -14,7 +18,9 @@ class PembayaranController {
 
   async getById(req, res, next) {
     try {
-      const result = await pembayaranService.getById(req.params.id);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await pembayaranService.getById(req.params.id, tenantID);
+
       if (!result) throw createError(404, "Pembayaran tidak ditemukan");
       res.json({ data: result });
     } catch (err) {
@@ -24,15 +30,19 @@ class PembayaranController {
 
   async create(req, res, next) {
     try {
+      const tenantID = this._getRequesterTenantID(req);
+      req.body.tenantID = tenantID;
+
       const result = await pembayaranService.create(req.body);
 
       if (result?.error) {
         return res.status(400).json({ errors: result.error });
       }
 
-      res
-        .status(201)
-        .json({ data: result, message: "Pembayaran berhasil dicatat" });
+      res.status(201).json({ 
+        data: result, 
+        message: "Pembayaran berhasil dicatat" 
+      });
     } catch (err) {
       next(err);
     }
@@ -40,14 +50,19 @@ class PembayaranController {
 
   async update(req, res, next) {
     try {
-      const result = await pembayaranService.update(req.params.id, req.body);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await pembayaranService.update(req.params.id, req.body, tenantID);
 
       if (result?.error) {
         return res.status(400).json({ errors: result.error });
       }
+
       if (!result) throw createError(404, "Pembayaran tidak ditemukan");
 
-      res.json({ data: result, message: "Pembayaran berhasil diperbarui" });
+      res.json({ 
+        data: result, 
+        message: "Pembayaran berhasil diperbarui" 
+      });
     } catch (err) {
       next(err);
     }
@@ -55,9 +70,10 @@ class PembayaranController {
 
   async delete(req, res, next) {
     try {
-      const result = await pembayaranService.delete(req.params.id);
-      if (!result) throw createError(404, "Pembayaran tidak ditemukan");
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await pembayaranService.delete(req.params.id, tenantID);
 
+      if (!result) throw createError(404, "Pembayaran tidak ditemukan");
       res.json({ message: "Pembayaran berhasil dihapus" });
     } catch (err) {
       next(err);

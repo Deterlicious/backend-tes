@@ -11,18 +11,19 @@ function validateKontrakPayload(data, isUpdate = false) {
     if (!data.tenantID || !mongoose.Types.ObjectId.isValid(data.tenantID)) {
       errors.push("tenantID wajib diisi dan valid");
     }
-    if (
-      !data.penggunaID ||
-      !mongoose.Types.ObjectId.isValid(data.penggunaID)
-    ) {
+
+    if (!data.penggunaID || !mongoose.Types.ObjectId.isValid(data.penggunaID)) {
       errors.push("penggunaID wajib diisi dan valid");
     }
+
     if (!data.tipeGaji || !VALID_TIPE.includes(data.tipeGaji)) {
       errors.push(`Tipe gaji tidak valid. Pilih: ${VALID_TIPE.join(", ")}`);
     }
+
     if (data.tarifGaji === undefined || data.tarifGaji < 0) {
       errors.push("tarifGaji wajib diisi dan harus angka positif");
     }
+
     if (!data.tanggalMulai) {
       errors.push("tanggalMulai wajib diisi");
     }
