@@ -8,16 +8,16 @@ const JWT_SECRET = process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
 
 const KEY_LIST = (tenantID) => `pengguna:list:${tenantID}`;
 const KEY_DETAIL = (id) => `pengguna:detail:${id}`;
+const KEY_LOGIN_LIST = (tenantID) => `pengguna:login-screen:${tenantID}`;
 
 class PenggunaService {
-
   generateToken(pengguna) {
     return jwt.sign(
       {
         id: pengguna._id,
         tenantID: pengguna.tenantID,
         roleID: pengguna.roleID,
-        version: pengguna.tokenVersion
+        version: pengguna.tokenVersion,
       },
       JWT_SECRET,
       { expiresIn: "12h" }
@@ -25,36 +25,43 @@ class PenggunaService {
   }
 
   async clearCache(tenantID, userID) {
-    await redis.del(KEY_LIST(tenantID));
-    if (userID) await redis.del(KEY_DETAIL(userID));
+    const keys = [KEY_LIST(tenantID), KEY_LOGIN_LIST(tenantID)];
+    if (userID) keys.push(KEY_DETAIL(userID));
+    await redis.del(keys);
   }
 
   async login({ nama, pin }) {
     const pengguna = await Pengguna.findOne({ nama })
       .populate("roleID", "namaRole")
       .lean(false);
-
     if (!pengguna) {
       throw createError(404, "Pengguna tidak ditemukan");
     }
-
     const isMatch = await pengguna.comparePin(pin);
     if (!isMatch) {
       throw createError(400, "PIN salah");
     }
-
     pengguna.tokenVersion = Date.now();
     await pengguna.save();
-
     const token = this.generateToken(pengguna);
-
     return {
       token,
       user: {
         nama: pengguna.nama,
         role: pengguna.roleID.namaRole,
-      }
+      },
     };
+  }
+
+  async getForLoginScreen(tenantID) {
+    const cached = await redis.get(KEY_LOGIN_LIST(tenantID));
+    if (cached) return JSON.parse(cached);
+    const users = await Pengguna.find({ tenantID })
+      .select("nama roleID")
+      .populate("roleID", "namaRole")
+      .lean();
+    await redis.set(KEY_LOGIN_LIST(tenantID), JSON.stringify(users), "EX", 300);
+    return users;
   }
 
   async getAll(tenantID) {
