@@ -8,42 +8,41 @@ const { checkPermission } = require("../middleware/authorizePermission");
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(penggunaController, req, res, next)).catch(next);
 };
-
-router.use(authAkun); // Proteksi global: semua route butuh token akun
-
-router.post("/pin-login", wrap(penggunaController.loginPin));
 router.post("/pin-refresh", wrap(penggunaController.refreshToken));
-router.post("/register-owner", wrap(penggunaController.create)); // Public Register
+
+router.use(authAkun);
+router.post("/pin-login", wrap(penggunaController.loginPin));
+router.post("/register-owner", wrap(penggunaController.create));
 router.get("/login-list/:tenantID", wrap(penggunaController.getForLoginScreen));
 router.post("/pin-logout", wrap(penggunaController.logout));
 
 // CRUD Staff (Butuh Permission 'kelola-staff')
 router.post(
-  "/",
+  "/register-staff",
   checkPermission("kelola-staff"),
   wrap(penggunaController.create)
 );
 
 router.get(
-  "/",
+  "/staff",
   checkPermission("kelola-staff"),
   wrap(penggunaController.getAll)
 );
 
 router.get(
-  "/:id",
+  "/staff/:id",
   checkPermission("kelola-staff"),
   wrap(penggunaController.getById)
 );
 
 router.put(
-  "/:id",
+  "/staff/:id",
   checkPermission("kelola-staff"),
   wrap(penggunaController.update)
 );
 
 router.delete(
-  "/:id",
+  "/staff/:id",
   checkPermission("kelola-staff"),
   wrap(penggunaController.delete)
 );

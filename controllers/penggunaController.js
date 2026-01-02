@@ -12,25 +12,33 @@ const setRefreshTokenCookie = (res, token) => {
 };
 
 class PenggunaController {
-
-  // ⚠️ Tetap dipertahankan untuk backward compatibility
   _getRequesterContext(req) {
     if (req.akun) {
       return {
-        tenantID: req.akun.tenantID,
-        roleID: req.akun.roleID,
-        type: "AKUN",
+        akunID: req.akun._id || req.akun.id,
+        tenantID: req.akun.tenantID || null,
+        roleID: req.akun.roleID || null,
+        source: "AKUN",
       };
     }
-
+    if (req.akunContext) {
+      return {
+        akunID: req.akunContext.akunID,
+        tenantID: req.akunContext.tenantID ?? null,
+        roleID: req.akunContext.roleID ?? null,
+        source: "AKUN",
+      };
+    }
     if (req.pengguna) {
       return {
+        penggunaID: req.pengguna._id,
         tenantID: req.pengguna.tenantID,
         roleID: req.pengguna.roleID,
-        type: "PENGGUNA",
+        source: "PENGGUNA",
       };
     }
-
+    console.log("isi req: ", Object.keys(req));
+    
     return null;
   }
 
@@ -42,10 +50,12 @@ class PenggunaController {
       }
 
       const result = await penggunaService.login({ nama, pin });
+      setRefreshTokenCookie(res, result.refreshToken);
 
       res.json({
         message: "Login pengguna berhasil",
         accessToken: result.token,
+        refreshToken: result.refreshToken,
         data: result.user,
       });
     } catch (err) {
@@ -56,7 +66,7 @@ class PenggunaController {
   async create(req, res, next) {
     try {
       // ✅ SUMBER CONTEXT TUNGGAL
-      const context = req.akunContext;
+      const context = this._getRequesterContext(req);
 
       if (!context?.tenantID) {
         throw createError(403, "Tenant context tidak ditemukan");
@@ -70,18 +80,48 @@ class PenggunaController {
       req.body.tenantID = context.tenantID;
       req.body.roleID = context.roleID;
 
-      const result = await penggunaService.create(
-        req.body,
-        context.tenantID
-      );
+      const result = await penggunaService.create(req.body, context.tenantID);
+      setRefreshTokenCookie(res, result.refreshToken);
 
       res.status(201).json({
         message: "Pengguna berhasil dibuat",
-        data: {
-          id: result._id,
-          nama: result.nama,
-        },
+        accessToken: result.token,
+        refreshToken: result.refreshToken,
+        data: result.user,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async refreshToken(req, res, next) {
+    try {
+      const token = req.cookies.penggunaRefreshToken || req.body.refreshToken;
+
+      if (!token)
+        return res
+          .status(401)
+          .json({ message: "Refresh Token tidak ditemukan" });
+      const tokens = await penggunaService.refreshToken(token);
+      setRefreshTokenCookie(res, tokens.refreshToken);
+      res.json(tokens);
+    } catch (err) {
+      res.cookie("penggunaRefreshToken", "", {
+        maxAge: 0,
+        path: "/api/pengguna",
+      });
+      next(err);
+    }
+  }
+
+  async logout(req, res, next) {
+    try {
+      await penggunaService.logout();
+      res.cookie("penggunaRefreshToken", "", {
+        maxAge: 0,
+        path: "/api/pengguna",
+      });
+      res.json({ message: "Logout berhasil" });
     } catch (err) {
       next(err);
     }
@@ -150,7 +190,10 @@ class PenggunaController {
     try {
       const tenantID = req.params.tenantID;
       const result = await penggunaService.getForLoginScreen(tenantID);
-      res.json({ data: result });
+      res.json({ 
+        message: "Daftar pengguna untuk layar login",
+        data: result 
+      });
     } catch (err) {
       next(err);
     }
