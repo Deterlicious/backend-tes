@@ -1,6 +1,8 @@
 const JurnalTransfer = require("../models/jurnalTransferModel");
 const redis = require("../config/redis");
-const { validateJurnalTransferPayload } = require("../validators/jurnalTransferValidator");
+const {
+  validateJurnalTransferPayload
+} = require("../validators/jurnalTransferValidator");
 const createError = require("http-errors");
 
 const KEY_LIST = (tenantID) => `jurnal_transfer:list:${tenantID}`;
@@ -8,21 +10,29 @@ const KEY_DETAIL = (id) => `jurnal_transfer:detail:${id}`;
 
 class JurnalTransferService {
   async clearCache(tenantID, id) {
-    await redis.del(KEY_LIST(tenantID));
-    if (id) await redis.del(KEY_DETAIL(id));
+    const keys = [KEY_LIST(tenantID)];
+    if (id) keys.push(KEY_DETAIL(id));
+
+    await redis.del(keys);
   }
 
   async getAll(tenantID) {
+    if (!tenantID) throw createError(400, "Tenant ID required");
+
     const key = KEY_LIST(tenantID);
     const cached = await redis.get(key);
-
     if (cached) return JSON.parse(cached);
 
-    const data = await JurnalTransfer.find({ tenantID })
+    const data = await JurnalTransfer.find({
+        tenantID
+      })
       .populate("kasSumberID", "namaAkun nomorAkun")
       .populate("kasTujuanID", "namaAkun nomorAkun")
       .populate("dicatatOleh", "nama")
-      .sort({ tanggal: -1, createdAt: -1 })
+      .sort({
+        tanggal: -1,
+        createdAt: -1
+      })
       .lean();
 
     if (data.length > 0) {
@@ -42,7 +52,10 @@ class JurnalTransferService {
       return parsed;
     }
 
-    const data = await JurnalTransfer.findOne({ _id: id, tenantID: requesterTenantID })
+    const data = await JurnalTransfer.findOne({
+        _id: id,
+        tenantID: requesterTenantID
+      })
       .populate("kasSumberID", "namaAkun nomorAkun")
       .populate("kasTujuanID", "namaAkun nomorAkun")
       .populate("dicatatOleh", "nama")
@@ -56,40 +69,62 @@ class JurnalTransferService {
 
   async create(payload) {
     const validation = validateJurnalTransferPayload(payload);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
-    const jurnal = await JurnalTransfer.create(payload);
-    await this.clearCache(payload.tenantID);
+    try {
+      const jurnal = await JurnalTransfer.create(payload);
+      await this.clearCache(payload.tenantID);
 
-    return jurnal;
+      return jurnal;
+    } catch (err) {
+      throw err;
+    }
   }
 
   async update(id, payload, requesterTenantID) {
     const validation = validateJurnalTransferPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     delete payload.tenantID;
+    delete payload.dicatatOleh;
     delete payload.kasSumberID;
     delete payload.kasTujuanID;
-    delete payload.dicatatOleh;
 
-    const updated = await JurnalTransfer.findOneAndUpdate(
-      { _id: id, tenantID: requesterTenantID },
-      payload,
-      { new: true, runValidators: true }
-    ).lean();
+    try {
+      const updated = await JurnalTransfer.findOneAndUpdate({
+          _id: id,
+          tenantID: requesterTenantID
+        },
+        payload, {
+          new: true,
+          runValidators: true
+        }
+      ).lean();
 
-    if (!updated) return null;
+      if (!updated) return null;
 
-    await this.clearCache(requesterTenantID, id);
-    return updated;
+      await this.clearCache(requesterTenantID, id);
+
+      return updated;
+    } catch (err) {
+      throw err;
+    }
   }
 
   async delete(id, requesterTenantID) {
-    const result = await JurnalTransfer.deleteOne({ _id: id, tenantID: requesterTenantID });
+    const result = await JurnalTransfer.deleteOne({
+      _id: id,
+      tenantID: requesterTenantID
+    });
+
     if (result.deletedCount === 0) return null;
 
     await this.clearCache(requesterTenantID, id);
+
     return true;
   }
 }

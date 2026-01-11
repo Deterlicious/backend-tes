@@ -1,7 +1,21 @@
 const pembelianStokService = require("../services/pembelianStokService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class PembelianStokController {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
   _getRequesterTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
@@ -12,11 +26,22 @@ class PembelianStokController {
 
   async getAll(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pembelian-stok"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pembelian stok");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
 
       const result = await pembelianStokService.getAll(tenantID);
-      res.json({ data: result });
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -24,11 +49,22 @@ class PembelianStokController {
 
   async getById(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pembelian-stok"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pembelian stok");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembelianStokService.getById(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Pembelian stok tidak ditemukan");
-      res.json({ data: result });
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -36,6 +72,15 @@ class PembelianStokController {
 
   async create(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pembelian-stok"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pembelian stok");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const userID = this._getRequesterUserID(req);
 
@@ -45,7 +90,9 @@ class PembelianStokController {
       const result = await pembelianStokService.create(req.body);
 
       if (result?.error) {
-        return res.status(400).json({ errors: result.error });
+        return res.status(400).json({
+          errors: result.error
+        });
       }
 
       res.status(201).json({
@@ -59,11 +106,22 @@ class PembelianStokController {
 
   async update(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pembelian-stok"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pembelian stok");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembelianStokService.update(req.params.id, req.body, tenantID);
 
       if (result?.error) {
-        return res.status(400).json({ errors: result.error });
+        return res.status(400).json({
+          errors: result.error
+        });
       }
 
       if (!result) throw createError(404, "Pembelian stok tidak ditemukan");
@@ -79,11 +137,22 @@ class PembelianStokController {
 
   async delete(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pembelian-stok"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pembelian stok");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembelianStokService.delete(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Pembelian stok tidak ditemukan");
-      res.json({ message: "Pembelian stok berhasil dihapus" });
+      res.json({
+        message: "Pembelian stok berhasil dihapus"
+      });
     } catch (err) {
       next(err);
     }

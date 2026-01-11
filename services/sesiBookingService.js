@@ -4,7 +4,9 @@ const Aset = require("../models/asetModel");
 const Tarif = require("../models/tarifModel");
 const Diskon = require("../models/diskonModel");
 const redis = require("../config/redis");
-const { validateSesiBookingPayload } = require("../validators/sesiBookingValidator");
+const {
+  validateSesiBookingPayload
+} = require("../validators/sesiBookingValidator");
 const mongoose = require("mongoose");
 const createError = require("http-errors");
 
@@ -78,7 +80,10 @@ class SesiBookingService {
     let tarif;
 
     if (tarifID) {
-      tarif = await Tarif.findOne({ _id: tarifID, tenantID });
+      tarif = await Tarif.findOne({
+        _id: tarifID,
+        tenantID
+      });
       if (!tarif) throw createError(404, "Tarif manual tidak ditemukan atau tidak valid.");
 
       const isValidForAsset = tarif.tipeAsetID.some(
@@ -111,7 +116,10 @@ class SesiBookingService {
   }
 
   async _calculateDiscount(diskonID, hargaKotor) {
-    if (!diskonID) return { nilaiPotongan: 0, diskonObj: null };
+    if (!diskonID) return {
+      nilaiPotongan: 0,
+      diskonObj: null
+    };
 
     const diskon = await Diskon.findById(diskonID);
     if (!diskon || diskon.status !== "Aktif") {
@@ -127,7 +135,10 @@ class SesiBookingService {
 
     if (nilaiPotongan > hargaKotor) nilaiPotongan = hargaKotor;
 
-    return { nilaiPotongan: Math.ceil(nilaiPotongan), diskonObj: diskon };
+    return {
+      nilaiPotongan: Math.ceil(nilaiPotongan),
+      diskonObj: diskon
+    };
   }
 
   async getAll(tenantID) {
@@ -137,7 +148,9 @@ class SesiBookingService {
     const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    const bookings = await SesiBooking.find({ tenantID })
+    const bookings = await SesiBooking.find({
+        tenantID
+      })
       .populate("dataAset", "namaAset status")
       .populate("dataPengguna", "nama")
       .populate("dataPelanggan", "namaPelanggan tipePelanggan")
@@ -149,7 +162,9 @@ class SesiBookingService {
           select: "namaPelanggan tipePelanggan",
         },
       })
-      .sort({ waktuMulai: -1 })
+      .sort({
+        waktuMulai: -1
+      })
       .lean();
 
     if (bookings.length > 0) {
@@ -169,16 +184,24 @@ class SesiBookingService {
       return parsed;
     }
 
-    const booking = await SesiBooking.findOne({ _id: id, tenantID: requesterTenantID })
+    const booking = await SesiBooking.findOne({
+        _id: id,
+        tenantID: requesterTenantID
+      })
       .populate("dataAset")
       .populate("dataPengguna")
       .populate("dataPelanggan", "namaPelanggan tipePelanggan")
       .populate("tarifID", "namaTarif harga")
       .populate({
         path: "dataPenjualan",
-        populate: [
-          { path: "itemPenjualan.produkID", select: "namaProduk" },
-          { path: "dataPelanggan", select: "namaPelanggan tipePelanggan" },
+        populate: [{
+            path: "itemPenjualan.produkID",
+            select: "namaProduk"
+          },
+          {
+            path: "dataPelanggan",
+            select: "namaPelanggan tipePelanggan"
+          },
           {
             path: "itemPenjualan.diskonID",
             select: "namaDiskon code nilai tipe",
@@ -195,17 +218,23 @@ class SesiBookingService {
 
   async create(payload) {
     const validation = validateSesiBookingPayload(payload);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     try {
       const targetAset = await Aset.findById(payload.dataAset);
 
       if (!targetAset) {
-        return { error: ["Aset tidak ditemukan."] };
+        return {
+          error: ["Aset tidak ditemukan."]
+        };
       }
 
       if (targetAset.tenantID.toString() !== payload.tenantID.toString()) {
-        return { error: ["Akses Ditolak: Aset ini bukan milik tenant Anda."] };
+        return {
+          error: ["Akses Ditolak: Aset ini bukan milik tenant Anda."]
+        };
       }
 
       if (payload.waktuSelesai) {
@@ -214,7 +243,9 @@ class SesiBookingService {
           payload.waktuMulai,
           payload.waktuSelesai
         );
-        if (isConflict) return { error: ["Aset sedang digunakan pada jam tersebut."] };
+        if (isConflict) return {
+          error: ["Aset sedang digunakan pada jam tersebut."]
+        };
       }
 
       const start = new Date(payload.waktuMulai);
@@ -252,7 +283,9 @@ class SesiBookingService {
 
           totalBiaya = hargaKotor - jumlahDiskon;
         } catch (calcError) {
-          return { error: [calcError.message] };
+          return {
+            error: [calcError.message]
+          };
         }
       }
 
@@ -329,20 +362,30 @@ class SesiBookingService {
 
   async update(id, payload, requesterTenantID) {
     const validation = validateSesiBookingPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     delete payload.tenantID;
     delete payload.dataPenjualan;
+    delete payload.dataPengguna;
 
     try {
-      const currentBooking = await SesiBooking.findOne({ _id: id, tenantID: requesterTenantID });
+      const currentBooking = await SesiBooking.findOne({
+        _id: id,
+        tenantID: requesterTenantID
+      });
       if (!currentBooking) return null;
 
       if (payload.dataAset) {
         const targetAset = await Aset.findById(payload.dataAset);
-        if (!targetAset) return { error: ["Aset tidak ditemukan."] };
+        if (!targetAset) return {
+          error: ["Aset tidak ditemukan."]
+        };
         if (targetAset.tenantID.toString() !== currentBooking.tenantID.toString()) {
-          return { error: ["Akses Ditolak: Aset ini bukan milik tenant Anda."] };
+          return {
+            error: ["Akses Ditolak: Aset ini bukan milik tenant Anda."]
+          };
         }
       }
 
@@ -350,7 +393,9 @@ class SesiBookingService {
       const end = payload.waktuSelesai ? new Date(payload.waktuSelesai) : currentBooking.waktuSelesai;
 
       if (end && end <= start) {
-        return { error: ["Waktu selesai harus setelah waktu mulai."] };
+        return {
+          error: ["Waktu selesai harus setelah waktu mulai."]
+        };
       }
 
       if (
@@ -362,13 +407,24 @@ class SesiBookingService {
       ) {
         const asetToCheck = payload.dataAset || currentBooking.dataAset;
         const conflict = await SesiBooking.findOne({
-          _id: { $ne: id },
+          _id: {
+            $ne: id
+          },
           dataAset: asetToCheck,
           status: "Aktif",
-          $or: [{ waktuMulai: { $lt: end }, waktuSelesai: { $gt: start } }],
+          $or: [{
+            waktuMulai: {
+              $lt: end
+            },
+            waktuSelesai: {
+              $gt: start
+            }
+          }],
         });
 
-        if (conflict) return { error: ["Aset bentrok dengan jadwal lain."] };
+        if (conflict) return {
+          error: ["Aset bentrok dengan jadwal lain."]
+        };
 
         const diffMs = end - start;
         payload.durasiMenit = Math.ceil(diffMs / (1000 * 60));
@@ -421,14 +477,20 @@ class SesiBookingService {
             });
           }
         } catch (calcError) {
-          return { error: [calcError.message] };
+          return {
+            error: [calcError.message]
+          };
         }
       }
 
-      const updated = await SesiBooking.findOneAndUpdate(
-        { _id: id, tenantID: requesterTenantID },
-        payload,
-        { new: true, runValidators: true }
+      const updated = await SesiBooking.findOneAndUpdate({
+          _id: id,
+          tenantID: requesterTenantID
+        },
+        payload, {
+          new: true,
+          runValidators: true
+        }
       )
       .populate("dataPengguna", "nama")
       .lean();
@@ -443,7 +505,10 @@ class SesiBookingService {
   }
 
   async delete(id, requesterTenantID) {
-    const result = await SesiBooking.deleteOne({ _id: id, tenantID: requesterTenantID });
+    const result = await SesiBooking.deleteOne({
+      _id: id,
+      tenantID: requesterTenantID
+    });
     if (result.deletedCount === 0) return null;
 
     await redis.del(CACHE_KEY_LIST(requesterTenantID));
@@ -457,14 +522,23 @@ class SesiBookingService {
     const conflict = await SesiBooking.findOne({
       dataAset: asetID,
       status: "Aktif",
-      $or: [{ waktuMulai: { $lt: end }, waktuSelesai: { $gt: start } }],
+      $or: [{
+        waktuMulai: {
+          $lt: end
+        },
+        waktuSelesai: {
+          $gt: start
+        }
+      }],
     });
     return !!conflict;
   }
 
   async createBatch(payload) {
     if (!payload.items || !Array.isArray(payload.items) || payload.items.length === 0) {
-      return { error: ["Daftar item booking (items) wajib diisi."] };
+      return {
+        error: ["Daftar item booking (items) wajib diisi."]
+      };
     }
 
     try {
@@ -583,7 +657,9 @@ class SesiBookingService {
         nomorFaktur: nomorFakturBaru,
       };
     } catch (error) {
-      return { error: [error.message] };
+      return {
+        error: [error.message]
+      };
     }
   }
 }

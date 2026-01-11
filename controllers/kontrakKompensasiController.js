@@ -1,18 +1,43 @@
-const kontrakService = require("../services/kontrakKompensasiService");
+const kontrakKompensasiService = require("../services/kontrakKompensasiService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class KontrakKompensasiController {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
   _getTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
 
   async getAll(req, res, next) {
     try {
-      const tenantID = this._getTenantID(req);
-      if (!tenantID) throw createError(403, "Akses ditolak");
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kontrak-kompensasi"
+      );
 
-      const result = await kontrakService.getAll(tenantID);
-      res.json({ data: result });
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kontrak kompensasi");
+      }
+
+      const tenantID = this._getTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await kontrakKompensasiService.getAll(tenantID);
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -20,11 +45,22 @@ class KontrakKompensasiController {
 
   async getById(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kontrak-kompensasi"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kontrak kompensasi");
+      }
+
       const tenantID = this._getTenantID(req);
-      const result = await kontrakService.getById(req.params.id, tenantID);
+      const result = await kontrakKompensasiService.getById(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Kontrak tidak ditemukan");
-      res.json({ data: result });
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -32,11 +68,22 @@ class KontrakKompensasiController {
 
   async create(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kontrak-kompensasi"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kontrak kompensasi");
+      }
+
       const tenantID = this._getTenantID(req);
       req.body.tenantID = tenantID;
 
-      const result = await kontrakService.create(req.body);
-      if (result?.error) return res.status(400).json({ errors: result.error });
+      const result = await kontrakKompensasiService.create(req.body);
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
 
       res.status(201).json({
         data: result,
@@ -49,10 +96,21 @@ class KontrakKompensasiController {
 
   async update(req, res, next) {
     try {
-      const tenantID = this._getTenantID(req);
-      const result = await kontrakService.update(req.params.id, req.body, tenantID);
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kontrak-kompensasi"
+      );
 
-      if (result?.error) return res.status(400).json({ errors: result.error });
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kontrak kompensasi");
+      }
+
+      const tenantID = this._getTenantID(req);
+      const result = await kontrakKompensasiService.update(req.params.id, req.body, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
       if (!result) throw createError(404, "Kontrak tidak ditemukan");
 
       res.json({
@@ -66,11 +124,22 @@ class KontrakKompensasiController {
 
   async delete(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-kontrak-kompensasi"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola kontrak kompensasi");
+      }
+
       const tenantID = this._getTenantID(req);
-      const result = await kontrakService.delete(req.params.id, tenantID);
+      const result = await kontrakKompensasiService.delete(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Kontrak tidak ditemukan");
-      res.json({ message: "Kontrak berhasil dihapus" });
+      res.json({
+        message: "Kontrak berhasil dihapus"
+      });
     } catch (err) {
       next(err);
     }

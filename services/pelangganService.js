@@ -1,6 +1,8 @@
 const Pelanggan = require("../models/pelangganModel");
 const redis = require("../config/redis");
-const { validatePelangganPayload } = require("../validators/pelangganValidator");
+const {
+  validatePelangganPayload
+} = require("../validators/pelangganValidator");
 const createError = require("http-errors");
 
 const KEY_LIST = (tenantID) => `pelanggan:list:${tenantID}`;
@@ -8,8 +10,9 @@ const KEY_DETAIL = (id) => `pelanggan:detail:${id}`;
 
 class PelangganService {
   async clearCache(tenantID, id) {
-    await redis.del(KEY_LIST(tenantID));
-    if (id) await redis.del(KEY_DETAIL(id));
+    const keys = [KEY_LIST(tenantID)];
+    if (id) keys.push(KEY_DETAIL(id));
+    await redis.del(keys);
   }
 
   async getAll(tenantID) {
@@ -20,8 +23,12 @@ class PelangganService {
 
     if (cached) return JSON.parse(cached);
 
-    const pelanggan = await Pelanggan.find({ tenantID })
-      .sort({ namaPelanggan: 1 })
+    const pelanggan = await Pelanggan.find({
+        tenantID
+      })
+      .sort({
+        namaPelanggan: 1
+      })
       .lean();
 
     if (pelanggan.length > 0) {
@@ -54,7 +61,9 @@ class PelangganService {
 
   async create(payload) {
     const validation = validatePelangganPayload(payload);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     try {
       const pelanggan = await Pelanggan.create(payload);
@@ -67,17 +76,23 @@ class PelangganService {
 
   async update(id, payload, requesterTenantID) {
     const validation = validatePelangganPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     delete payload.tenantID;
     delete payload._id;
+    delete payload.saldoPiutang;
+    delete payload.poinLoyalitas;
 
     try {
-      const updated = await Pelanggan.findOneAndUpdate(
-        { _id: id, tenantID: requesterTenantID },
-        payload,
-        { new: true, runValidators: true }
-      ).lean();
+      const updated = await Pelanggan.findOneAndUpdate({
+        _id: id,
+        tenantID: requesterTenantID
+      }, payload, {
+        new: true,
+        runValidators: true
+      }).lean();
 
       if (!updated) return null;
 
@@ -122,7 +137,9 @@ class PelangganService {
           ],
         };
       }
-      return { error: ["Data duplikat terdeteksi."] };
+      return {
+        error: ["Data duplikat terdeteksi."]
+      };
     }
     throw err;
   }

@@ -1,7 +1,21 @@
 const jurnalTransferService = require("../services/jurnalTransferService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class JurnalTransferController {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
   _getRequesterTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
@@ -12,11 +26,21 @@ class JurnalTransferController {
 
   async getAll(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-transfer"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal transfer");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
 
       const result = await jurnalTransferService.getAll(tenantID);
-      res.json({ data: result });
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -24,11 +48,21 @@ class JurnalTransferController {
 
   async getById(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-transfer"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal transfer");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await jurnalTransferService.getById(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Jurnal tidak ditemukan atau beda tenant");
-      res.json({ data: result });
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -36,18 +70,34 @@ class JurnalTransferController {
 
   async create(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-transfer"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal transfer");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const userID = this._getRequesterUserID(req);
 
-      req.body.tenantID = tenantID;
-      req.body.dicatatOleh = userID;
+      const payload = {
+        ...req.body,
+        tenantID: tenantID,
+        dicatatOleh: userID,
+      };
 
-      const result = await jurnalTransferService.create(req.body);
-      if (result?.error) return res.status(400).json({ errors: result.error });
+      const result = await jurnalTransferService.create(payload);
+
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error
+        });
+      }
 
       res.status(201).json({
         data: result,
-        message: "Jurnal Transfer berhasil dibuat"
+        message: "Jurnal Transfer berhasil dibuat",
       });
     } catch (err) {
       next(err);
@@ -56,15 +106,26 @@ class JurnalTransferController {
 
   async update(req, res, next) {
     try {
-      const tenantID = this._getRequesterTenantID(req);
-      const result = await jurnalTransferService.update(req.params.id, req.body, tenantID);
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-transfer"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal transfer");
+      }
 
-      if (result?.error) return res.status(400).json({ errors: result.error });
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await jurnalTransferService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
       if (!result) throw createError(404, "Jurnal tidak ditemukan");
 
       res.json({
         data: result,
-        message: "Jurnal Transfer diperbarui"
+        message: "Jurnal Transfer diperbarui",
       });
     } catch (err) {
       next(err);
@@ -73,11 +134,21 @@ class JurnalTransferController {
 
   async delete(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-transfer"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal transfer");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await jurnalTransferService.delete(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Jurnal tidak ditemukan");
-      res.json({ message: "Jurnal Transfer berhasil dihapus" });
+      res.json({
+        message: "Jurnal Transfer berhasil dihapus"
+      });
     } catch (err) {
       next(err);
     }

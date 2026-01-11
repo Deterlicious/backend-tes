@@ -1,6 +1,8 @@
 const PembelianStok = require("../models/pembelianStokModel");
 const redis = require("../config/redis");
-const { validatePembelianPayload } = require("../validators/pembelianStokValidator");
+const {
+  validatePembelianPayload
+} = require("../validators/pembelianStokValidator");
 const createError = require("http-errors");
 
 const CACHE_KEY_LIST = (tenantID) => `pembelian:list:${tenantID}`;
@@ -27,11 +29,16 @@ class PembelianStokService {
     const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    const data = await PembelianStok.find({ tenantID })
+    const data = await PembelianStok.find({
+        tenantID
+      })
       .populate("akunKasID", "namaAkun nomorAkun")
       .populate("items.bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
-      .sort({ tanggal: -1, createdAt: -1 })
+      .sort({
+        tanggal: -1,
+        createdAt: -1
+      })
       .lean();
 
     if (data.length > 0) {
@@ -50,7 +57,10 @@ class PembelianStokService {
       return parsed;
     }
 
-    const data = await PembelianStok.findOne({ _id: id, tenantID: requesterTenantID })
+    const data = await PembelianStok.findOne({
+        _id: id,
+        tenantID: requesterTenantID
+      })
       .populate("akunKasID", "namaAkun nomorAkun")
       .populate("items.bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
@@ -64,7 +74,9 @@ class PembelianStokService {
 
   async create(payload) {
     const validation = validatePembelianPayload(payload);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     try {
       if (!payload.nomorFaktur) {
@@ -77,7 +89,9 @@ class PembelianStokService {
       return pembelian;
     } catch (err) {
       if (err.code === 11000) {
-        return { error: ["Nomor Faktur otomatis bentrok, silakan coba lagi."] };
+        return {
+          error: ["Nomor Faktur otomatis bentrok, silakan coba lagi."]
+        };
       }
       throw err;
     }
@@ -85,21 +99,23 @@ class PembelianStokService {
 
   async update(id, payload, requestedTenantID) {
     const validation = validatePembelianPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     delete payload.tenantID;
     delete payload.createdAt;
+    delete payload.dicatatOleh;
 
     try {
-      const updated = await PembelianStok.findOneAndUpdate(
-        { _id: id, tenantID: requestedTenantID },
-        payload,
-        {
-          new: true,
-          runValidators: true,
-          context: "query",
-        }
-      ).lean();
+      const updated = await PembelianStok.findOneAndUpdate({
+        _id: id,
+        tenantID: requestedTenantID
+      }, payload, {
+        new: true,
+        runValidators: true,
+        context: "query",
+      }).lean();
 
       if (!updated) return null;
 
@@ -108,13 +124,18 @@ class PembelianStokService {
 
       return updated;
     } catch (err) {
-      if (err.code === 11000) return { error: ["Nomor Faktur duplikat"] };
+      if (err.code === 11000) return {
+        error: ["Nomor Faktur duplikat"]
+      };
       throw err;
     }
   }
 
   async delete(id, requesterTenantID) {
-    const result = await PembelianStok.deleteOne({ _id: id, tenantID: requesterTenantID });
+    const result = await PembelianStok.deleteOne({
+      _id: id,
+      tenantID: requesterTenantID
+    });
     if (result.deletedCount === 0) return null;
 
     await redis.del(CACHE_KEY_LIST(requesterTenantID));

@@ -1,7 +1,21 @@
 const pelangganService = require("../services/pelangganService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class PelangganController {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
   _getRequesterTenantID(req) {
     if (req.pengguna && req.pengguna.tenantID) return req.pengguna.tenantID;
     if (req.akun && req.akun.tenantID) return req.akun.tenantID;
@@ -10,11 +24,22 @@ class PelangganController {
 
   async getAll(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pelanggan"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pelanggan");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       if (!tenantID) throw createError(403, "Tenant ID tidak teridentifikasi");
 
       const result = await pelangganService.getAll(tenantID);
-      res.json({ data: result });
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -22,11 +47,22 @@ class PelangganController {
 
   async getById(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pelanggan"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pelanggan");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await pelangganService.getById(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Pelanggan tidak ditemukan atau beda tenant");
-      res.json({ data: result });
+      res.json({
+        data: result
+      });
     } catch (err) {
       next(err);
     }
@@ -34,13 +70,24 @@ class PelangganController {
 
   async create(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pelanggan"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pelanggan");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       if (!tenantID) throw createError(403, "Akses ditolak");
 
       req.body.tenantID = tenantID;
 
       const result = await pelangganService.create(req.body);
-      if (result?.error) return res.status(400).json({ errors: result.error });
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
 
       res.status(201).json({
         data: result,
@@ -53,10 +100,21 @@ class PelangganController {
 
   async update(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pelanggan"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pelanggan");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await pelangganService.update(req.params.id, req.body, tenantID);
 
-      if (result?.error) return res.status(400).json({ errors: result.error });
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
       if (!result) throw createError(404, "Pelanggan tidak ditemukan");
 
       res.json({
@@ -70,11 +128,22 @@ class PelangganController {
 
   async delete(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-pelanggan"
+      );
+
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola pelanggan");
+      }
+
       const tenantID = this._getRequesterTenantID(req);
       const result = await pelangganService.delete(req.params.id, tenantID);
 
       if (!result) throw createError(404, "Pelanggan tidak ditemukan");
-      res.json({ message: "Pelanggan berhasil dihapus" });
+      res.json({
+        message: "Pelanggan berhasil dihapus"
+      });
     } catch (err) {
       next(err);
     }
