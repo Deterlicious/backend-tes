@@ -17,7 +17,7 @@ const asetSchema = new mongoose.Schema(
       type: String,
       enum: ["tersedia", "digunakan", "perbaikan"],
       default: "tersedia",
-      index: true, // Index status untuk filtering cepat
+      index: true,
     },
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
@@ -26,14 +26,19 @@ const asetSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    versionKey: false,
+  }
 );
 
-// == Compound Indexes ==
-// Optimasi query: "Tampilkan semua aset milik Tenant X yang statusnya Y"
-asetSchema.index({ tenantID: 1, status: 1 });
-
-// Optimasi query: "Cari nama aset berdasarkan abjad di dalam Tenant X"
-asetSchema.index({ tenantID: 1, namaAset: 1 });
+asetSchema.index({
+  tenantID: 1,
+  status: 1
+});
+asetSchema.index({
+  tenantID: 1,
+  namaAset: 1
+});
 
 module.exports = mongoose.model("Aset", asetSchema);

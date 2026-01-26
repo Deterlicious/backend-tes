@@ -1,102 +1,147 @@
 const diskonService = require("../services/diskonService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class DiskonController {
-  /**
-   * ✅ CREATE: Tambah Diskon
-   * tenantID diambil otomatis dari token untuk keamanan multi-tenant.
-   */
-  async createDiskon(req, res, next) {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName,
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
+  async getAll(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-diskon"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola diskon");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await diskonService.getAll(tenantID);
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getById(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-diskon"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola diskon");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await diskonService.getById(req.params.id, tenantID);
+
+      if (!result) throw createError(404, "Diskon tidak ditemukan atau beda tenant");
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async create(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-diskon"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola diskon");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+
       const payload = {
         ...req.body,
-        tenantID: req.pengguna.tenantID, // Injeksi otomatis dari middleware
+        tenantID: tenantID,
       };
 
-      const newDiskon = await diskonService.create(payload);
+      const result = await diskonService.create(payload);
+
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error,
+        });
+      }
 
       res.status(201).json({
-        success: true,
-        message: "Diskon berhasil ditambahkan",
-        data: newDiskon,
+        data: result,
+        message: "Diskon berhasil dibuat",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  /**
-   * ✅ READ ALL: Daftar Diskon per Tenant
-   * Menghapus ketergantungan pada req.query.tenantID.
-   */
-  async getAllDiskon(req, res, next) {
+  async update(req, res, next) {
     try {
-      const tenantID = req.pengguna.tenantID;
-      const diskon = await diskonService.getAll(tenantID);
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-diskon"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola diskon");
+      }
 
-      res.status(200).json({
-        success: true,
-        total: diskon.length,
-        data: diskon,
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await diskonService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
+      if (!result) throw createError(404, "Diskon tidak ditemukan");
+
+      res.json({
+        data: result,
+        message: "Diskon diperbarui",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  /**
-   * ✅ READ BY ID: Detail Diskon
-   * Memastikan ID yang diminta adalah milik tenant yang login.
-   */
-  async getDiskonById(req, res, next) {
+  async delete(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-diskon"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola diskon");
+      }
 
-      const diskon = await diskonService.getById(id, tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await diskonService.delete(req.params.id, tenantID);
 
-      res.status(200).json({
-        success: true,
-        data: diskon,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  /**
-   * ✅ UPDATE: Ubah Data Diskon
-   */
-  async updateDiskon(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const updatedDiskon = await diskonService.update(id, tenantID, req.body);
-
-      res.status(200).json({
-        success: true,
-        message: "Diskon berhasil diperbarui",
-        data: updatedDiskon,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  /**
-   * ✅ DELETE: Hapus Diskon
-   */
-  async deleteDiskon(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const result = await diskonService.delete(id, tenantID);
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
+      if (!result) throw createError(404, "Diskon tidak ditemukan");
+      res.json({
+        message: "Diskon berhasil dihapus",
       });
     } catch (err) {
       next(err);

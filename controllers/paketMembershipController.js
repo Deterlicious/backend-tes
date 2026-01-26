@@ -1,103 +1,147 @@
 const paketMembershipService = require("../services/paketMembershipService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class PaketMembershipController {
-  // --- CREATE ---
-  async createPaketMembership(req, res, next) {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName,
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
+  async getAll(req, res, next) {
     try {
-      /**
-       * KEAMANAN: Injeksi tenantID dari token.
-       * User tidak boleh menentukan tenantID sendiri di body request.
-       */
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-paket-membership"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola paket membership");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await paketMembershipService.getAll(tenantID);
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getById(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-paket-membership"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola paket membership");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await paketMembershipService.getById(req.params.id, tenantID);
+
+      if (!result) throw createError(404, "Data tidak ditemukan atau beda tenant");
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async create(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-paket-membership"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola paket membership");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+
       const payload = {
         ...req.body,
-        tenantID: req.pengguna.tenantID,
+        tenantID: tenantID,
       };
 
-      const newPaket = await paketMembershipService.create(payload);
+      const result = await paketMembershipService.create(payload);
+
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error,
+        });
+      }
 
       res.status(201).json({
-        success: true,
+        data: result,
         message: "Paket Membership berhasil ditambahkan",
-        data: newPaket,
-      });
-    } catch (err) {
-      next(err); // Diteruskan ke global error handler
-    }
-  }
-
-  // --- READ ALL ---
-  async getAllPaketMembership(req, res, next) {
-    try {
-      // KEAMANAN: Ambil tenantID murni dari token login
-      const tenantID = req.pengguna.tenantID;
-
-      const paketMembership = await paketMembershipService.getAll(tenantID);
-
-      res.status(200).json({
-        success: true,
-        total: paketMembership.length,
-        data: paketMembership,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- READ BY ID ---
-  async getPaketMembershipById(req, res, next) {
+  async update(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      // Isolasi: Cari ID hanya di dalam tenant yang sesuai
-      const paketMembership = await paketMembershipService.getById(
-        id,
-        tenantID
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-paket-membership"
       );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola paket membership");
+      }
 
-      res.status(200).json({
-        success: true,
-        data: paketMembership,
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await paketMembershipService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
       });
-    } catch (err) {
-      next(err);
-    }
-  }
+      if (!result) throw createError(404, "Data tidak ditemukan");
 
-  // --- UPDATE ---
-  async updatePaketMembership(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const updatedPaket = await paketMembershipService.update(
-        id,
-        tenantID,
-        req.body
-      );
-
-      res.status(200).json({
-        success: true,
+      res.json({
+        data: result,
         message: "Paket Membership berhasil diperbarui",
-        data: updatedPaket,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- DELETE ---
-  async deletePaketMembership(req, res, next) {
+  async delete(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-paket-membership"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola paket membership");
+      }
 
-      const result = await paketMembershipService.delete(id, tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await paketMembershipService.delete(req.params.id, tenantID);
 
-      res.status(200).json({
-        success: true,
-        message: result.message || "Paket Membership berhasil dihapus",
+      if (!result) throw createError(404, "Data tidak ditemukan");
+      res.json({
+        message: "Paket Membership berhasil dihapus",
       });
     } catch (err) {
       next(err);

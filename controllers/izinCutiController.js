@@ -1,103 +1,155 @@
 const izinCutiService = require("../services/izinCutiService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class IzinCutiController {
-  /**
-   * ✅ CREATE: Tambah Izin Cuti
-   * tenantID dan dicatatOleh diambil otomatis dari token.
-   */
-  async createIzinCuti(req, res, next) {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName,
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
+  _getRequesterUserID(req) {
+    return req.pengguna?._id || null;
+  }
+
+  async getAll(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-izin-cuti"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola izin cuti");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await izinCutiService.getAll(tenantID);
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getById(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-izin-cuti"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola izin cuti");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await izinCutiService.getById(req.params.id, tenantID);
+
+      if (!result) throw createError(404, "Data tidak ditemukan atau beda tenant");
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async create(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-izin-cuti"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola izin cuti");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const userID = this._getRequesterUserID(req);
+      const targetPenggunaID = req.body.penggunaID || userID;
+
       const payload = {
         ...req.body,
-        tenantID: req.pengguna.tenantID, // Otomatis dari middleware
-        dicatatOleh: req.pengguna._id, // ID akun yang sedang login
+        tenantID: tenantID,
+        dicatatOleh: userID,
+        penggunaID: targetPenggunaID,
       };
 
-      // console.log("Payload yang dikirim ke Service:", payload); // cek isi payload
-      const newIzinCuti = await izinCutiService.create(payload);
+      const result = await izinCutiService.create(payload);
+
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error,
+        });
+      }
 
       res.status(201).json({
-        success: true,
+        data: result,
         message: "Izin/Cuti berhasil dicatat",
-        data: newIzinCuti,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  /**
-   * ✅ READ ALL: Filter berdasarkan tenant pengguna
-   */
-  async getAllIzinCuti(req, res, next) {
+  async update(req, res, next) {
     try {
-      const tenantID = req.pengguna.tenantID;
-      const data = await izinCutiService.getAll(tenantID);
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-izin-cuti"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola izin cuti");
+      }
 
-      res.status(200).json({
-        success: true,
-        total: data.length,
-        data: data,
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await izinCutiService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
       });
-    } catch (err) {
-      next(err);
-    }
-  }
+      if (!result) throw createError(404, "Data tidak ditemukan");
 
-  /**
-   * ✅ READ BY ID: Detail Izin Cuti
-   * Keamanan: Memastikan ID data sesuai dengan tenantID pengguna
-   */
-  async getIzinCutiById(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const izinCuti = await izinCutiService.getById(id, tenantID);
-
-      res.status(200).json({
-        success: true,
-        data: izinCuti,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  /**
-   * ✅ UPDATE: Perbarui data Izin Cuti
-   */
-  async updateIzinCuti(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const updated = await izinCutiService.update(id, tenantID, req.body);
-
-      res.status(200).json({
-        success: true,
+      res.json({
+        data: result,
         message: "Data berhasil diperbarui",
-        data: updated,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  /**
-   * ✅ DELETE: Hapus data Izin Cuti
-   */
-  async deleteIzinCuti(req, res, next) {
+  async delete(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-izin-cuti"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola izin cuti");
+      }
 
-      const result = await izinCutiService.delete(id, tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await izinCutiService.delete(req.params.id, tenantID);
 
-      res.status(200).json({
-        success: true,
-        message: result.message,
+      if (!result) throw createError(404, "Data tidak ditemukan");
+      res.json({
+        message: "Data berhasil dihapus",
       });
     } catch (err) {
       next(err);

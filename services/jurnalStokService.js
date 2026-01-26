@@ -1,173 +1,193 @@
 const JurnalStok = require("../models/jurnalStokModel");
 const Inventory = require("../models/inventoryModel");
-const mongoose = require("mongoose");
-const createError = require("http-errors");
 const redis = require("../config/redis");
-const { validateJurnalPayload } = require("../validators/jurnalStokValidator");
+const {
+  validateJurnalPayload
+} = require("../validators/jurnalStokValidator");
+const createError = require("http-errors");
 
-// --- CACHE KEYS ---
 const KEY_LIST = (tenantID) => `jurnalstok:list:${tenantID}`;
 const KEY_DETAIL = (id) => `jurnalstok:detail:${id}`;
 
 class JurnalStokService {
-  // --- PRIVATE HELPERS (#) ---
-  #getStokOperation(tipe) {
-    const ops = { masuk: 1, keluar: -1, penyesuaian: 1 };
-    return ops[tipe] || 0;
+  async clearCache(tenantID, id) {
+    const keys = [KEY_LIST(tenantID)];
+    if (id) keys.push(KEY_DETAIL(id));
+
+    await redis.del(keys);
   }
 
-  #handleDbError(error) {
-    if (error.name === "ValidationError") {
-      return createError(400, Object.values(error.errors)[0].message);
-    }
-    if (error.name === "CastError") {
-      return createError(400, "Format ID tidak valid.");
-    }
-    return createError(500, error.message || "Kesalahan Database.");
+  _getMultiplier(tipe) {
+    return tipe === "Masuk" ? 1 : -1;
   }
 
-  async #clearCache(id, tenantID) {
-    if (id) await redis.del(KEY_DETAIL(id));
-    if (tenantID) await redis.del(KEY_LIST(tenantID));
-  }
-
-  // --- CREATE ---
-  async create(payload) {
-    const validation = validateJurnalPayload(payload, false);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
-
-    try {
-      const { bahanBakuID, locationID, tenantID, tipe, jumlah } = payload;
-
-      // 1. Simpan Jurnal
-      const jurnalStok = await JurnalStok.create(payload);
-
-      // 2. Update Stok secara Atomik menggunakan $inc
-      const amount = this.#getStokOperation(tipe) * jumlah;
-
-      await Inventory.findOneAndUpdate(
-        { bahanBakuID, locationID, tenantID },
-        { $inc: { stok: amount } },
-        { upsert: true, new: true } // Upsert: buat baru jika belum ada
-      );
-
-      await this.#clearCache(null, tenantID);
-      return jurnalStok;
-    } catch (error) {
-      throw this.#handleDbError(error);
-    }
-  }
-
-  // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "Tenant ID wajib ada.");
+    if (!tenantID) throw createError(400, "Tenant ID required");
 
-    const cached = await redis.get(KEY_LIST(tenantID));
+    const key = KEY_LIST(tenantID);
+    const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    const data = await JurnalStok.find({ tenantID })
+    const data = await JurnalStok.find({
+        tenantID
+      })
       .populate("bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
-      .sort({ tanggal: -1, createdAt: -1 })
+      .populate("locationID", "namaLokasi")
+      .sort({
+        tanggal: -1,
+        createdAt: -1
+      })
       .lean();
 
-    if (data.length === 0)
-      throw createError(404, "Data jurnal stok tidak ditemukan.");
+    if (data.length > 0) {
+      await redis.set(key, JSON.stringify(data), "EX", 300);
+    }
 
-    await redis.set(KEY_LIST(tenantID), JSON.stringify(data), "EX", 300);
     return data;
   }
 
-  // --- READ BY ID ---
-  async getById(id, tenantID) {
-    const cached = await redis.get(KEY_DETAIL(id));
+  async getById(id, requesterTenantID) {
+    const key = KEY_DETAIL(id);
+    const cached = await redis.get(key);
+
     if (cached) {
-      const data = JSON.parse(cached);
-      if (data.tenantID.toString() !== tenantID.toString())
-        throw createError(403, "Akses ditolak.");
-      return data;
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
     }
 
-    const jurnalStok = await JurnalStok.findOne({ _id: id, tenantID })
+    const data = await JurnalStok.findOne({
+        _id: id,
+        tenantID: requesterTenantID,
+      })
       .populate("bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
+      .populate("locationID", "namaLokasi")
       .lean();
 
-    if (!jurnalStok) throw createError(404, "Jurnal stok tidak ditemukan.");
+    if (!data) return null;
 
-    await redis.set(KEY_DETAIL(id), JSON.stringify(jurnalStok), "EX", 600);
-    return jurnalStok;
+    await redis.set(key, JSON.stringify(data), "EX", 300);
+    return data;
   }
 
-  // --- UPDATE ---
-  async update(id, tenantID, payload) {
+  async create(payload) {
+    const validation = validateJurnalPayload(payload);
+    if (!validation.valid) return {
+      error: validation.errors
+    };
+
+    try {
+      const jurnal = await JurnalStok.create(payload);
+
+      const changeAmount = this._getMultiplier(payload.tipeKoreksi) * payload.jumlah;
+
+      await Inventory.findOneAndUpdate({
+        bahanBakuID: payload.bahanBakuID,
+        locationID: payload.locationID,
+        tenantID: payload.tenantID,
+      }, {
+        $inc: {
+          stok: changeAmount
+        }
+      }, {
+        upsert: true,
+        new: true
+      });
+
+      await this.clearCache(payload.tenantID);
+
+      return jurnal;
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  async update(id, payload, requesterTenantID) {
     const validation = validateJurnalPayload(payload, true);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
+    if (!validation.valid) return {
+      error: validation.errors
+    };
+
+    delete payload.tenantID;
+    delete payload.bahanBakuID;
+    delete payload.locationID;
 
     try {
-      const updates = validation.updates;
-      const oldJurnal = await JurnalStok.findOne({ _id: id, tenantID });
-      if (!oldJurnal) throw createError(404, "Jurnal tidak ditemukan.");
+      const oldJurnal = await JurnalStok.findOne({
+        _id: id,
+        tenantID: requesterTenantID
+      });
+      if (!oldJurnal) return null;
 
-      // Hitung selisih stok (Delta)
-      const oldAmount =
-        this.#getStokOperation(oldJurnal.tipe) * oldJurnal.jumlah;
-      const newAmount =
-        this.#getStokOperation(oldJurnal.tipe) *
-        (updates.jumlah || oldJurnal.jumlah);
-      const diffAmount = newAmount - oldAmount;
+      const oldChange = this._getMultiplier(oldJurnal.tipeKoreksi) * oldJurnal.jumlah;
+      await Inventory.updateOne({
+        bahanBakuID: oldJurnal.bahanBakuID,
+        locationID: oldJurnal.locationID,
+        tenantID: requesterTenantID,
+      }, {
+        $inc: {
+          stok: -oldChange
+        }
+      });
 
-      const updated = await JurnalStok.findOneAndUpdate(
-        { _id: id, tenantID },
-        { $set: updates },
-        { new: true, runValidators: true }
-      ).lean();
+      const updated = await JurnalStok.findOneAndUpdate({
+        _id: id,
+        tenantID: requesterTenantID
+      }, payload, {
+        new: true,
+        runValidators: true
+      }).lean();
 
-      // Terapkan selisih ke Inventory
-      if (diffAmount !== 0) {
-        await Inventory.updateOne(
-          {
-            bahanBakuID: updated.bahanBakuID,
-            locationID: updated.locationID,
-            tenantID,
-          },
-          { $inc: { stok: diffAmount } }
-        );
-      }
+      const finalTipe = payload.tipeKoreksi || oldJurnal.tipeKoreksi;
+      const finalJumlah = payload.jumlah !== undefined ? payload.jumlah : oldJurnal.jumlah;
 
-      await this.#clearCache(id, tenantID);
+      const newChange = this._getMultiplier(finalTipe) * finalJumlah;
+
+      await Inventory.updateOne({
+        bahanBakuID: oldJurnal.bahanBakuID,
+        locationID: oldJurnal.locationID,
+        tenantID: requesterTenantID,
+      }, {
+        $inc: {
+          stok: newChange
+        }
+      }, {
+        upsert: true
+      });
+
+      await this.clearCache(requesterTenantID, id);
+
       return updated;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.#handleDbError(error);
+    } catch (err) {
+      throw err;
     }
   }
 
-  // --- DELETE ---
-  async delete(id, tenantID) {
-    try {
-      const deleted = await JurnalStok.findOneAndDelete({ _id: id, tenantID });
-      if (!deleted) throw createError(404, "Jurnal tidak ditemukan.");
+  async delete(id, requesterTenantID) {
+    const deleted = await JurnalStok.findOneAndDelete({
+      _id: id,
+      tenantID: requesterTenantID,
+    });
 
-      // Kembalikan stok (Reverse)
-      const reverseAmount = -(
-        this.#getStokOperation(deleted.tipe) * deleted.jumlah
-      );
+    if (!deleted) return null;
 
-      await Inventory.updateOne(
-        {
-          bahanBakuID: deleted.bahanBakuID,
-          locationID: deleted.locationID,
-          tenantID,
-        },
-        { $inc: { stok: reverseAmount } }
-      );
+    const changeAmount = this._getMultiplier(deleted.tipeKoreksi) * deleted.jumlah;
 
-      await this.#clearCache(id, tenantID);
-      return { message: "Jurnal Stok berhasil dihapus" };
-    } catch (error) {
-      throw this.#handleDbError(error);
-    }
+    await Inventory.updateOne({
+      bahanBakuID: deleted.bahanBakuID,
+      locationID: deleted.locationID,
+      tenantID: requesterTenantID,
+    }, {
+      $inc: {
+        stok: -changeAmount
+      }
+    });
+
+    await this.clearCache(requesterTenantID, id);
+
+    return true;
   }
 }
 

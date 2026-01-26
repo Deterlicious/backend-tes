@@ -1,103 +1,153 @@
 const bebanOperasionalService = require("../services/bebanOperasionalService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class BebanOperasionalController {
-  // --- CREATE ---
-  async createBebanOperasional(req, res, next) {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName,
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
+  _getRequesterUserID(req) {
+    return req.pengguna?._id || null;
+  }
+
+  async getAll(req, res, next) {
     try {
-      /**
-       * 🔐 KEAMANAN: Injeksi data dari token (req.pengguna).
-       * tenantID: Memastikan transaksi tercatat di tenant yang benar.
-       * dicatatOleh: Otomatis mengambil ID akun yang sedang login.
-       */
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-beban-operasional"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola beban operasional");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await bebanOperasionalService.getAll(tenantID);
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getById(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-beban-operasional"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola beban operasional");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await bebanOperasionalService.getById(req.params.id, tenantID);
+
+      if (!result) throw createError(404, "Beban tidak ditemukan atau beda tenant");
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async create(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-beban-operasional"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola beban operasional");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const userID = this._getRequesterUserID(req);
+
       const payload = {
         ...req.body,
-        tenantID: req.pengguna.tenantID,
-        dicatatOleh: req.pengguna._id, //default dari mongoDB itu _id bukan id
+        tenantID: tenantID,
+        dicatatOleh: userID,
       };
 
-      // console.log("Payload yang dikirim ke Service:", payload); // debugging isi payload
-      const newBeban = await bebanOperasionalService.create(payload);
+      const result = await bebanOperasionalService.create(payload);
+
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error,
+        });
+      }
 
       res.status(201).json({
-        success: true,
-        message: "Beban Operasional berhasil ditambahkan",
-        data: newBeban,
+        data: result,
+        message: "Beban Operasional berhasil dibuat",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- READ ALL ---
-  async getAllBebanOperasional(req, res, next) {
+  async update(req, res, next) {
     try {
-      // Mengambil tenantID murni dari token untuk mencegah lintas data tenant
-      const tenantID = req.pengguna.tenantID;
-
-      const bebanOperasional = await bebanOperasionalService.getAll(tenantID);
-
-      res.status(200).json({
-        success: true,
-        total: bebanOperasional.length,
-        data: bebanOperasional,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // --- READ BY ID ---
-  async getBebanOperasionalById(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      // Service akan memvalidasi apakah ID tersebut milik tenantID yang login
-      const beban = await bebanOperasionalService.getById(id, tenantID);
-
-      res.status(200).json({
-        success: true,
-        data: beban,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // --- UPDATE ---
-  async updateBebanOperasional(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const updatedBeban = await bebanOperasionalService.update(
-        id,
-        tenantID,
-        req.body
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-beban-operasional"
       );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola beban operasional");
+      }
 
-      res.status(200).json({
-        success: true,
-        message: "Beban Operasional berhasil diperbarui",
-        data: updatedBeban,
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await bebanOperasionalService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
+      if (!result) throw createError(404, "Beban tidak ditemukan");
+
+      res.json({
+        data: result,
+        message: "Beban Operasional diperbarui",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- DELETE ---
-  async deleteBebanOperasional(req, res, next) {
+  async delete(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-beban-operasional"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola beban operasional");
+      }
 
-      const result = await bebanOperasionalService.delete(id, tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await bebanOperasionalService.delete(req.params.id, tenantID);
 
-      res.status(200).json({
-        success: true,
-        message: result.message,
+      if (!result) throw createError(404, "Beban tidak ditemukan");
+      res.json({
+        message: "Beban Operasional berhasil dihapus",
       });
     } catch (err) {
       next(err);

@@ -1,66 +1,48 @@
+const validator = require("validator");
 const mongoose = require("mongoose");
-const createError = require("http-errors");
 
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-/**
- * Validasi payload untuk operasi CREATE/UPDATE Absensi.
- * @param {object} data - req.body atau data update.
- * @param {boolean} isUpdate - Flag untuk menandakan apakah ini operasi update.
- * @returns {object} { valid: boolean, updates?: object, errors?: string[] }
- */
 function validateAbsensiPayload(data, isUpdate = false) {
   const errors = [];
-  const allowedUpdates = [
-    "waktuMasuk",
-    "waktuPulang",
-    "fotoMasuk",
-    "fotoPulang",
-    "keterangan",
-    "tanggal",
-  ];
-  const updates = {};
 
-  // --- Validasi Mandatory Fields (CREATE) ---
   if (!isUpdate) {
-    if (
-      !data.tanggal ||
-      !data.waktuMasuk ||
-      !data.fotoMasuk ||
-      !data.waktuPulang ||
-      !data.fotoPulang ||
-      !data.tenantID ||
-      !data.penggunaID
-    ) {
-      errors.push("Semua field wajib diisi (kecuali keterangan).");
+    if (!data.tenantID || !mongoose.Types.ObjectId.isValid(data.tenantID)) {
+      errors.push("tenantID wajib diisi dan valid");
     }
 
-    // Pengecekan ID untuk CREATE
-    if (data.tenantID && !isValidObjectId(data.tenantID))
-      errors.push("Format ID Tenant tidak valid.");
-    if (data.penggunaID && !isValidObjectId(data.penggunaID))
-      errors.push("Format ID Pengguna tidak valid.");
-
-    if (errors.length > 0) return { valid: false, errors };
-  }
-
-  // --- Whitelisting dan Pengecekan Data UPDATE ---
-  if (isUpdate) {
-    Object.keys(data).forEach((key) => {
-      if (allowedUpdates.includes(key)) {
-        updates[key] = data[key];
-      }
-    });
-
-    if (Object.keys(updates).length === 0) {
-      errors.push("Tidak ada data valid yang dikirimkan untuk diperbarui.");
-      return { valid: false, errors };
+    if (!data.penggunaID || !mongoose.Types.ObjectId.isValid(data.penggunaID)) {
+      errors.push("penggunaID wajib diisi dan valid");
     }
-    return { valid: true, updates };
+
+    if (!data.tanggal) {
+      errors.push("tanggal wajib diisi");
+    }
+
+    if (!data.waktuMasuk) {
+      errors.push("waktuMasuk wajib diisi");
+    }
+
+    if (!data.waktuPulang) {
+      errors.push("waktuPulang wajib diisi");
+    }
+
+    if (!data.fotoMasuk || validator.isEmpty(data.fotoMasuk + "")) {
+      errors.push("fotoMasuk wajib diisi");
+    }
+
+    if (!data.fotoPulang || validator.isEmpty(data.fotoPulang + "")) {
+      errors.push("fotoPulang wajib diisi");
+    }
   }
 
-  // Jika CREATE, kembalikan valid
-  return { valid: true };
+  if (errors.length > 0) return {
+    valid: false,
+    errors
+  };
+  return {
+    valid: true
+  };
 }
 
-module.exports = { validateAbsensiPayload };
+module.exports = {
+  validateAbsensiPayload
+};

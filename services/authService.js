@@ -22,7 +22,7 @@ class AuthService {
         permissions: permissions,
       },
       JWT_SECRET,
-      { expiresIn: "15m" } // Short lived
+      { expiresIn: "120m" } // Short lived
     );
   }
 

@@ -1,106 +1,154 @@
 const jurnalStokService = require("../services/jurnalStokService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class JurnalStokController {
-  /**
-   * ✅ CREATE: Tambah Jurnal Stok
-   * tenantID dan dicatatOleh (jika ada) diambil otomatis dari token.
-   */
-  async createJurnalStok(req, res, next) {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName,
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
+  _getRequesterUserID(req) {
+    return req.pengguna?._id || null;
+  }
+
+  async getAll(req, res, next) {
     try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-stok"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal stok");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await jurnalStokService.getAll(tenantID);
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getById(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-stok"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal stok");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await jurnalStokService.getById(req.params.id, tenantID);
+
+      if (!result) throw createError(404, "Data tidak ditemukan atau beda tenant");
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async create(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-stok"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal stok");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const userID = this._getRequesterUserID(req);
+      const pencatat = req.body.dicatatOleh || userID;
+
       const payload = {
         ...req.body,
-        tenantID: req.pengguna.tenantID, // Injeksi otomatis dari token
-        dicatatOleh: req.pengguna.id || req.pengguna._id,
+        tenantID: tenantID,
+        dicatatOleh: pencatat,
       };
 
-      const newJurnal = await jurnalStokService.create(payload);
+      const result = await jurnalStokService.create(payload);
+
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error,
+        });
+      }
 
       res.status(201).json({
-        success: true,
+        data: result,
         message: "Jurnal Stok berhasil ditambahkan",
-        data: newJurnal,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  /**
-   * ✅ READ ALL: Filter berdasarkan tenant pengguna
-   */
-  async getAllJurnalStok(req, res, next) {
+  async update(req, res, next) {
     try {
-      const tenantID = req.pengguna.tenantID;
-      const jurnalStok = await jurnalStokService.getAll(tenantID);
-
-      res.status(200).json({
-        success: true,
-        total: jurnalStok.length,
-        data: jurnalStok,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  /**
-   * ✅ READ BY ID: Detail Jurnal Stok
-   * Keamanan: Validasi bahwa data yang diminta milik tenant yang login
-   */
-  async getJurnalStokById(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const jurnalStok = await jurnalStokService.getById(id, tenantID);
-
-      res.status(200).json({
-        success: true,
-        data: jurnalStok,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  /**
-   * ✅ UPDATE: Perbarui Jurnal Stok
-   */
-  async updateJurnalStok(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const updatedJurnal = await jurnalStokService.update(
-        id,
-        tenantID,
-        req.body
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-stok"
       );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal stok");
+      }
 
-      res.status(200).json({
-        success: true,
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await jurnalStokService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
+      if (!result) throw createError(404, "Data tidak ditemukan");
+
+      res.json({
+        data: result,
         message: "Jurnal Stok berhasil diperbarui",
-        data: updatedJurnal,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  /**
-   * ✅ DELETE: Hapus Jurnal Stok
-   */
-  async deleteJurnalStok(req, res, next) {
+  async delete(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-jurnal-stok"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola jurnal stok");
+      }
 
-      const result = await jurnalStokService.delete(id, tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await jurnalStokService.delete(req.params.id, tenantID);
 
-      res.status(200).json({
-        success: true,
-        message: result.message,
+      if (!result) throw createError(404, "Data tidak ditemukan");
+      res.json({
+        message: "Jurnal Stok berhasil dihapus",
       });
     } catch (err) {
       next(err);

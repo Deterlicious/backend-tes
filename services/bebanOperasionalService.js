@@ -1,167 +1,184 @@
 const BebanOperasional = require("../models/bebanOperasionalModel");
 const AkunKas = require("../models/akunKasModel");
-const mongoose = require("mongoose");
 const redis = require("../config/redis");
 const createError = require("http-errors");
 const {
-  validateBebanPayload,
+  validateBebanPayload
 } = require("../validators/bebanOperasionalValidator");
 
-// --- CACHE KEYS ---
 const KEY_LIST = (tenantID) => `beban:list:${tenantID}`;
 const KEY_DETAIL = (id) => `beban:detail:${id}`;
 
 class BebanOperasionalService {
-  // --- CACHE HELPER ---
-  async clearCache(id, tenantID) {
-    if (id) await redis.del(KEY_DETAIL(id));
-    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  async clearCache(tenantID, id) {
+    const keys = [KEY_LIST(tenantID)];
+    if (id) keys.push(KEY_DETAIL(id));
+
+    await redis.del(keys);
   }
 
-  // --- PRIVATE DB ERROR HANDLER (#) ---
-  #handleDbError(error) {
-    if (error.name === "ValidationError") {
-      return createError(400, Object.values(error.errors)[0].message);
-    }
-    if (error.name === "CastError") {
-      return createError(400, "Format ID tidak valid.");
-    }
-    return createError(500, error.message);
-  }
-
-  // --- CREATE ---
-  async create(payload) {
-    const validation = validateBebanPayload(payload, false);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
-
-    try {
-      // 1. Update Saldo Akun Kas terlebih dahulu (Pengecekan akses & saldo)
-      const updateKas = await AkunKas.findOneAndUpdate(
-        { _id: payload.akunKasID, tenantID: payload.tenantID },
-        { $inc: { saldo: -payload.jumlah } },
-        { new: true }
-      );
-
-      if (!updateKas) {
-        throw createError(400, "Akun Kas tidak ditemukan atau akses ditolak.");
-      }
-
-      // 2. Buat Dokumen Beban
-      const newBeban = await BebanOperasional.create(payload);
-
-      // 3. Invalidate Cache
-      await this.clearCache(null, payload.tenantID);
-
-      return newBeban;
-    } catch (error) {
-      throw createError.isHttpError(error) ? error : this.#handleDbError(error);
-    }
-  }
-
-  // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
+    if (!tenantID) throw createError(400, "Tenant ID required");
 
-    const cached = await redis.get(KEY_LIST(tenantID));
+    const key = KEY_LIST(tenantID);
+    const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    const beban = await BebanOperasional.find({ tenantID })
+    const data = await BebanOperasional.find({
+        tenantID
+      })
       .populate("akunKasID", "namaAkun nomorAkun")
       .populate("kategoriBebanID", "namaKategori")
-      .sort({ tanggal: -1, createdAt: -1 })
+      .populate("dicatatOleh", "nama")
+      .sort({
+        tanggal: -1,
+        createdAt: -1
+      })
       .lean();
 
-    if (beban.length === 0)
-      throw createError(404, "Data beban tidak ditemukan.");
-
-    await redis.set(KEY_LIST(tenantID), JSON.stringify(beban), "EX", 300);
-    return beban;
-  }
-
-  // --- READ BY ID ---
-  async getById(id, tenantID) {
-    const cached = await redis.get(KEY_DETAIL(id));
-    if (cached) {
-      const data = JSON.parse(cached);
-      if (data.tenantID.toString() !== tenantID.toString())
-        throw createError(403, "Akses ditolak.");
-      return data;
+    if (data.length > 0) {
+      await redis.set(key, JSON.stringify(data), "EX", 300);
     }
 
-    const beban = await BebanOperasional.findOne({ _id: id, tenantID })
-      .populate("akunKasID", "namaAkun nomorAkun")
-      .populate("kategoriBebanID", "namaKategori")
-      .lean();
-
-    if (!beban) throw createError(404, "Beban tidak ditemukan.");
-
-    await redis.set(KEY_DETAIL(id), JSON.stringify(beban), "EX", 600);
-    return beban;
+    return data;
   }
 
-  // --- UPDATE ---
-  async update(id, tenantID, payload) {
-    const validation = validateBebanPayload(payload, true);
+  async getById(id, requesterTenantID) {
+    const key = KEY_DETAIL(id);
+    const cached = await redis.get(key);
 
-    // console.log("Payload Jumlah yang diterima:", payload.jumlah);
-    // console.log("Tipe Data Jumlah:", typeof payload.jumlah);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
+    }
 
-    if (!validation.valid) throw createError(400, validation.errors[0]);
+    const data = await BebanOperasional.findOne({
+        _id: id,
+        tenantID: requesterTenantID,
+      })
+      .populate("akunKasID", "namaAkun nomorAkun")
+      .populate("kategoriBebanID", "namaKategori")
+      .populate("dicatatOleh", "nama")
+      .lean();
+
+    if (!data) return null;
+
+    await redis.set(key, JSON.stringify(data), "EX", 300);
+    return data;
+  }
+
+  async create(payload) {
+    const validation = validateBebanPayload(payload);
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     try {
-      // 1. Ambil data lama untuk kalkulasi saldo
-      const oldBeban = await BebanOperasional.findOne({ _id: id, tenantID });
-      if (!oldBeban) throw createError(404, "Data tidak ditemukan.");
+      const updateKas = await AkunKas.findOneAndUpdate({
+        _id: payload.akunKasID,
+        tenantID: payload.tenantID
+      }, {
+        $inc: {
+          saldo: -payload.jumlah
+        }
+      }, {
+        new: true
+      });
 
-      // 2. Revert saldo lama
-      await AkunKas.updateOne(
-        { _id: oldBeban.akunKasID, tenantID },
-        { $inc: { saldo: oldBeban.jumlah } }
-      );
+      if (!updateKas) {
+        throw createError(400, "Akun Kas tidak ditemukan atau saldo tidak cukup");
+      }
 
-      // 3. Update data Beban
-      const updated = await BebanOperasional.findOneAndUpdate(
-        { _id: id, tenantID },
-        { $set: validation.updates },
-        { new: true, runValidators: true }
-      ).lean();
+      const beban = await BebanOperasional.create(payload);
+      await this.clearCache(payload.tenantID);
 
-      // 4. Terapkan saldo baru
-      const newJumlah = payload.jumlah || oldBeban.jumlah;
+      return beban;
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  async update(id, payload, requesterTenantID) {
+    const validation = validateBebanPayload(payload, true);
+    if (!validation.valid) return {
+      error: validation.errors
+    };
+
+    delete payload.tenantID;
+    delete payload.dicatatOleh;
+
+    try {
+      const oldBeban = await BebanOperasional.findOne({
+        _id: id,
+        tenantID: requesterTenantID
+      });
+      if (!oldBeban) return null;
+
+      await AkunKas.updateOne({
+        _id: oldBeban.akunKasID,
+        tenantID: requesterTenantID
+      }, {
+        $inc: {
+          saldo: oldBeban.jumlah
+        }
+      });
+
+      const updated = await BebanOperasional.findOneAndUpdate({
+        _id: id,
+        tenantID: requesterTenantID
+      }, payload, {
+        new: true,
+        runValidators: true
+      }).lean();
+
+      const newJumlah = payload.jumlah !== undefined ? payload.jumlah : oldBeban.jumlah;
       const newAkunID = payload.akunKasID || oldBeban.akunKasID;
 
-      await AkunKas.updateOne(
-        { _id: newAkunID, tenantID },
-        { $inc: { saldo: -newJumlah } }
-      );
+      await AkunKas.updateOne({
+        _id: newAkunID,
+        tenantID: requesterTenantID
+      }, {
+        $inc: {
+          saldo: -newJumlah
+        }
+      });
 
-      await this.clearCache(id, tenantID);
+      await this.clearCache(requesterTenantID, id);
+
       return updated;
-    } catch (error) {
-      throw createError.isHttpError(error) ? error : this.#handleDbError(error);
+    } catch (err) {
+      throw err;
     }
   }
 
-  // --- DELETE ---
-  async delete(id, tenantID) {
-    try {
-      const deleted = await BebanOperasional.findOneAndDelete({
-        _id: id,
-        tenantID,
+  async delete(id, requesterTenantID) {
+    const target = await BebanOperasional.findOne({
+      _id: id,
+      tenantID: requesterTenantID
+    });
+    if (!target) return null;
+
+    const result = await BebanOperasional.deleteOne({
+      _id: id,
+      tenantID: requesterTenantID,
+    });
+
+    if (result.deletedCount > 0) {
+      await AkunKas.updateOne({
+        _id: target.akunKasID,
+        tenantID: requesterTenantID
+      }, {
+        $inc: {
+          saldo: target.jumlah
+        }
       });
-      if (!deleted) throw createError(404, "Data tidak ditemukan.");
 
-      // Kembalikan saldo Akun Kas
-      await AkunKas.updateOne(
-        { _id: deleted.akunKasID, tenantID },
-        { $inc: { saldo: deleted.jumlah } }
-      );
-
-      await this.clearCache(id, tenantID);
-      return { message: "Beban Operasional berhasil dihapus" };
-    } catch (error) {
-      throw createError.isHttpError(error) ? error : this.#handleDbError(error);
+      await this.clearCache(requesterTenantID, id);
+      return true;
     }
+
+    return null;
   }
 }
 

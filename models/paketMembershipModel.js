@@ -2,71 +2,52 @@ const mongoose = require("mongoose");
 
 const PaketMembershipSchema = new mongoose.Schema(
   {
-    // paketMembershipID dihilangkan, menggunakan _id default MongoDB
-
     namaPaket: {
       type: String,
-      required: [true, "Nama paket wajib diisi."],
+      required: true,
       trim: true,
-      // Hapus 'unique: true' di sini, akan diganti dengan compound index di bawah
-      index: true, // Index untuk optimasi pencarian berdasarkan nama
+      index: true,
     },
-
     harga: {
       type: Number,
-      required: [true, "Harga paket wajib diisi."],
-      min: [0, "Harga tidak boleh negatif."],
-      index: true, // Index untuk optimasi sorting/filter harga
+      required: true,
+      min: [0, "Harga tidak boleh negatif"],
+      index: true,
     },
-
     durasiHari: {
       type: Number,
-      required: [true, "Durasi hari wajib diisi."],
-      min: [1, "Durasi hari harus minimal 1 hari."],
+      required: true,
+      min: [1, "Durasi minimal 1 hari"],
     },
-
     deskripsi: {
       type: String,
-      default: null, // nullable
+      default: null,
       trim: true,
     },
-
     status: {
       type: String,
-      enum: {
-        values: ["Aktif", "Non-Aktif"],
-        message:
-          "{VALUE} bukan status yang valid. Pilih salah satu: Aktif atau Non-Aktif.",
-      },
+      enum: ["Aktif", "Non-Aktif"],
       default: "Aktif",
-      required: [true, "Status paket wajib diisi."],
-      index: true, // Index untuk optimasi filter status
+      index: true,
     },
-
-    // FK: Referensi ke Tenant
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
-      required: [true, "Tenant ID wajib diisi."],
-      index: true, // Index untuk optimasi filter multi-tenant (wajib)
+      required: true,
+      index: true,
     },
   },
   {
     timestamps: true,
-    versionKey: false, // Konsisten dengan model lain
+    versionKey: false,
   }
 );
 
-// --- PENGOPTIMALAN PENCARIAN & INTEGRITAS DATA ---
+PaketMembershipSchema.index({
+  tenantID: 1,
+  namaPaket: 1
+}, {
+  unique: true
+});
 
-// 1. Index Unik (Integritas Data): Mencegah duplikasi namaPaket dalam satu tenant.
-PaketMembershipSchema.index({ tenantID: 1, namaPaket: 1 }, { unique: true });
-
-// --------------------------------------------------
-
-const PaketMembership = mongoose.model(
-  "PaketMembership",
-  PaketMembershipSchema
-);
-
-module.exports = PaketMembership;
+module.exports = mongoose.model("PaketMembership", PaketMembershipSchema);

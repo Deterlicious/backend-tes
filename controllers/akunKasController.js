@@ -1,100 +1,147 @@
 const akunKasService = require("../services/akunKasService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class AkunKasController {
-  // --- CREATE ---
-  async createAkunKas(req, res, next) {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName,
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
+  async getAll(req, res, next) {
     try {
-      /**
-       * KEAMANAN: Memaksa tenantID dari token (req.pengguna).
-       * Mencegah user menyuntikkan data ke tenant orang lain.
-       */
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-akun-kas"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola akun kas");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await akunKasService.getAll(tenantID);
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getById(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-akun-kas"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola akun kas");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await akunKasService.getById(req.params.id, tenantID);
+
+      if (!result) throw createError(404, "Akun Kas tidak ditemukan atau beda tenant");
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async create(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-akun-kas"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola akun kas");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+
       const payload = {
         ...req.body,
-        tenantID: req.pengguna.tenantID,
+        tenantID: tenantID,
       };
 
-      const newAkunKas = await akunKasService.create(payload);
+      const result = await akunKasService.create(payload);
+
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error,
+        });
+      }
 
       res.status(201).json({
-        success: true,
-        message: "Akun Kas berhasil ditambahkan",
-        data: newAkunKas,
+        data: result,
+        message: "Akun Kas berhasil dibuat",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- READ ALL ---
-  async getAllAkunKas(req, res, next) {
+  async update(req, res, next) {
     try {
-      // Mengambil tenantID dari token, bukan dari query string (lebih aman)
-      const tenantID = req.pengguna.tenantID;
-
-      const akunKas = await akunKasService.getAll(tenantID);
-
-      res.status(200).json({
-        success: true,
-        total: akunKas.length,
-        data: akunKas,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // --- READ BY ID ---
-  async getAkunKasById(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      // Passing tenantID ke service untuk memastikan isolasi data
-      const akunKas = await akunKasService.getById(id, tenantID);
-
-      res.status(200).json({
-        success: true,
-        data: akunKas,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // --- UPDATE ---
-  async updateAkunKas(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const updatedAkunKas = await akunKasService.update(
-        id,
-        tenantID,
-        req.body
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-akun-kas"
       );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola akun kas");
+      }
 
-      res.status(200).json({
-        success: true,
-        message: "Akun Kas berhasil diperbarui",
-        data: updatedAkunKas,
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await akunKasService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
+      if (!result) throw createError(404, "Akun Kas tidak ditemukan");
+
+      res.json({
+        data: result,
+        message: "Akun Kas diperbarui",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- DELETE ---
-  async deleteAkunKas(req, res, next) {
+  async delete(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-akun-kas"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola akun kas");
+      }
 
-      const result = await akunKasService.delete(id, tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await akunKasService.delete(req.params.id, tenantID);
 
-      res.status(200).json({
-        success: true,
-        message: result.message,
+      if (!result) throw createError(404, "Akun Kas tidak ditemukan");
+      res.json({
+        message: "Akun Kas berhasil dihapus",
       });
     } catch (err) {
       next(err);

@@ -3,27 +3,21 @@ const router = express.Router();
 const paketMembershipController = require("../controllers/paketMembershipController");
 const authPengguna = require("../middleware/authPengguna");
 
-/**
- * 🛠️ WRAPPER UTILITY
- * Menangani async/await dan memastikan error diteruskan ke next(err).
- */
 const wrap = (fn) => (req, res, next) => {
-  if (!fn) {
-    return next(
-      new Error("Handler tidak ditemukan di PaketMembershipController!")
-    );
-  }
-  Promise.resolve(fn(req, res, next)).catch(next);
+  Promise.resolve(fn.call(paketMembershipController, req, res, next)).catch(next);
 };
 
-// --- PROTECTED ROUTES ---
-// Semua operasional paket membership wajib login (req.pengguna)
 router.use(authPengguna);
 
-router.post("/", wrap(paketMembershipController.createPaketMembership));
-router.get("/", wrap(paketMembershipController.getAllPaketMembership));
-router.get("/:id", wrap(paketMembershipController.getPaketMembershipById));
-router.put("/:id", wrap(paketMembershipController.updatePaketMembership));
-router.delete("/:id", wrap(paketMembershipController.deletePaketMembership));
+router
+  .route("/")
+  .post(wrap(paketMembershipController.create))
+  .get(wrap(paketMembershipController.getAll));
+
+router
+  .route("/:id")
+  .get(wrap(paketMembershipController.getById))
+  .put(wrap(paketMembershipController.update))
+  .delete(wrap(paketMembershipController.delete));
 
 module.exports = router;

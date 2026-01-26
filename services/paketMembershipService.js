@@ -1,149 +1,124 @@
 const PaketMembership = require("../models/paketMembershipModel");
-const mongoose = require("mongoose");
-const redis = require("../config/redis"); // Path disesuaikan dengan AkunService
-const createError = require("http-errors");
+const redis = require("../config/redis");
 const {
-  validatePaketMembershipPayload,
+  validatePaketMembershipPayload
 } = require("../validators/paketMembershipValidator");
+const createError = require("http-errors");
 
-// --- CACHE KEYS (Standar AkunService) ---
 const KEY_LIST = (tenantID) => `paket:list:${tenantID}`;
 const KEY_DETAIL = (id) => `paket:detail:${id}`;
 
 class PaketMembershipService {
-  // --- CACHE HELPER ---
-  async clearCache(id, tenantID) {
-    if (id) await redis.del(KEY_DETAIL(id));
-    if (tenantID) await redis.del(KEY_LIST(tenantID));
+  async clearCache(tenantID, id) {
+    const keys = [KEY_LIST(tenantID)];
+    if (id) keys.push(KEY_DETAIL(id));
+
+    await redis.del(keys);
   }
 
-  // --- CREATE ---
-  async create(payload) {
-    // 1. Validasi Input (Ambil pesan error pertama sesuai standar Akun)
-    const validation = validatePaketMembershipPayload(payload, false);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
-
-    try {
-      const paketMembership = await PaketMembership.create(payload);
-
-      // 2. Invalidate Cache List Tenant
-      await this.clearCache(null, payload.tenantID);
-
-      return paketMembership;
-    } catch (error) {
-      if (error.code === 11000) {
-        throw createError(400, "Nama paket sudah terdaftar dalam tenant ini.");
-      }
-      throw createError(500, error.message);
-    }
-  }
-
-  // --- READ ALL ---
   async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "Tenant ID wajib disertakan.");
+    if (!tenantID) throw createError(400, "Tenant ID required");
 
-    // 1. Cek Cache
-    const cached = await redis.get(KEY_LIST(tenantID));
+    const key = KEY_LIST(tenantID);
+    const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    // 2. Query DB dengan .lean() dan Sorting Harga
-    const paketMembership = await PaketMembership.find({ tenantID })
-      .sort({ harga: 1 })
+    const data = await PaketMembership.find({
+        tenantID
+      })
+      .sort({
+        harga: 1
+      })
       .lean();
 
-    if (paketMembership.length === 0) {
-      throw createError(
-        404,
-        "Tidak ada data Paket Membership untuk tenant ini."
-      );
+    if (data.length > 0) {
+      await redis.set(key, JSON.stringify(data), "EX", 300);
     }
 
-    // 3. Set Cache (EX: 300 detik/5 menit)
-    await redis.set(
-      KEY_LIST(tenantID),
-      JSON.stringify(paketMembership),
-      "EX",
-      300
-    );
-
-    return paketMembership;
+    return data;
   }
 
-  // --- READ BY ID ---
-  async getById(id, tenantID) {
-    // 1. Cek Cache Detail
-    const cached = await redis.get(KEY_DETAIL(id));
+  async getById(id, requesterTenantID) {
+    const key = KEY_DETAIL(id);
+    const cached = await redis.get(key);
+
     if (cached) {
-      const data = JSON.parse(cached);
-      // Security Check: Anti-ID-Tampering
-      if (data.tenantID.toString() !== tenantID.toString())
-        throw createError(403, "Akses ditolak.");
-      return data;
+      const parsed = JSON.parse(cached);
+      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+      return parsed;
     }
 
-    // 2. Query DB dengan isolasi Tenant
-    const paketMembership = await PaketMembership.findOne({
+    const data = await PaketMembership.findOne({
       _id: id,
-      tenantID,
+      tenantID: requesterTenantID,
     }).lean();
 
-    if (!paketMembership)
-      throw createError(404, "Paket Membership tidak ditemukan.");
+    if (!data) return null;
 
-    // 3. Set Cache Detail (EX: 600 detik/10 menit)
-    await redis.set(KEY_DETAIL(id), JSON.stringify(paketMembership), "EX", 600);
-
-    return paketMembership;
+    await redis.set(key, JSON.stringify(data), "EX", 300);
+    return data;
   }
 
-  // --- UPDATE ---
-  async update(id, tenantID, payload) {
-    // 1. Validasi Input
-    const validation = validatePaketMembershipPayload(payload, true);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
-
-    const updates = validation.updates;
+  async create(payload) {
+    const validation = validatePaketMembershipPayload(payload);
+    if (!validation.valid) return {
+      error: validation.errors
+    };
 
     try {
-      // 2. Update dengan filter tenantID (Hanya bisa update milik sendiri)
-      const updated = await PaketMembership.findOneAndUpdate(
-        { _id: id, tenantID },
-        updates,
-        { new: true, runValidators: true, context: "query" }
-      ).lean();
+      const paket = await PaketMembership.create(payload);
+      await this.clearCache(payload.tenantID);
 
-      if (!updated) throw createError(404, "Paket Membership tidak ditemukan.");
-
-      // 3. Clear Cache Detail & List
-      await this.clearCache(id, tenantID);
-
-      return updated;
-    } catch (error) {
-      if (error.code === 11000) {
-        throw createError(400, "Nama paket sudah digunakan dalam tenant ini.");
+      return paket;
+    } catch (err) {
+      if (err.code === 11000) {
+        throw createError(400, "Nama paket sudah terdaftar di tenant ini");
       }
-      throw createError(400, error.message);
+      throw err;
     }
   }
 
-  // --- DELETE ---
-  async delete(id, tenantID) {
-    // 1. Delete dengan filter tenantID
-    const deleted = await PaketMembership.findOneAndDelete({
+  async update(id, payload, requesterTenantID) {
+    const validation = validatePaketMembershipPayload(payload, true);
+    if (!validation.valid) return {
+      error: validation.errors
+    };
+
+    delete payload.tenantID;
+
+    try {
+      const updated = await PaketMembership.findOneAndUpdate({
+        _id: id,
+        tenantID: requesterTenantID,
+      }, payload, {
+        new: true,
+        runValidators: true,
+      }).lean();
+
+      if (!updated) return null;
+
+      await this.clearCache(requesterTenantID, id);
+
+      return updated;
+    } catch (err) {
+      if (err.code === 11000) {
+        throw createError(400, "Nama paket sudah terdaftar di tenant ini");
+      }
+      throw err;
+    }
+  }
+
+  async delete(id, requesterTenantID) {
+    const result = await PaketMembership.deleteOne({
       _id: id,
-      tenantID,
+      tenantID: requesterTenantID,
     });
 
-    if (!deleted)
-      throw createError(
-        404,
-        "Paket Membership tidak ditemukan atau akses ditolak."
-      );
+    if (result.deletedCount === 0) return null;
 
-    // 2. Clear Cache Detail & List
-    await this.clearCache(id, tenantID);
+    await this.clearCache(requesterTenantID, id);
 
-    return { message: "Paket Membership berhasil dihapus" };
+    return true;
   }
 }
 

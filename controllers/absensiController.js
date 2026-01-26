@@ -1,102 +1,153 @@
 const absensiService = require("../services/absensiService");
 const createError = require("http-errors");
+const Permission = require("../models/permissionModel");
 
 class AbsensiController {
-  // --- CREATE ---
-  async createAbsensi(req, res, next) {
+  async _checkPermission(userPermissionIDs, permissionName) {
+    const permissionDoc = await Permission.findOne({
+      nama: permissionName,
+    });
+    if (!permissionDoc) return false;
+
+    const hasAccess = userPermissionIDs
+      .map((id) => id.toString())
+      .includes(permissionDoc._id.toString());
+
+    return hasAccess;
+  }
+
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
+  _getRequesterUserID(req) {
+    return req.pengguna?._id || null;
+  }
+
+  async getAll(req, res, next) {
     try {
-      /**
-       * SINKRONISASI: Menggunakan req.pengguna sesuai standar middleware authPengguna.
-       * Keamanan: tenantID dan penggunaID dipaksa diambil dari token (bukan body).
-       */
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-absensi"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola absensi");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
+
+      const result = await absensiService.getAll(tenantID);
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getById(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-absensi"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola absensi");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await absensiService.getById(req.params.id, tenantID);
+
+      if (!result) throw createError(404, "Absensi tidak ditemukan atau beda tenant");
+      res.json({
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async create(req, res, next) {
+    try {
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-absensi"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola absensi");
+      }
+
+      const tenantID = this._getRequesterTenantID(req);
+      const userID = this._getRequesterUserID(req);
+
       const payload = {
         ...req.body,
-        tenantID: req.pengguna.tenantID,
-        penggunaID: req.pengguna._id,
+        tenantID: tenantID,
+        penggunaID: userID,
       };
 
       const result = await absensiService.create(payload);
 
-      res.status(201).json({
-        success: true,
-        message: "Absensi berhasil dibuat",
-        data: result,
-      });
-    } catch (err) {
-      next(err); // Error dari service (createError) akan otomatis ditangkap di sini
-    }
-  }
-
-  // --- GET ALL ---
-  async getAllAbsensi(req, res, next) {
-    try {
-      // Isolasi data: Mengambil tenantID dari identitas pengguna yang terverifikasi
-      const tenantID = req.pengguna.tenantID;
-
-      const absensi = await absensiService.getAll(tenantID);
-
-      res.json({
-        success: true,
-        message: "Data absensi berhasil diambil",
-        total: absensi.length,
-        data: absensi,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // --- GET BY ID ---
-  async getAbsensiById(req, res, next) {
-    try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
-
-      const absensi = await absensiService.getById(id, tenantID);
-
-      // Jika service tidak throw error tapi data kosong, pastikan 404 tetap terjaga
-      if (!absensi) {
-        throw createError(404, "Data absensi tidak ditemukan.");
+      if (result?.error) {
+        return res.status(400).json({
+          errors: result.error,
+        });
       }
 
-      res.json({
-        success: true,
-        data: absensi,
+      res.status(201).json({
+        data: result,
+        message: "Absensi berhasil dibuat",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- UPDATE ---
-  async updateAbsensi(req, res, next) {
+  async update(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-absensi"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola absensi");
+      }
 
-      const updated = await absensiService.update(id, tenantID, req.body);
+      const tenantID = this._getRequesterTenantID(req);
+      const payload = req.body;
+      const result = await absensiService.update(req.params.id, payload, tenantID);
+
+      if (result?.error) return res.status(400).json({
+        errors: result.error
+      });
+      if (!result) throw createError(404, "Absensi tidak ditemukan");
 
       res.json({
-        success: true,
-        message: "Absensi berhasil diperbarui",
-        data: updated,
+        data: result,
+        message: "Absensi diperbarui",
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // --- DELETE ---
-  async deleteAbsensi(req, res, next) {
+  async delete(req, res, next) {
     try {
-      const { id } = req.params;
-      const tenantID = req.pengguna.tenantID;
+      const isAllowed = await this._checkPermission(
+        req.pengguna.permissions,
+        "kelola-absensi"
+      );
+      if (!isAllowed) {
+        throw createError(403, "Anda tidak memiliki akses kelola absensi");
+      }
 
-      await absensiService.delete(id, tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      const result = await absensiService.delete(req.params.id, tenantID);
 
+      if (!result) throw createError(404, "Absensi tidak ditemukan");
       res.json({
-        success: true,
-        message: "Data absensi berhasil dihapus",
+        message: "Absensi berhasil dihapus",
       });
     } catch (err) {
       next(err);
