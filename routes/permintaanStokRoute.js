@@ -1,26 +1,16 @@
-// permintaanStokRouter.js
 const express = require("express");
 const router = express.Router();
 const permintaanStokController = require("../controllers/permintaanStokController");
+const authPengguna = require("../middleware/authPengguna");
 
-// Route untuk CREATE dan READ ALL
-router
-  .route("/")
-  .post(permintaanStokController.createPermintaanStok)
-  .get(permintaanStokController.getAllPermintaanStok);
+const wrap = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
 
-// Route untuk READ BY ID, UPDATE DRAFT, dan DELETE DRAFT
-router
-  .route("/:id")
-  .get(permintaanStokController.getPermintaanStokById)
-  .put(permintaanStokController.updatePermintaanDraft)
-  .delete(permintaanStokController.deletePermintaanDraft);
+router.use(authPengguna);
 
-// Route untuk UPDATE STATUS (SUBMIT, APPROVE, REJECT)
-router.route("/:id/submit").put(permintaanStokController.submitRequest);
-
-router.route("/:id/approve").put(permintaanStokController.approveRequest);
-
-router.route("/:id/reject").put(permintaanStokController.rejectRequest);
+router.post("/", wrap(permintaanStokController.createPermintaanStok));
+router.put("/:id/submit", wrap(permintaanStokController.submitRequest));
+router.put("/:id/approve", wrap(permintaanStokController.approveRequest));
+router.put("/:id/reject", wrap(permintaanStokController.rejectRequest));
 
 module.exports = router;

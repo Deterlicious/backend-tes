@@ -1,178 +1,69 @@
-// inventoryService.js
 const Inventory = require("../models/inventoryModel");
-const mongoose = require("mongoose");
 const createError = require("http-errors");
-const {
-  validateInventoryPayload,
-} = require("../validators/inventoryValidator");
-
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+const redis = require("../config/redis");
 
 class InventoryService {
-  // Helper: Menangani Error Mongoose (Termasuk Unique Index)
-  handleDbError(error, defaultMessage = "Gagal memproses data Stok") {
-    if (error.code === 11000) {
-      // Error ini terpicu oleh unique index: { bahanBakuID: 1, locationID: 1 }
-      return createError(400, {
-        message: "Stok untuk bahan baku ini sudah ada di lokasi yang sama.",
-      });
-    }
-    if (error.name === "ValidationError") {
-      let errors = {};
-      Object.keys(error.errors).forEach((key) => {
-        errors[key] = error.errors[key].message;
-      });
-      return createError(400, {
-        message: "Validasi data gagal. Cek detail errors.",
-        errors: errors,
-      });
-    }
-    if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
-    }
-    return createError(500, error.message || defaultMessage);
+  #KEY_LIST(tenantID) {
+    return `inventory:list:${tenantID}`;
+  }
+  #KEY_DETAIL(id) {
+    return `inventory:detail:${id}`;
   }
 
-  // --- CREATE ---
   async create(payload) {
-    const validation = validateInventoryPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
-
-    try {
-      const newInventory = new Inventory(payload);
-      const savedInventory = await newInventory.save();
-
-      return savedInventory;
-    } catch (error) {
-      throw this.handleDbError(error, "Gagal menambahkan Stok Bahan Baku.");
-    }
+    const data = await Inventory.create(payload);
+    await redis.del(this.#KEY_LIST(payload.tenantID));
+    return data;
   }
 
-  // --- READ ALL (Wajib filter berdasarkan tenantID dan opsional locationID) ---
-  async getAll(tenantID, locationID = null) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
+  async getAll(tenantID) {
+    const cache = await redis.get(this.#KEY_LIST(tenantID));
+    if (cache) return JSON.parse(cache);
 
-    try {
-      const filter = { tenantID };
-      if (locationID) {
-        if (!isValidObjectId(locationID))
-          throw createError(400, "locationID tidak valid.");
-        filter.locationID = locationID;
-      }
+    // Gunakan populate untuk menarik data Nama Bahan dan Nama Lokasi agar informatif
+    const data = await Inventory.find({ tenantID })
+      .populate("bahanBakuID", "namaBahan satuan")
+      .populate("locationID", "nama tipe")
+      .sort({ createdAt: -1 });
 
-      const inventory = await Inventory.find(filter)
-        .populate("bahanBakuID", "namaBahan satuan")
-        .populate("locationID", "nama tipe")
-        .sort({ "locationID.nama": 1, "bahanBakuID.namaBahan": 1 });
-
-      if (inventory.length === 0)
-        throw createError(404, "Tidak ada data Stok yang ditemukan.");
-
-      return inventory;
-    } catch (error) {
-      throw this.handleDbError(
-        error,
-        "Gagal mengambil daftar Stok Bahan Baku."
-      );
-    }
+    await redis.set(this.#KEY_LIST(tenantID), JSON.stringify(data), "EX", 3600);
+    return data;
   }
 
-  // --- READ BY ID ---
-  async getById(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Stok dan Tenant ID wajib disertakan dan harus valid."
-      );
+  async getById(id, tenantID) {
+    const cache = await redis.get(this.#KEY_DETAIL(id));
+    if (cache) return JSON.parse(cache);
 
-    try {
-      // KEAMANAN KRITIS: Filter ID & tenantID
-      const inventory = await Inventory.findOne({ _id: id, tenantID })
-        .populate("bahanBakuID", "namaBahan satuan")
-        .populate("locationID", "nama tipe");
+    const data = await Inventory.findOne({ _id: id, tenantID })
+      .populate("bahanBakuID", "namaBahan satuan")
+      .populate("locationID", "nama tipe");
 
-      if (!inventory)
-        throw createError(
-          404,
-          "Data Stok tidak ditemukan atau Anda tidak memiliki akses."
-        );
+    if (!data) throw createError(404, "Data inventory tidak ditemukan.");
 
-      return inventory;
-    } catch (error) {
-      throw this.handleDbError(
-        error,
-        "Gagal mengambil detail Stok Bahan Baku."
-      );
-    }
+    await redis.set(this.#KEY_DETAIL(id), JSON.stringify(data), "EX", 3600);
+    return data;
   }
 
-  // --- UPDATE (Penyesuaian Stok Manual) ---
-  async update(tenantID, id, payload) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Stok dan Tenant ID wajib disertakan dan harus valid."
-      );
+  async update(id, tenantID, payload) {
+    const updated = await Inventory.findOneAndUpdate(
+      { _id: id, tenantID },
+      { $set: payload },
+      { new: true, runValidators: true },
+    );
+    if (!updated) throw createError(404, "Data inventory tidak ditemukan.");
 
-    const validation = validateInventoryPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
-
-    try {
-      const updates = validation.updates;
-
-      // Update DB: Hanya jika _id dan tenantID cocok
-      const updatedInventory = await Inventory.findOneAndUpdate(
-        { _id: id, tenantID: tenantID },
-        updates,
-        { new: true, runValidators: true }
-      );
-
-      if (!updatedInventory)
-        throw createError(
-          404,
-          "Data Stok tidak ditemukan atau Anda tidak memiliki akses."
-        );
-
-      return updatedInventory;
-    } catch (error) {
-      throw this.handleDbError(error, "Gagal memperbarui Stok Bahan Baku.");
-    }
+    await redis.del(this.#KEY_LIST(tenantID));
+    await redis.del(this.#KEY_DETAIL(id));
+    return updated;
   }
 
-  // --- DELETE (Menghapus entry stok per lokasi) ---
-  async delete(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Stok dan Tenant ID wajib disertakan dan harus valid."
-      );
+  async delete(id, tenantID) {
+    const deleted = await Inventory.findOneAndDelete({ _id: id, tenantID });
+    if (!deleted) throw createError(404, "Data inventory tidak ditemukan.");
 
-    try {
-      // KEAMANAN KRITIS: Delete hanya jika _id dan tenantID cocok
-      const deletedInventory = await Inventory.findOneAndDelete({
-        _id: id,
-        tenantID: tenantID,
-      });
-
-      if (!deletedInventory)
-        throw createError(
-          404,
-          "Data Stok tidak ditemukan atau Anda tidak memiliki akses."
-        );
-
-      return { message: "Entry Stok berhasil dihapus" };
-    } catch (error) {
-      throw this.handleDbError(error, "Gagal menghapus entry Stok.");
-    }
+    await redis.del(this.#KEY_LIST(tenantID));
+    await redis.del(this.#KEY_DETAIL(id));
+    return deleted;
   }
 }
 

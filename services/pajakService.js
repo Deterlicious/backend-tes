@@ -110,33 +110,6 @@ class PajakService {
 
     return this.#calculateTaxLogic(hargaCustom, pajakMurni);
   }
-  async simulasiHitung(produkID, hargaCustom, tenantID) {
-    // Ambil relasi pajak dari produk (Gunakan service ProdukPajak yang sudah kita buat)
-    const produkPajakService = require("./produkPajakService");
-    const listPajakRelasi = await produkPajakService.getPajakByProduk(
-      produkID,
-      tenantID,
-    );
-
-    console.log(
-      "Model Perhitungan yang terbaca:",
-      listPajakRelasi[0].pajakID.modelPerhitungan,
-    );
-
-    if (!listPajakRelasi || listPajakRelasi.length === 0) {
-      return {
-        hargaDasar: hargaCustom,
-        totalPajak: 0,
-        grandTotal: hargaCustom,
-        rincian: [],
-      };
-    }
-
-    // Ambil data pajak asli dari hasil populate
-    const pajakMurni = listPajakRelasi.map((item) => item.pajakID);
-
-    return this.#calculateTaxLogic(hargaCustom, pajakMurni);
-  }
 
   async #clearCache(id, tenantID) {
     if (id) await redis.del(KEY_DETAIL(id));
@@ -184,10 +157,11 @@ class PajakService {
         { _id: id, tenantID },
         { $set: payload },
         { new: true, runValidators: true },
-        await redis.del(`pajak:detail:${id}`),
-        await redis.del(`pajak:list:${tenantID}`),
       ).lean();
 
+      if (!updated) throw createError(404, "Data tidak ditemukan.");
+
+      // Sync nama pajak ke tabel relasi jika nama berubah
       if (payload.namaPajak) {
         const ProdukPajak = require("../models/produkPajakModel");
         await ProdukPajak.updateMany(
@@ -196,7 +170,6 @@ class PajakService {
         );
       }
 
-      if (!updated) throw createError(404, "Data tidak ditemukan.");
       await this.#clearCache(id, tenantID);
       return updated;
     } catch (error) {

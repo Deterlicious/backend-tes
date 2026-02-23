@@ -20,6 +20,7 @@ const InventorySchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: 0,
+    required: [true, "Stok harus diisi dan tidak boleh negatif."],
   },
 
   // Identitas Tenant

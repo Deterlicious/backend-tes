@@ -1,87 +1,62 @@
-// inventoryController.js
-const InventoryService = require("../services/inventoryService");
-const createError = require("http-errors");
+const inventoryService = require("../services/inventoryService");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
-    });
+class InventoryController {
+  async createInventory(req, res, next) {
+    try {
+      const payload = { ...req.body, tenantID: req.pengguna.tenantID };
+      const data = await inventoryService.create(payload);
+      res
+        .status(201)
+        .json({ success: true, message: "Inventory berhasil dicatat", data });
+    } catch (err) {
+      next(err);
+    }
   }
-  res
-    .status(500)
-    .json({ message: error.message || "Kesalahan internal server." });
-};
 
-// ===============================================
-// ✅ CREATE: Tambah Entry Stok Baru
-// ===============================================
-exports.createInventory = async (req, res) => {
-  try {
-    const newInventory = await InventoryService.create(req.body);
-    res.status(201).json(newInventory);
-  } catch (error) {
-    handleServiceError(res, error);
+  async getInventories(req, res, next) {
+    try {
+      const data = await inventoryService.getAll(req.pengguna.tenantID);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID & locationID (Opsional)
-// ===============================================
-exports.getAllInventory = async (req, res) => {
-  try {
-    const { tenantID, locationID } = req.query;
-    const data = await InventoryService.getAll(tenantID, locationID);
-    res.status(200).json(data);
-  } catch (error) {
-    handleServiceError(res, error);
+  async getInventoryById(req, res, next) {
+    try {
+      const data = await inventoryService.getById(
+        req.params.id,
+        req.pengguna.tenantID,
+      );
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ READ BY ID (Query: tenantID, Params: id)
-// ===============================================
-exports.getInventoryById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { tenantID } = req.query;
-    const inventory = await InventoryService.getById(tenantID, id);
-    res.status(200).json(inventory);
-  } catch (error) {
-    handleServiceError(res, error);
+  async updateInventory(req, res, next) {
+    try {
+      const data = await inventoryService.update(
+        req.params.id,
+        req.pengguna.tenantID,
+        req.body,
+      );
+      res
+        .status(200)
+        .json({ success: true, message: "Inventory diperbarui", data });
+    } catch (err) {
+      next(err);
+    }
   }
-};
 
-// ===============================================
-// ✅ UPDATE Stok (Penyesuaian Manual) (Query: tenantID, Params: id)
-// ===============================================
-exports.updateInventory = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const updatedInventory = await InventoryService.update(
-      tenantID,
-      id,
-      req.body
-    );
-    res.status(200).json(updatedInventory);
-  } catch (error) {
-    handleServiceError(res, error);
+  async deleteInventory(req, res, next) {
+    try {
+      await inventoryService.delete(req.params.id, req.pengguna.tenantID);
+      res.status(200).json({ success: true, message: "Inventory dihapus" });
+    } catch (err) {
+      next(err);
+    }
   }
-};
+}
 
-// ===============================================
-// ✅ DELETE Entry Stok (Query: tenantID, Params: id)
-// ===============================================
-exports.deleteInventory = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const { id } = req.params;
-    const result = await InventoryService.delete(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
+module.exports = new InventoryController();

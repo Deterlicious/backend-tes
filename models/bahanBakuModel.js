@@ -14,7 +14,7 @@ const bahanBakuSchema = new mongoose.Schema(
     },
     satuan: {
       type: String,
-      required: true,
+      required: [true, "Isi seperti kg, gram, liter, ml, pcs, pak, unit."],
       enum: ["kg", "gram", "liter", "ml", "pcs", "pak", "unit"],
     },
     tenantID: {

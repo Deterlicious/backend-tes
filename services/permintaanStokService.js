@@ -1,317 +1,146 @@
-// permintaanStokService.js
-const PermintaanStok = require("../models/permintaanStok");
-const TransferStok = require("../models/transferStokModel");
-const mongoose = require("mongoose");
+const PermintaanStok = require("../models/permintaanStokModel");
+const Inventory = require("../models/inventoryModel");
 const createError = require("http-errors");
-const {
-  validatePermintaanStokPayload,
-  VALID_STATUS,
-} = require("../validators/permintaanStokValidator");
-
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+const redis = require("../config/redis");
 
 class PermintaanStokService {
-  // Helper: Menangani Error Mongoose
-  handleDbError(
-    error,
-    defaultMessage = "Gagal memproses data Permintaan Stok"
-  ) {
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyValue);
-      return createError(400, {
-        message: `Nomor Request '${error.keyValue[field]}' sudah terdaftar.`,
-      });
+  #KEY_LIST(tenantID) {
+    return `permintaanStok:list:${tenantID}`;
+  }
+
+  // FUNGSI INTI: Semua perubahan status lewat sini
+  async #changeStatus(id, tenantID, nextStatus, requestedBy) {
+    const data = await PermintaanStok.findOne({ _id: id, tenantID });
+    if (!data) throw createError(404, "Data tidak ditemukan");
+
+    // Validasi sederhana: Jangan pindahkan stok jika sudah COMPLETED
+    if (data.status === "COMPLETED")
+      throw createError(400, "Transaksi sudah selesai.");
+
+    // LOGIKA MUTASI STOK: Hanya jalan jika status menjadi COMPLETED
+    if (nextStatus === "COMPLETED") {
+      for (const item of data.items) {
+        // Kurangi asal, Tambah tujuan
+        await Inventory.findOneAndUpdate(
+          {
+            bahanBakuID: item.bahanBakuID,
+            locationID: data.dariLocationID,
+            tenantID,
+          },
+          { $inc: { stok: -item.jumlah } },
+        );
+        await Inventory.findOneAndUpdate(
+          {
+            bahanBakuID: item.bahanBakuID,
+            locationID: data.keLocationID,
+            tenantID,
+          },
+          { $inc: { stok: item.jumlah } },
+          { upsert: true },
+        );
+      }
+      await redis.del(`inventory:list:${tenantID}`);
     }
-    if (error.name === "ValidationError") {
-      let errors = {};
-      Object.keys(error.errors).forEach((key) => {
-        errors[key] = error.errors[key].message;
-      });
-      return createError(400, {
-        message: "Validasi data gagal. Cek detail errors.",
-        errors: errors,
-      });
-    }
-    if (error.name === "CastError") {
-      return createError(400, { message: "Format ID tidak valid." });
-    }
-    return createError(500, error.message || defaultMessage);
-  } // ------------------------------------------------------------------ // CRUD DASAR (Operation on DRAFT status only) // ------------------------------------------------------------------ // --- CREATE (Membuat Draft) ---
+
+    data.status = nextStatus;
+    await data.save();
+    await redis.del(this.#KEY_LIST(tenantID));
+    return data;
+  }
+
+  // Wrapper fungsi agar Controller tetap terlihat rapi dan spesifik
   async create(payload) {
-    const validation = validatePermintaanStokPayload(payload, false);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
+    // Logika Penomoran Otomatis: REQ/YYYYMM/Counter
+    if (!payload.nomorRequest) {
+      const date = new Date();
+      const yearMonth = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, "0")}`;
 
-    try {
-      const request = await PermintaanStok.create(payload);
-      return request;
-    } catch (error) {
-      throw this.handleDbError(error, "Gagal membuat Permintaan Stok.");
-    }
-  } // --- READ ALL ---
+      // Mencari dokumen terakhir di bulan yang sama untuk menentukan urutan (counter)
+      const lastDoc = await PermintaanStok.findOne({
+        nomorRequest: new RegExp(`REQ/${yearMonth}/`),
+      }).sort({ createdAt: -1 });
 
-  async getAll(tenantID, filters = {}) {
-    if (!tenantID || !isValidObjectId(tenantID))
-      throw createError(400, "tenantID wajib disertakan dan harus valid.");
-
-    try {
-      const query = { tenantID }; // Tambahkan filter opsional
-
-      if (filters.status && VALID_STATUS.includes(filters.status)) {
-        query.status = filters.status;
-      }
-      if (filters.dariLocationID && isValidObjectId(filters.dariLocationID)) {
-        query.dariLocationID = filters.dariLocationID;
+      let counter = 1;
+      if (lastDoc) {
+        const lastCounter = parseInt(lastDoc.nomorRequest.split("/")[2]);
+        counter = lastCounter + 1;
       }
 
-      const requests = await PermintaanStok.find(query)
-        .populate("dariLocationID", "nama tipe")
-        .populate("keLocationID", "nama tipe")
-        .populate("dimintaOleh", "nama")
-        .sort({ tanggalRequest: -1 });
-
-      if (requests.length === 0)
-        throw createError(
-          404,
-          "Tidak ada data Permintaan Stok untuk tenant ini."
-        );
-
-      return requests;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(
-        error,
-        "Gagal mengambil daftar Permintaan Stok."
-      );
+      payload.nomorRequest = `REQ/${yearMonth}/${counter.toString().padStart(4, "0")}`;
     }
-  } // --- READ BY ID ---
 
-  async getById(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Request dan Tenant ID wajib disertakan dan harus valid."
-      );
+    const data = await PermintaanStok.create(payload);
+    await redis.del(this.#KEY_LIST(payload.tenantID));
+    return data;
+  }
+  async getAll(tenantID) {
+    /* Logic GET seperti biasa dengan Redis */
+  }
 
-    try {
-      const request = await PermintaanStok.findOne({ _id: id, tenantID })
-        .populate("dariLocationID", "nama tipe")
-        .populate("keLocationID", "nama tipe")
-        .populate("dimintaOleh", "nama")
-        .populate("diprosesOleh", "nama");
+  // Fungsi yang dipanggil oleh berbagai endpoint action
+  async submit(id, tenantID) {
+    return this.#changeStatus(id, tenantID, "SUBMITTED");
+  }
+  async approve(id, tenantID) {
+    const data = await PermintaanStok.findOne({ _id: id, tenantID });
+    if (!data) throw createError(404, "Data permintaan tidak ditemukan.");
+    if (data.status === "COMPLETED")
+      throw createError(400, "Permintaan sudah selesai diproses.");
 
-      if (!request)
-        throw createError(
-          404,
-          "Permintaan Stok tidak ditemukan atau Anda tidak memiliki akses."
-        );
-      return request;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(
-        error,
-        "Gagal mengambil detail Permintaan Stok."
-      );
-    }
-  } // --- UPDATE DRAFT (Hanya bisa update jika status DRAFT) ---
-
-  async updateDraft(tenantID, id, payload) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Request dan Tenant ID wajib disertakan dan harus valid."
-      );
-
-    const validation = validatePermintaanStokPayload(payload, true);
-    if (!validation.valid)
-      throw createError(400, {
-        message: "Validasi gagal.",
-        errors: validation.errors,
-      });
-
-    try {
-      // Cek dulu statusnya harus DRAFT
-      const currentRequest = await PermintaanStok.findOne({
-        _id: id,
+    // --- STEP BY STEP VALIDASI STOK ---
+    for (const item of data.items) {
+      // 1. Cari data stok di lokasi asal (Gudang)
+      const invAsal = await Inventory.findOne({
+        bahanBakuID: item.bahanBakuID,
+        locationID: data.dariLocationID,
         tenantID,
       });
-      if (!currentRequest)
-        throw createError(404, "Permintaan Stok tidak ditemukan.");
-      if (currentRequest.status !== "DRAFT")
+
+      // 2. Cek apakah record inventory ada ATAU stoknya kurang dari yang diminta
+      if (!invAsal || invAsal.stok < item.jumlah) {
+        // Ambil nama bahan baku untuk pesan error yang lebih informatif (opsional tapi matang)
         throw createError(
           400,
-          "Hanya Permintaan dengan status DRAFT yang bisa diubah."
-        ); // Update DB: Hanya jika _id, tenantID cocok, dan status masih DRAFT
-
-      const updatedRequest = await PermintaanStok.findOneAndUpdate(
-        { _id: id, tenantID: tenantID, status: "DRAFT" },
-        validation.updates,
-        { new: true, runValidators: true }
-      );
-
-      if (!updatedRequest)
-        throw createError(
-          404,
-          "Permintaan Stok tidak ditemukan atau status sudah berubah."
-        );
-
-      return updatedRequest;
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(
-        error,
-        "Gagal memperbarui Draft Permintaan Stok."
-      );
-    }
-  } // --- DELETE DRAFT (Hanya bisa delete jika status DRAFT) ---
-
-  async deleteDraft(tenantID, id) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Request dan Tenant ID wajib disertakan dan harus valid."
-      );
-
-    try {
-      // Delete hanya jika _id, tenantID cocok, dan status DRAFT
-      const deletedRequest = await PermintaanStok.findOneAndDelete({
-        _id: id,
-        tenantID: tenantID,
-        status: "DRAFT",
-      });
-
-      if (!deletedRequest)
-        throw createError(
-          404,
-          "Permintaan Stok tidak ditemukan atau statusnya sudah disubmit/diproses."
-        );
-
-      return { message: "Draft Permintaan Stok berhasil dihapus" };
-    } catch (error) {
-      throw this.handleDbError(error, "Gagal menghapus Draft Permintaan Stok.");
-    }
-  } // ------------------------------------------------------------------ // LOGIKA UTAMA: UPDATE STATUS (Tanpa Transaksi) // ------------------------------------------------------------------
-  async updateStatus(tenantID, id, newStatus, updates = {}) {
-    if (!isValidObjectId(id) || !isValidObjectId(tenantID))
-      throw createError(
-        400,
-        "ID Request dan Tenant ID wajib disertakan dan harus valid."
-      );
-    if (!VALID_STATUS.includes(newStatus))
-      throw createError(400, `Status baru '${newStatus}' tidak valid.`);
-
-    try {
-      // 1. Ambil data lama dan pastikan kepemilikan
-      let request = await PermintaanStok.findOne({ _id: id, tenantID });
-
-      if (!request)
-        throw createError(
-          404,
-          "Permintaan Stok tidak ditemukan atau Anda tidak memiliki akses."
-        );
-
-      const oldStatus = request.status;
-      let transferStokResult = null; // Logika Bisnis Kritis: Cek Transisi Status
-
-      if (oldStatus === "COMPLETED" || oldStatus === "REJECTED") {
-        throw createError(
-          400,
-          `Tidak dapat mengubah status dari '${oldStatus}'.`
-        );
-      } // Transisi SUBMIT: DRAFT -> SUBMITTED
-
-      if (newStatus === "SUBMITTED" && oldStatus !== "DRAFT") {
-        throw createError(400, "Hanya Permintaan DRAFT yang bisa di-SUBMIT.");
-      } // Transisi APPROVE: SUBMITTED -> APPROVED
-
-      if (newStatus === "APPROVED" && oldStatus !== "SUBMITTED") {
-        throw createError(
-          400,
-          "Hanya Permintaan SUBMITTED yang bisa di-APPROVE."
-        );
-      } // Transisi REJECT: SUBMITTED -> REJECTED
-      if (newStatus === "REJECTED" && oldStatus !== "SUBMITTED") {
-        throw createError(
-          400,
-          "Hanya Permintaan SUBMITTED yang bisa di-REJECT."
+          `Stok tidak mencukupi. Sisa stok di lokasi asal hanya ${invAsal ? invAsal.stok : 0}`,
         );
       }
-
-      if (newStatus === "APPROVED") {
-        // A. LOGIKA UTAMA: BUAT DOKUMEN TRANSFER STOK OTOMATIS
-
-        // 1. Validasi: Pastikan semua item memiliki qtyApproved
-        if (
-          !updates.items ||
-          updates.items.some(
-            (item) =>
-              typeof item.qtyApproved !== "number" || item.qtyApproved < 0
-          )
-        ) {
-          throw createError(
-            400,
-            "Update status APPROVED memerlukan daftar item dengan qtyApproved yang valid."
-          );
-        } // 2. Siapkan data untuk TransferStok
-
-        const transferItems = updates.items.map((item) => ({
-          bahanBakuID: item.bahanBakuID,
-          qtyKirim: item.qtyApproved, // qtyKirim Transfer = qtyApproved Permintaan
-        }));
-
-        const transferPayload = {
-          nomorTransfer: `TRF/${request.nomorRequest}`, // Relasi penamaan
-          dariLocationID: request.keLocationID, // Gudang -> Asal Transfer (Tujuan Permintaan)
-          keLocationID: request.dariLocationID, // Outlet -> Tujuan Transfer (Asal Permintaan)
-          tanggalKirim: updates.tanggalKirim || Date.now(),
-          pengirimID: updates.diprosesOleh, // Pengirim adalah yang memproses (Admin Gudang)
-          items: transferItems,
-          tenantID: tenantID,
-          status: "PENDING", // Transfer Stok dimulai sebagai PENDING
-        }; // PENTING: Jika langkah ini gagal, PermintaanStok tetap akan di-APPROVED di langkah 4.
-
-        // 3. Buat dokumen TransferStok
-        transferStokResult = await TransferStok.create(transferPayload);
-
-        request.status = "APPROVED";
-        request.diprosesOleh = updates.diprosesOleh;
-        request.items = updates.items; // Simpan qtyApproved yang baru
-        request.transferStokID = transferStokResult._id; // Simpan ID TransferStok yang baru dibuat
-      } else if (newStatus === "REJECTED") {
-        // B. LOGIKA: REJECTED
-        request.status = "REJECTED";
-        request.diprosesOleh = updates.diprosesOleh;
-      } else if (newStatus === "COMPLETED") {
-        // C. LOGIKA: COMPLETED
-        if (!request.transferStokID)
-          throw createError(
-            400,
-            "Permintaan tidak dapat di-COMPLETED tanpa ID Transfer Stok terkait."
-          );
-
-        request.status = "COMPLETED";
-      } else if (newStatus === "SUBMITTED") {
-        // D. LOGIKA: SUBMITTED
-        request.status = "SUBMITTED";
-      } // 3. Simpan perubahan status Permintaan
-
-      await request.save();
-
-      return {
-        request: request,
-        transferStok: transferStokResult || null,
-      };
-    } catch (error) {
-      if (createError.isHttpError(error)) throw error;
-      throw this.handleDbError(
-        error,
-        "Gagal memperbarui status Permintaan Stok."
-      );
-    } finally {
     }
+    // --- AKHIR VALIDASI STOK ---
+
+    // Jika semua item lolos validasi, baru jalankan mutasi
+    for (const item of data.items) {
+      // Kurangi stok asal
+      await Inventory.findOneAndUpdate(
+        {
+          bahanBakuID: item.bahanBakuID,
+          locationID: data.dariLocationID,
+          tenantID,
+        },
+        { $inc: { stok: -item.jumlah } },
+      );
+      // Tambah/Update stok tujuan
+      await Inventory.findOneAndUpdate(
+        {
+          bahanBakuID: item.bahanBakuID,
+          locationID: data.keLocationID,
+          tenantID,
+        },
+        { $inc: { stok: item.jumlah } },
+        { upsert: true },
+      );
+    }
+
+    data.status = "COMPLETED";
+    await data.save();
+
+    // Invalidate Redis agar data inventory di dashboard langsung terupdate
+    await redis.del(`inventory:list:${tenantID}`);
+    await redis.del(this.#KEY_LIST(tenantID));
+
+    return data;
+  } // Langsung mutasi di MVP
+  async reject(id, tenantID) {
+    return this.#changeStatus(id, tenantID, "REJECTED");
   }
 }
 

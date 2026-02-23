@@ -1,64 +1,64 @@
 const bahanBakuService = require("../services/bahanBakuService");
-const createError = require("http-errors");
 
 class BahanBakuController {
-  async getAll(req, res, next) {
+  async createBahanBaku(req, res, next) {
     try {
-      const { tenantID } = req.query;
-      const result = await bahanBakuService.getAll(tenantID);
-      res.json({ data: result });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  async getById(req, res, next) {
-    try {
-      const result = await bahanBakuService.getById(req.params.id);
-      if (!result) throw createError(404, "Bahan baku tidak ditemukan");
-      res.json({ data: result });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  async create(req, res, next) {
-    try {
-      const result = await bahanBakuService.create(req.body);
-
-      if (result?.error) {
-        return res.status(400).json({ errors: result.error });
-      }
-
+      const payload = { ...req.body, tenantID: req.pengguna.tenantID };
+      const data = await bahanBakuService.create(payload);
       res
         .status(201)
-        .json({ data: result, message: "Bahan baku berhasil dibuat" });
+        .json({ success: true, message: "Bahan baku berhasil dibuat", data });
     } catch (err) {
       next(err);
     }
   }
 
-  async update(req, res, next) {
+  async getBahanBakus(req, res, next) {
     try {
-      const result = await bahanBakuService.update(req.params.id, req.body);
-
-      if (result?.error) {
-        return res.status(400).json({ errors: result.error });
-      }
-      if (!result) throw createError(404, "Bahan baku tidak ditemukan");
-
-      res.json({ data: result, message: "Bahan baku berhasil diperbarui" });
+      const data = await bahanBakuService.getAll(req.pengguna.tenantID);
+      res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
     }
   }
 
-  async delete(req, res, next) {
+  async getBahanBakuById(req, res, next) {
     try {
-      const result = await bahanBakuService.delete(req.params.id);
-      if (!result) throw createError(404, "Bahan baku tidak ditemukan");
+      const data = await bahanBakuService.getById(
+        req.params.id,
+        req.pengguna.tenantID,
+      );
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
 
-      res.json({ message: "Bahan baku berhasil dihapus" });
+  async updateBahanBaku(req, res, next) {
+    try {
+      const data = await bahanBakuService.update(
+        req.params.id,
+        req.pengguna.tenantID,
+        req.body,
+      );
+      res
+        .status(200)
+        .json({
+          success: true,
+          message: "Bahan baku berhasil diperbarui",
+          data,
+        });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteBahanBaku(req, res, next) {
+    try {
+      await bahanBakuService.delete(req.params.id, req.pengguna.tenantID);
+      res
+        .status(200)
+        .json({ success: true, message: "Bahan baku berhasil dihapus" });
     } catch (err) {
       next(err);
     }

@@ -2,14 +2,25 @@ const express = require("express");
 const router = express.Router();
 const produkPajakController = require("../controllers/produkPajakController");
 const authPengguna = require("../middleware/authPengguna");
+const {
+  validateProdukPajakPayload,
+} = require("../validators/produkPajakValidator");
 
 const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
+// Middleware validasi
+const validateAssign = (req, res, next) => {
+  const result = validateProdukPajakPayload(req.body);
+  if (!result.valid)
+    return res.status(400).json({ success: false, errors: result.errors });
+  next();
+};
+
 router.use(authPengguna);
 
 // Endpoint untuk menempelkan pajak ke produk
-router.post("/", wrap(produkPajakController.assign));
+router.post("/", validateAssign, wrap(produkPajakController.assign));
 
 // Endpoint untuk melihat pajak apa saja yang ada di produk tersebut
 router.get("/:produkID", wrap(produkPajakController.getByProduk));

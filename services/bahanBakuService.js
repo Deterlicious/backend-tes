@@ -1,114 +1,61 @@
 const BahanBaku = require("../models/bahanBakuModel");
-const redis = require("../config/redis");
-const {
-  validateBahanBakuPayload,
-} = require("../validators/bahanBakuValidator");
 const createError = require("http-errors");
-
-// CACHE KEYS
-const CACHE_KEY_LIST = (tenantID) => `bahanbaku:list:${tenantID}`;
-const CACHE_KEY_DETAIL = (id) => `bahanbaku:detail:${id}`;
+const redis = require("../config/redis");
 
 class BahanBakuService {
-  async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "tenantID is required");
-
-    const key = CACHE_KEY_LIST(tenantID);
-
-    // Cek Cache
-    const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
-
-    // DB Query
-    const bahan = await BahanBaku.find({ tenantID })
-      .sort({ namaBahan: 1 })
-      .lean();
-
-    // Set Cache (TTL 60s)
-    if (bahan.length > 0) {
-      await redis.set(key, JSON.stringify(bahan), "EX", 60);
-    }
-
-    return bahan;
+  #KEY_LIST(tenantID) {
+    return `bahanBaku:list:${tenantID}`;
   }
-
-  async getById(id) {
-    const key = CACHE_KEY_DETAIL(id);
-
-    const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
-
-    const bahan = await BahanBaku.findById(id).lean();
-    if (!bahan) return null;
-
-    await redis.set(key, JSON.stringify(bahan), "EX", 60);
-    return bahan;
+  #KEY_DETAIL(id) {
+    return `bahanBaku:detail:${id}`;
   }
 
   async create(payload) {
-    const validation = validateBahanBakuPayload(payload);
-    if (!validation.valid) return { error: validation.errors };
-
-    try {
-      const bahan = await BahanBaku.create(payload);
-
-      // Invalidate Cache
-      await redis.del(CACHE_KEY_LIST(payload.tenantID));
-
-      // TRIGGER SINKRONISASI (Lazy Import)
-      const produkService = require("./produkService");
-      await produkService.syncStockByBahan(bahan._id, payload.tenantID);
-
-      return bahan;
-    } catch (err) {
-      if (err.code === 11000) {
-        return { error: ["Nama bahan baku sudah ada di tenant ini"] };
-      }
-      throw err;
-    }
+    const data = await BahanBaku.create(payload);
+    await redis.del(this.#KEY_LIST(payload.tenantID));
+    return data;
   }
 
-  async update(id, payload) {
-    const validation = validateBahanBakuPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
+  async getAll(tenantID) {
+    const cache = await redis.get(this.#KEY_LIST(tenantID));
+    if (cache) return JSON.parse(cache);
 
-    delete payload.tenantID; // Security
-
-    try {
-      const updated = await BahanBaku.findByIdAndUpdate(id, payload, {
-        new: true,
-        runValidators: true,
-      }).lean();
-
-      if (!updated) return null;
-
-      // Invalidate Cache
-      await redis.del(CACHE_KEY_LIST(updated.tenantID));
-      await redis.del(CACHE_KEY_DETAIL(id));
-
-      // TRIGGER SINKRONISASI (Lazy Import)
-      const produkService = require("./produkService");
-      await produkService.syncStockByBahan(id, updated.tenantID);
-
-      return updated;
-    } catch (err) {
-      if (err.code === 11000)
-        return { error: ["Nama bahan baku sudah digunakan"] };
-      throw err;
-    }
+    const data = await BahanBaku.find({ tenantID }).sort({ createdAt: -1 });
+    await redis.set(this.#KEY_LIST(tenantID), JSON.stringify(data), "EX", 3600);
+    return data;
   }
 
-  async delete(id) {
-    const target = await BahanBaku.findById(id).lean();
-    if (!target) return null;
+  async getById(id, tenantID) {
+    const cache = await redis.get(this.#KEY_DETAIL(id));
+    if (cache) return JSON.parse(cache);
 
-    await BahanBaku.deleteOne({ _id: id });
+    const data = await BahanBaku.findOne({ _id: id, tenantID });
+    if (!data) throw createError(404, "Bahan baku tidak ditemukan.");
 
-    // Cleanup Cache
-    await redis.del(CACHE_KEY_LIST(target.tenantID));
-    await redis.del(CACHE_KEY_DETAIL(id));
+    await redis.set(this.#KEY_DETAIL(id), JSON.stringify(data), "EX", 3600);
+    return data;
+  }
 
-    return true;
+  async update(id, tenantID, payload) {
+    const updated = await BahanBaku.findOneAndUpdate(
+      { _id: id, tenantID },
+      { $set: payload },
+      { new: true, runValidators: true },
+    );
+    if (!updated) throw createError(404, "Bahan baku tidak ditemukan.");
+
+    await redis.del(this.#KEY_LIST(tenantID));
+    await redis.del(this.#KEY_DETAIL(id));
+    return updated;
+  }
+
+  async delete(id, tenantID) {
+    const deleted = await BahanBaku.findOneAndDelete({ _id: id, tenantID });
+    if (!deleted) throw createError(404, "Bahan baku tidak ditemukan.");
+
+    await redis.del(this.#KEY_LIST(tenantID));
+    await redis.del(this.#KEY_DETAIL(id));
+    return deleted;
   }
 }
 
