@@ -5,20 +5,19 @@ const ProdukPajakSchema = new mongoose.Schema(
     produkID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Produk",
-      required: [true, "ID Produk wajib diisi."],
-      index: true,
+      default: null,
     },
+    asset_ID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Asset",
+      default: null,
+    }, // Tambahan field revisi
     pajakID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pajak",
-      required: [true, "ID Pajak wajib diisi."],
+      required: true,
     },
-    // KOLOM BARU: Nama Pajak (Snapshot)
-    namaPajak: {
-      type: String,
-      required: [true, "Nama pajak harus tercatat."],
-      trim: true,
-    },
+    nama_pajak: { type: String, required: true },
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -28,8 +27,5 @@ const ProdukPajakSchema = new mongoose.Schema(
   },
   { timestamps: true, versionKey: false },
 );
-
-// Mencegah duplikasi: Satu produk tidak boleh punya pajak yang sama dua kali
-ProdukPajakSchema.index({ produkID: 1, pajakID: 1 }, { unique: true });
 
 module.exports = mongoose.model("ProdukPajak", ProdukPajakSchema);
