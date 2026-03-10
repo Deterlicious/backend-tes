@@ -1,5 +1,6 @@
 const Pajak = require("../models/pajakModel");
 const createError = require("http-errors");
+const redis = require("../config/redis");
 
 class PajakService {
   #handleDbError(error) {
@@ -29,7 +30,7 @@ class PajakService {
     }
 
     const sortedPajak = [...validPajak].sort(
-      (a, b) => (a.prioritas || 0) - (b.prioritas || 0)
+      (a, b) => (a.prioritas || 0) - (b.prioritas || 0),
     );
 
     let totalPajak = 0;
@@ -78,7 +79,7 @@ class PajakService {
     const produkPajakService = require("./produkPajakService");
     const listPajakRelasi = await produkPajakService.getPajakByProduk(
       produkID,
-      tenantID
+      tenantID,
     );
 
     if (!listPajakRelasi || listPajakRelasi.length === 0) {
@@ -126,21 +127,22 @@ class PajakService {
       const updated = await Pajak.findOneAndUpdate(
         { _id: id, tenantID },
         { $set: payload },
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       ).lean();
 
-      if (!updated) {
-        throw createError(404, "Data tidak ditemukan.");
-      }
+      if (!updated) throw createError(404, "Data tidak ditemukan.");
 
+      // 1. Sinkronisasi Nama di Tabel Relasi (Database)
       if (payload.namaPajak) {
         const ProdukPajak = require("../models/produkPajakModel");
-
         await ProdukPajak.updateMany(
           { pajakID: id, tenantID },
-          { $set: { namaPajak: payload.namaPajak } }
+          { $set: { namaPajak: payload.namaPajak } },
         );
       }
+
+      // 2. Bersihkan Cache Terkait
+      await redis.del(`produk:list:${tenantID}`);
 
       return updated;
     } catch (error) {
@@ -150,10 +152,14 @@ class PajakService {
 
   async delete(id, tenantID) {
     const deleted = await Pajak.findOneAndDelete({ _id: id, tenantID });
+    if (!deleted) throw createError(404, "Data tidak ditemukan.");
 
-    if (!deleted) {
-      throw createError(404, "Data tidak ditemukan.");
-    }
+    // Hapus semua relasi yang menggantung di ProdukPajak
+    const ProdukPajak = require("../models/produkPajakModel");
+    await ProdukPajak.deleteMany({ pajakID: id, tenantID });
+
+    // Bersihkan cache produk agar pajak yang dihapus hilang dari list produk
+    await redis.del(`produk:list:${tenantID}`);
 
     return { message: "Pajak berhasil dihapus." };
   }

@@ -1,3 +1,4 @@
+const { required } = require("joi");
 const mongoose = require("mongoose");
 
 // Sub-schema untuk Resep (Embedded)
@@ -19,7 +20,7 @@ const ResepSchema = new mongoose.Schema(
       required: true,
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ProdukSchema = new mongoose.Schema(
@@ -69,8 +70,16 @@ const ProdukSchema = new mongoose.Schema(
       type: [ResepSchema],
       default: [],
     },
+    pajak: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Pajak", // Pastikan nama model Pajak kamu sesuai
+        index: true,
+        required: false, // Pajak bisa kosong, jadi tidak wajib
+      },
+    ],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // COMPOUND INDEX: Unique Name per Tenant

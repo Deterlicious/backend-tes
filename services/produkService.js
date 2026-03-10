@@ -1,212 +1,230 @@
+const mongoose = require("mongoose");
 const Produk = require("../models/produkModel");
 const BahanBaku = require("../models/bahanBakuModel");
 const redis = require("../config/redis");
-const { validateProdukPayload } = require("../validators/produkValidator");
-const { toBaseUnit } = require("../utils/unitConverter");
 const createError = require("http-errors");
+const { toBaseUnit } = require("../utils/unitConverter");
 
-// CACHE KEYS
 const CACHE_KEY_LIST = (tenantID) => `produk:list:${tenantID}`;
 const CACHE_KEY_DETAIL = (id) => `produk:detail:${id}`;
 
 class ProdukService {
-  // HELPER INTERNAL: Hitung Stok Berdasarkan Resep
+  // Private Helper untuk Error Database (Konsisten dengan ProdukPajakService)
+  #handleDbError(error) {
+    if (error.code === 11000) {
+      return createError(400, "Nama produk sudah terdaftar di tenant ini.");
+    }
+    return createError(500, error.message);
+  }
+
+  // Helper Internal: Hitung Stok Berdasarkan Resep
   async calculatePotentialStock(resep, tenantID) {
     if (!resep || resep.length === 0) return 0;
 
-    // Ambil ID semua bahan baku di resep
     const bahanIds = resep.map((r) => r.bahanBakuID);
-
-    // Ambil data bahan baku dari DB (Stok saat ini)
     const bahanBakuList = await BahanBaku.find({
       _id: { $in: bahanIds },
-      tenantID: tenantID,
+      tenantID,
     }).lean();
 
-    // Buat map biar gampang akses
     const bahanMap = {};
     bahanBakuList.forEach((b) => {
       bahanMap[b._id.toString()] = b;
     });
 
-    let minStock = Infinity; // Set nilai awal tak terhingga
-
-    // Iterasi resep untuk cari 'Limiting Reagent'
+    let minStock = Infinity;
     for (const item of resep) {
       const bahanDb = bahanMap[item.bahanBakuID.toString()];
+      if (!bahanDb) return 0;
 
-      if (!bahanDb) {
-        // Jika bahan baku hilang dari DB, stok produk otomatis 0
-        return 0;
-      }
+      const stokTersedia = toBaseUnit(bahanDb.stok, bahanDb.satuan);
+      const kebutuhanResep = toBaseUnit(item.jumlah, item.satuan);
 
-      try {
-        // Konversi stok tersedia di gudang ke unit dasar (misal kg -> gram)
-        const stokTersedia = toBaseUnit(bahanDb.stok, bahanDb.satuan);
+      if (kebutuhanResep === 0) continue;
 
-        // Konversi kebutuhan resep ke unit dasar
-        const kebutuhanResep = toBaseUnit(item.jumlah, item.satuan);
-
-        if (kebutuhanResep === 0) continue; // Hindari pembagian dengan 0
-
-        // Berapa porsi yang bisa dibuat dari bahan ini?
-        const porsiBisaDibuat = Math.floor(stokTersedia / kebutuhanResep);
-
-        // Update nilai minimal
-        if (porsiBisaDibuat < minStock) {
-          minStock = porsiBisaDibuat;
-        }
-      } catch (error) {
-        // Jika satuan tidak kompatibel (misal kg vs liter), lempar error
-        throw createError(
-          400,
-          `Konversi unit gagal pada bahan: ${bahanDb.namaBahan}. Pastikan satuan kompatibel.`
-        );
-      }
+      const porsiBisaDibuat = Math.floor(stokTersedia / kebutuhanResep);
+      if (porsiBisaDibuat < minStock) minStock = porsiBisaDibuat;
     }
-
     return minStock === Infinity ? 0 : minStock;
   }
 
-  async syncStockByBahan(bahanBakuID, tenantID) {
-    // Cari semua produk yang menggunakan bahan baku ini
-    const affectedProducts = await Produk.find({
-      tenantID: tenantID,
-      "resep.bahanBakuID": bahanBakuID,
-    });
-
-    if (affectedProducts.length === 0) return;
-
-    // Loop setiap produk dan hitung ulang stoknya dengan Promise.all agar berjalan paralel (cepat)
-    await Promise.all(
-      affectedProducts.map(async (produk) => {
-        const newStock = await this.calculatePotentialStock(
-          produk.resep,
-          tenantID
-        );
-
-        // Update stok di DB
-        await Produk.findByIdAndUpdate(produk._id, { stok: newStock });
-        
-        // Update cache detail produk
-        await redis.del(CACHE_KEY_DETAIL(produk._id));
-      })
-    );
-
-    // Hapus cache list agar data di frontend fresh
-    await redis.del(CACHE_KEY_LIST(tenantID));
-    
-    console.log(`🔄 Stok ${affectedProducts.length} produk telah disinkronisasi.`);
-  }
-
   async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "tenantID is required");
-
     const key = CACHE_KEY_LIST(tenantID);
     const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    const produk = await Produk.find({ tenantID })
-      .populate("kategoriID", "namaKategori")
-      .populate("resep.bahanBakuID", "namaBahan satuan")
-      .sort({ namaProduk: 1 })
-      .lean();
+    const produk = await Produk.aggregate([
+      { $match: { tenantID: new mongoose.Types.ObjectId(tenantID) } },
+      { $sort: { namaProduk: 1 } },
+      {
+        $lookup: {
+          from: "produkpajaks",
+          localField: "_id",
+          foreignField: "produkID",
+          as: "relasiPajak",
+        },
+      },
+      {
+        $lookup: {
+          from: "pajaks",
+          localField: "relasiPajak.pajakID",
+          foreignField: "_id",
+          as: "pajakData",
+        },
+      },
+      {
+        $lookup: {
+          from: "kategoris",
+          localField: "kategoriID",
+          foreignField: "_id",
+          as: "kategoriData",
+        },
+      },
+      { $unwind: { path: "$kategoriData", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 1,
+          namaProduk: 1,
+          gambarProduk: 1,
+          stok: 1,
+          hargaDasar: 1,
+          hargaJual: 1,
+          keterangan: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          kategori: "$kategoriData.namaKategori",
+          pajakList: {
+            $map: {
+              input: "$pajakData",
+              as: "p",
+              in: { _id: "$$p._id", namaPajak: "$$p.namaPajak" },
+            },
+          },
+        },
+      },
+    ]);
 
     if (produk.length > 0) {
       await redis.set(key, JSON.stringify(produk), "EX", 120);
     }
-
     return produk;
   }
 
-  async getById(id) {
+  async getById(id, tenantID) {
     const key = CACHE_KEY_DETAIL(id);
     const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    const produk = await Produk.findById(id)
-      .populate("kategoriID", "namaKategori")
-      .populate("resep.bahanBakuID", "namaBahan satuan")
-      .lean();
+    const result = await Produk.aggregate([
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+          tenantID: new mongoose.Types.ObjectId(tenantID),
+        },
+      },
+      {
+        $lookup: {
+          from: "produkpajaks",
+          localField: "_id",
+          foreignField: "produkID",
+          as: "relasiPajak",
+        },
+      },
+      {
+        $lookup: {
+          from: "pajaks",
+          localField: "relasiPajak.pajakID",
+          foreignField: "_id",
+          as: "pajakData",
+        },
+      },
+      {
+        $lookup: {
+          from: "kategoris",
+          localField: "kategoriID",
+          foreignField: "_id",
+          as: "kategoriData",
+        },
+      },
+      { $unwind: { path: "$kategoriData", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 1,
+          namaProduk: 1,
+          gambarProduk: 1,
+          stok: 1,
+          hargaDasar: 1,
+          hargaJual: 1,
+          keterangan: 1,
+          kategori: "$kategoriData.namaKategori",
+          pajakList: {
+            $map: {
+              input: "$pajakData",
+              as: "p",
+              in: { _id: "$$p._id", namaPajak: "$$p.namaPajak" },
+            },
+          },
+        },
+      },
+    ]);
 
-    if (!produk) return null;
-
-    await redis.set(key, JSON.stringify(produk), "EX", 120);
-    return produk;
+    const data = result.length > 0 ? result[0] : null;
+    if (data) {
+      await redis.set(key, JSON.stringify(data), "EX", 120);
+    }
+    return data;
   }
 
   async create(payload) {
-    const validation = validateProdukPayload(payload);
-    if (!validation.valid) return { error: validation.errors };
-
     try {
-      // ✅ LOGIKA BARU: Abaikan input stok manual, hitung otomatis
-      if (payload.resep && payload.resep.length > 0) {
+      if (payload.resep?.length > 0) {
         payload.stok = await this.calculatePotentialStock(
           payload.resep,
-          payload.tenantID
+          payload.tenantID,
         );
-      } else {
-        // Jika tidak ada resep (misal produk jadi), gunakan stok manual atau default 0
-        payload.stok = payload.stok || 0;
       }
 
-      const produk = await Produk.create(payload);
+      const data = await Produk.create(payload);
       await redis.del(CACHE_KEY_LIST(payload.tenantID));
-      return produk;
-    } catch (err) {
-      if (err.code === 11000)
-        return { error: ["Nama produk sudah ada di tenant ini"] };
-      throw err;
+      return data;
+    } catch (error) {
+      throw this.#handleDbError(error);
     }
   }
 
-  async update(id, payload) {
-    const validation = validateProdukPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
-
-    delete payload.tenantID;
-
+  async update(id, payload, tenantID) {
     try {
-      // Hitung ulang stok saat update
-      const existingProduk = await Produk.findById(id).lean();
-      if (!existingProduk) return null;
+      const existing = await Produk.findOne({ _id: id, tenantID }).lean();
+      if (!existing) throw createError(404, "Produk tidak ditemukan.");
 
-      // Gunakan resep baru jika ada, atau pakai resep lama
-      const resepFinal = payload.resep ? payload.resep : existingProduk.resep;
-
-      if (resepFinal && resepFinal.length > 0) {
+      if (payload.resep) {
         payload.stok = await this.calculatePotentialStock(
-          resepFinal,
-          existingProduk.tenantID
+          payload.resep,
+          tenantID,
         );
       }
 
-      const updated = await Produk.findByIdAndUpdate(id, payload, {
+      const data = await Produk.findByIdAndUpdate(id, payload, {
         new: true,
-        runValidators: true,
       }).lean();
 
-      if (!updated) return null;
-
-      await redis.del(CACHE_KEY_LIST(updated.tenantID));
+      await redis.del(CACHE_KEY_LIST(tenantID));
       await redis.del(CACHE_KEY_DETAIL(id));
-
-      return updated;
-    } catch (err) {
-      if (err.code === 11000) return { error: ["Nama produk sudah digunakan"] };
-      throw err;
+      return data;
+    } catch (error) {
+      throw this.#handleDbError(error);
     }
   }
 
-  async delete(id) {
-    const target = await Produk.findById(id).lean();
-    if (!target) return null;
+  async delete(id, tenantID) {
+    const data = await Produk.findOne({ _id: id, tenantID });
+    if (!data) throw createError(404, "Produk tidak ditemukan.");
 
-    await Produk.deleteOne({ _id: id });
-    await redis.del(CACHE_KEY_LIST(target.tenantID));
+    await Produk.deleteOne({ _id: id, tenantID });
+
+    await redis.del(CACHE_KEY_LIST(tenantID));
     await redis.del(CACHE_KEY_DETAIL(id));
-    return true;
+    return { message: "Produk berhasil dihapus." };
   }
 }
 
