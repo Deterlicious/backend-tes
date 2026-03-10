@@ -43,7 +43,7 @@ class AkunService {
         version: device.tokenVersion,
       },
       AKUN_REFRESH_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
 
     return { accessToken, refreshToken };
@@ -92,7 +92,7 @@ class AkunService {
       if (user.device.length >= user.maxDevice) {
         throw createError(
           403,
-          "Kuota perangkat penuh. Hapus perangkat lama terlebih dahulu."
+          "Kuota perangkat penuh. Hapus perangkat lama terlebih dahulu.",
         );
       }
 
@@ -156,7 +156,7 @@ class AkunService {
     if (device.tokenVersion !== payload.version || device.tokenVersion === 0) {
       throw createError(
         403,
-        "Sesi kedaluwarsa (Token Reuse Detected). Silakan login ulang."
+        "Sesi kedaluwarsa (Token Reuse Detected). Silakan login ulang.",
       );
     }
 
