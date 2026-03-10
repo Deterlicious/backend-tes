@@ -14,25 +14,7 @@ const Permission = mongoose.models.Permission || mongoose.model("Permission", Pe
 // Daftar Permission (Lengkap dengan Grup)
 const permissionsList = [
   // Grup: Staff
-  { nama: "kelola-staff", grup: "Manajemen Staff", deskripsi: "Dapat menambah, edit, hapus karyawan" },
   { nama: "kelola-pelanggan", grup: "Manajemen Pelanggan", deskripsi: "Dapat menambah, edit, hapus pelanggan" },
-  
-  // Grup: Produk
-  { nama: "kelola-produk", grup: "Manajemen Produk", deskripsi: "Dapat mengatur menu dan harga" },
-  { nama: "kelola-kategori", grup: "Manajemen Produk", deskripsi: "Dapat mengatur kategori menu" },
-  { nama: "kelola-bahan", grup: "Manajemen Produk", deskripsi: "Dapat mengatur stok bahan baku" },
-  
-  // Grup: Toko
-  { nama: "kelola-tenant", grup: "Pengaturan Toko", deskripsi: "Dapat mengubah profil toko" },
-  { nama: "kelola-akunkas", grup: "Pengaturan Toko", deskripsi: "Dapat menambah, edit, hapus akun kasir" },
-  { nama: "kelola-metode-pembayaran", grup: "Pengaturan Toko", deskripsi: "Dapat menambah, edit, hapus metode pembayaran" },
-  { nama: "kelola-pembayaran", grup: "Pengaturan Toko", deskripsi: "Dapat menambah, edit, hapus pembayaran" },
-  
-  // Grup: Laporan
-  { nama: "laporan-penjualan", grup: "Laporan", deskripsi: "Dapat melihat omzet dan laporan" },
-  
-  // Grup: POS
-  { nama: "akses-pos", grup: "Transaksi", deskripsi: "Dapat melakukan transaksi kasir" },
 ];
 
 const seedDB = async () => {

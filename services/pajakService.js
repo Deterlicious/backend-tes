@@ -29,7 +29,7 @@ class PajakService {
     }
 
     const sortedPajak = [...validPajak].sort(
-      (a, b) => (a.prioritas || 0) - (b.prioritas || 0)
+      (a, b) => (a.prioritas || 0) - (b.prioritas || 0),
     );
 
     let totalPajak = 0;
@@ -78,7 +78,7 @@ class PajakService {
     const produkPajakService = require("./produkPajakService");
     const listPajakRelasi = await produkPajakService.getPajakByProduk(
       produkID,
-      tenantID
+      tenantID,
     );
 
     if (!listPajakRelasi || listPajakRelasi.length === 0) {
@@ -126,7 +126,7 @@ class PajakService {
       const updated = await Pajak.findOneAndUpdate(
         { _id: id, tenantID },
         { $set: payload },
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       ).lean();
 
       if (!updated) {
@@ -138,7 +138,7 @@ class PajakService {
 
         await ProdukPajak.updateMany(
           { pajakID: id, tenantID },
-          { $set: { namaPajak: payload.namaPajak } }
+          { $set: { namaPajak: payload.namaPajak } },
         );
       }
 

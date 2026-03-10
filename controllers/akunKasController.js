@@ -24,7 +24,7 @@ class AkunKasController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-akun-kas"
+        "kelola-akunkas"
       );
       if (!isAllowed) {
         throw createError(403, "Anda tidak memiliki akses kelola akun kas");
@@ -46,7 +46,7 @@ class AkunKasController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-akun-kas"
+        "kelola-akunkas"
       );
       if (!isAllowed) {
         throw createError(403, "Anda tidak memiliki akses kelola akun kas");
@@ -68,7 +68,7 @@ class AkunKasController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-akun-kas"
+        "kelola-akunkas"
       );
       if (!isAllowed) {
         throw createError(403, "Anda tidak memiliki akses kelola akun kas");
@@ -102,7 +102,7 @@ class AkunKasController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-akun-kas"
+        "kelola-akunkas"
       );
       if (!isAllowed) {
         throw createError(403, "Anda tidak memiliki akses kelola akun kas");
@@ -130,7 +130,7 @@ class AkunKasController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-akun-kas"
+        "kelola-akunkas"
       );
       if (!isAllowed) {
         throw createError(403, "Anda tidak memiliki akses kelola akun kas");
