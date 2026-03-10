@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
+
 const tipeAsetController = require("../controllers/tipeAsetController");
 
-const wrap = (fn) => (req, res, next) => {
+const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn.call(tipeAsetController, req, res, next)).catch(next);
-};
 
 router
   .route("/")

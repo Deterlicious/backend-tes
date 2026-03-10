@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
+
 const diskonController = require("../controllers/diskonController");
 const authPengguna = require("../middleware/authPengguna");
 
-const wrap = (fn) => (req, res, next) => {
+const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn.call(diskonController, req, res, next)).catch(next);
-};
 
 router.use(authPengguna);
 

@@ -4,16 +4,13 @@ const Permission = require("../models/permissionModel");
 
 class PembayaranController {
   async _checkPermission(userPermissionIDs, permissionName) {
-    const permissionDoc = await Permission.findOne({
-      nama: permissionName
-    });
+    const permissionDoc = await Permission.findOne({ nama: permissionName });
+
     if (!permissionDoc) return false;
 
-    const hasAccess = userPermissionIDs
+    return userPermissionIDs
       .map((id) => id.toString())
       .includes(permissionDoc._id.toString());
-
-    return hasAccess;
   }
 
   _getRequesterTenantID(req) {
@@ -32,12 +29,9 @@ class PembayaranController {
       }
 
       const tenantID = this._getRequesterTenantID(req);
-      if (!tenantID) throw createError(403, "Akses ditolak. Tenant tidak valid.");
-
       const result = await pembayaranService.getAll(tenantID);
-      res.json({
-        data: result
-      });
+
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }
@@ -57,10 +51,11 @@ class PembayaranController {
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembayaranService.getById(req.params.id, tenantID);
 
-      if (!result) throw createError(404, "Pembayaran tidak ditemukan");
-      res.json({
-        data: result
-      });
+      if (!result) {
+        throw createError(404, "Pembayaran tidak ditemukan");
+      }
+
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }
@@ -77,21 +72,15 @@ class PembayaranController {
         throw createError(403, "Anda tidak memiliki akses kelola pembayaran");
       }
 
-      const tenantID = this._getRequesterTenantID(req);
-      req.body.tenantID = tenantID;
+      req.body.tenantID = this._getRequesterTenantID(req);
 
       const result = await pembayaranService.create(req.body);
 
       if (result?.error) {
-        return res.status(400).json({
-          errors: result.error
-        });
+        return res.status(400).json({ errors: result.error });
       }
 
-      res.status(201).json({
-        data: result,
-        message: "Pembayaran berhasil dicatat"
-      });
+      res.status(201).json({ data: result });
     } catch (err) {
       next(err);
     }
@@ -109,20 +98,26 @@ class PembayaranController {
       }
 
       const tenantID = this._getRequesterTenantID(req);
-      const result = await pembayaranService.update(req.params.id, req.body, tenantID);
+
+      delete req.body.tenantID;
+      delete req.body.penjualanID;
+      delete req.body.noReferensi;
+
+      const result = await pembayaranService.update(
+        req.params.id,
+        req.body,
+        tenantID
+      );
 
       if (result?.error) {
-        return res.status(400).json({
-          errors: result.error
-        });
+        return res.status(400).json({ errors: result.error });
       }
 
-      if (!result) throw createError(404, "Pembayaran tidak ditemukan");
+      if (!result) {
+        throw createError(404, "Pembayaran tidak ditemukan");
+      }
 
-      res.json({
-        data: result,
-        message: "Pembayaran berhasil diperbarui"
-      });
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }
@@ -142,10 +137,11 @@ class PembayaranController {
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembayaranService.delete(req.params.id, tenantID);
 
-      if (!result) throw createError(404, "Pembayaran tidak ditemukan");
-      res.json({
-        message: "Pembayaran berhasil dihapus"
-      });
+      if (!result) {
+        throw createError(404, "Pembayaran tidak ditemukan");
+      }
+
+      res.json({ data: true });
     } catch (err) {
       next(err);
     }

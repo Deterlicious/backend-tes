@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 
 const ItemPenjualanSchema = new mongoose.Schema(
   {
+    sesiBookingID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SesiBooking",
+      default: null,
+      index: true,
+    },
     produkID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Produk",
@@ -13,12 +19,6 @@ const ItemPenjualanSchema = new mongoose.Schema(
       required: [true, "Nama Produk wajib diisi."],
       trim: true,
     },
-    sesiBookingID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "SesiBooking",
-      default: null,
-      index: true,
-    },
     jumlah: {
       type: Number,
       required: [true, "Jumlah wajib diisi."],
@@ -29,27 +29,43 @@ const ItemPenjualanSchema = new mongoose.Schema(
       required: [true, "Harga Jual wajib diisi."],
       min: [0, "Harga Jual tidak boleh negatif."],
     },
-    diskonID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Diskon",
-      default: null,
-      index: true,
+    subTotal: {
+      type: Number,
+      default: 0,
     },
+    diskonItemIDs: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Diskon",
+        index: true,
+      },
+    ],
     jumlahDiskon: {
       type: Number,
+      required: true,
       default: 0,
       min: [0, "Jumlah Diskon tidak boleh negatif."],
     },
-    hargaKotor: {
+    total: {
       type: Number,
       default: 0,
     },
-    subtotal: {
+    rincianPajak: {
+      type: Array,
+      default: [],
+    },
+    jumlahPajak: {
+      type: Number,
+      default: 0,
+    },
+    totalharga: {
       type: Number,
       default: 0,
     },
   },
-  { _id: false }
+  {
+    _id: false,
+  }
 );
 
 const PenjualanSchema = new mongoose.Schema(
@@ -60,16 +76,30 @@ const PenjualanSchema = new mongoose.Schema(
       required: [true, "Tenant ID wajib diisi."],
       index: true,
     },
-    nomorFaktur: {
+    noReferensi: {
       type: String,
-      required: [true, "Nomor Faktur wajib diisi."],
+      required: [true, "No Referensi wajib diisi."],
       trim: true,
     },
-    dataPelanggan: {
+    penggunaID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Pengguna",
+      required: [true, "Pengguna wajib terisi."],
+      index: true,
+    },
+    pelangganID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pelanggan",
-      default: null,
+      required: [true, "Pelanggan wajib diisi."],
       index: true,
+    },
+    jenisTransaksi: {
+      type: String,
+      enum: {
+        values: ["POS", "INVOICE"],
+        message: "{VALUE} bukan jenis transaksi valid.",
+      },
+      required: [true, "Jenis Transaksi wajib diisi."],
     },
     jenisPenjualan: {
       type: String,
@@ -79,28 +109,73 @@ const PenjualanSchema = new mongoose.Schema(
       },
       required: [true, "Jenis Penjualan wajib diisi."],
     },
-    tanggalPenjualan: {
+    tanggalTransaksi: {
+      type: Date,
+      required: [true, "Tanggal Transaksi wajib diisi."],
+      index: true,
+    },
+    jatuhTempo: {
       type: Date,
       default: null,
+    },
+    statusPenjualan: {
+      type: String,
+      enum: ["DRAFT", "FINAL"],
+      default: "DRAFT",
+      index: true,
+    },
+    statusBayar: {
+      type: String,
+      enum: ["UNPAID", "PARTIAL", "PAID"],
+      default: "UNPAID",
       index: true,
     },
     itemPenjualan: {
       type: [ItemPenjualanSchema],
       required: [true, "Item Penjualan wajib diisi."],
     },
-    statusPembayaran: {
-      type: String,
-      enum: ["UNPAID", "PARTIAL", "PAID"],
-      default: "UNPAID",
-      index: true,
+    totalHargaProduk: {
+      type: Number,
+      default: 0,
     },
-    totalHarga: {
+    diskonGlobalIDs: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Diskon",
+        index: true,
+      },
+    ],
+    jumlahDiskonTransaksi: {
+      type: Number,
+      default: 0,
+    },
+    pajakTransaksiIDs: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Pajak",
+        index: true,
+      },
+    ],
+    jumlahPajakTransaksi: {
+      type: Number,
+      default: 0,
+    },
+    totalTagihan: {
+      type: Number,
+      default: 0,
+    },
+    totalDibayar: {
       type: Number,
       default: 0,
     },
     sisaTagihan: {
       type: Number,
       default: 0,
+    },
+    keterangan: {
+      type: String,
+      trim: true,
+      default: "",
     },
   },
   {
@@ -109,45 +184,50 @@ const PenjualanSchema = new mongoose.Schema(
   }
 );
 
-PenjualanSchema.index({ tenantID: 1, nomorFaktur: 1 }, { unique: true });
+PenjualanSchema.index({ tenantID: 1, noReferensi: 1 }, { unique: true });
+PenjualanSchema.index({ tenantID: 1, penggunaID: 1, createdAt: -1 });
 
 PenjualanSchema.pre("validate", function (next) {
-  let grandTotal = 0;
+  let grandTotalItem = 0;
 
   if (this.itemPenjualan && this.itemPenjualan.length > 0) {
     this.itemPenjualan.forEach((item) => {
-      const hrg = Number(item.hargaJual) || 0;
-      const jml = Number(item.jumlah) || 1;
-      const dsk = Number(item.jumlahDiskon) || 0;
+      if (item.subTotal < 0) item.subTotal = 0;
+      if (item.total < 0) item.total = 0;
+      if (item.totalharga < 0) item.totalharga = 0;
 
-      item.hargaKotor = hrg * jml;
-      item.subtotal = item.hargaKotor - dsk;
-
-      if (item.subtotal < 0) item.subtotal = 0;
-
-      grandTotal += item.subtotal;
+      grandTotalItem += item.totalharga || 0;
     });
   }
 
-  this.totalHarga = grandTotal;
+  this.totalHargaProduk = grandTotalItem;
 
-  if (this.isNew) {
-    this.sisaTagihan = this.totalHarga;
+  const diskonGbl = Number(this.jumlahDiskonTransaksi) || 0;
+  const pajakTransaksi = Number(this.jumlahPajakTransaksi) || 0;
+
+  this.totalTagihan = grandTotalItem - diskonGbl + pajakTransaksi;
+
+  if (this.totalTagihan < 0) {
+    this.totalTagihan = 0;
+  }
+
+  const dibayar = Number(this.totalDibayar) || 0;
+  this.sisaTagihan = this.totalTagihan - dibayar;
+
+  if (this.sisaTagihan < 0) {
+    this.sisaTagihan = 0;
+  }
+
+  if (this.totalTagihan === 0 || this.sisaTagihan === 0) {
+    this.statusBayar = "PAID";
+  } else if (dibayar > 0 && this.sisaTagihan > 0) {
+    this.statusBayar = "PARTIAL";
+  } else {
+    this.statusBayar = "UNPAID";
   }
 
   next();
 });
 
-PenjualanSchema.pre("save", function (next) {
-  if (this.isModified("statusPembayaran")) {
-    if (
-      ["PARTIAL", "PAID"].includes(this.statusPembayaran) &&
-      !this.tanggalPenjualan
-    ) {
-      this.tanggalPenjualan = new Date();
-    }
-  }
-  next();
-});
-
-module.exports = mongoose.model("Penjualan", PenjualanSchema);
+module.exports =
+  mongoose.models.Penjualan || mongoose.model("Penjualan", PenjualanSchema);

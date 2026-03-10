@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 
 const asetSchema = new mongoose.Schema(
   {
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     namaAset: {
       type: String,
       required: true,
@@ -19,12 +25,6 @@ const asetSchema = new mongoose.Schema(
       default: "tersedia",
       index: true,
     },
-    tenantID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Tenant",
-      required: true,
-      index: true,
-    },
   },
   {
     timestamps: true,
@@ -32,13 +32,7 @@ const asetSchema = new mongoose.Schema(
   }
 );
 
-asetSchema.index({
-  tenantID: 1,
-  status: 1
-});
-asetSchema.index({
-  tenantID: 1,
-  namaAset: 1
-});
+asetSchema.index({ tenantID: 1, status: 1 });
+asetSchema.index({ tenantID: 1, namaAset: 1 });
 
-module.exports = mongoose.model("Aset", asetSchema);
+module.exports = mongoose.models.Aset || mongoose.model("Aset", asetSchema);

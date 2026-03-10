@@ -1,42 +1,93 @@
 const Diskon = require("../models/diskonModel");
 const redis = require("../config/redis");
-const {
-  validateDiskonPayload
-} = require("../validators/diskonValidator");
+const { validateDiskonPayload } = require("../validators/diskonValidator");
 const createError = require("http-errors");
 
-const KEY_LIST = (tenantID) => `diskon:list:${tenantID}`;
+const KEY_LIST = (tenantID, filterKey) =>
+  `diskon:list:${tenantID}:${filterKey}`;
 const KEY_DETAIL = (id) => `diskon:detail:${id}`;
 
 class DiskonService {
   async clearCache(tenantID, id) {
-    const keys = [KEY_LIST(tenantID)];
-    if (id) keys.push(KEY_DETAIL(id));
+    const pattern = `diskon:list:${tenantID}:*`;
+    let cursor = "0";
+    const keysToDelete = [];
 
-    await redis.del(keys);
-  }
+    do {
+      const res = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+      cursor = res[0];
+      const keys = res[1] || [];
 
-  async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "Tenant ID required");
+      if (keys.length) {
+        keysToDelete.push(...keys);
+      }
+    } while (cursor !== "0");
 
-    const key = KEY_LIST(tenantID);
-    const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
-
-    const data = await Diskon.find({
-        tenantID
-      })
-      .sort({
-        status: -1,
-        createdAt: -1
-      })
-      .lean();
-
-    if (data.length > 0) {
-      await redis.set(key, JSON.stringify(data), "EX", 300);
+    if (id) {
+      keysToDelete.push(KEY_DETAIL(id));
     }
 
-    return data;
+    if (keysToDelete.length > 0) {
+      await redis.del(...keysToDelete);
+    }
+  }
+
+  _formatOutput(doc) {
+    if (!doc) return null;
+    if (Array.isArray(doc)) return doc.map((d) => this._formatOutput(d));
+
+    return {
+      _id: doc._id,
+      tenantID: doc.tenantID,
+      namaDiskon: doc.namaDiskon,
+      cakupan: doc.cakupan,
+      tipe: doc.tipe,
+      nilai: doc.nilai,
+      bisaDigabung: doc.bisaDigabung,
+      status: doc.status,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+  }
+
+  async getAll(tenantID, query = {}) {
+    if (!tenantID) {
+      throw createError(400, "Tenant ID required");
+    }
+
+    const filter = { tenantID };
+
+    if (query.status) {
+      filter.status = query.status;
+    }
+
+    if (query.cakupan) {
+      filter.cakupan = query.cakupan;
+    }
+
+    if (query.tipe) {
+      filter.tipe = query.tipe;
+    }
+
+    const filterKey = JSON.stringify(filter);
+    const key = KEY_LIST(tenantID, filterKey);
+
+    const cached = await redis.get(key);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const data = await Diskon.find(filter)
+      .sort({ status: -1, createdAt: -1 })
+      .lean();
+
+    const formatted = this._formatOutput(data);
+
+    if (formatted.length > 0) {
+      await redis.set(key, JSON.stringify(formatted), "EX", 300);
+    }
+
+    return formatted;
   }
 
   async getById(id, requesterTenantID) {
@@ -45,7 +96,11 @@ class DiskonService {
 
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed.tenantID !== requesterTenantID.toString()) return null;
+
+      if (parsed.tenantID !== requesterTenantID.toString()) {
+        return null;
+      }
+
       return parsed;
     }
 
@@ -54,57 +109,68 @@ class DiskonService {
       tenantID: requesterTenantID,
     }).lean();
 
-    if (!data) return null;
+    if (!data) {
+      return null;
+    }
 
-    await redis.set(key, JSON.stringify(data), "EX", 300);
-    return data;
+    const formatted = this._formatOutput(data);
+    await redis.set(key, JSON.stringify(formatted), "EX", 300);
+
+    return formatted;
   }
 
   async create(payload) {
     const validation = validateDiskonPayload(payload);
-    if (!validation.valid) return {
-      error: validation.errors
-    };
+
+    if (!validation.valid) {
+      return { error: validation.errors };
+    }
 
     try {
       const diskon = await Diskon.create(payload);
+
       await this.clearCache(payload.tenantID);
 
-      return diskon;
+      const created = await Diskon.findById(diskon._id).lean();
+
+      return this._formatOutput(created);
     } catch (err) {
       if (err.code === 11000) {
         throw createError(400, "Nama diskon sudah digunakan di tenant ini");
       }
+
       throw err;
     }
   }
 
   async update(id, payload, requesterTenantID) {
     const validation = validateDiskonPayload(payload, true);
-    if (!validation.valid) return {
-      error: validation.errors
-    };
+
+    if (!validation.valid) {
+      return { error: validation.errors };
+    }
 
     delete payload.tenantID;
 
     try {
-      const updated = await Diskon.findOneAndUpdate({
-        _id: id,
-        tenantID: requesterTenantID,
-      }, payload, {
-        new: true,
-        runValidators: true,
-      }).lean();
+      const updated = await Diskon.findOneAndUpdate(
+        { _id: id, tenantID: requesterTenantID },
+        payload,
+        { new: true, runValidators: true }
+      ).lean();
 
-      if (!updated) return null;
+      if (!updated) {
+        return null;
+      }
 
       await this.clearCache(requesterTenantID, id);
 
-      return updated;
+      return this._formatOutput(updated);
     } catch (err) {
       if (err.code === 11000) {
         throw createError(400, "Nama diskon sudah digunakan di tenant ini");
       }
+
       throw err;
     }
   }
@@ -115,11 +181,49 @@ class DiskonService {
       tenantID: requesterTenantID,
     });
 
-    if (result.deletedCount === 0) return null;
+    if (result.deletedCount === 0) {
+      return null;
+    }
 
     await this.clearCache(requesterTenantID, id);
 
     return true;
+  }
+
+  async validateKombinasiDiskon(diskonIds, tenantID) {
+    const ids = Array.isArray(diskonIds) ? diskonIds.filter(Boolean) : [];
+
+    if (ids.length <= 1) {
+      return { valid: true };
+    }
+
+    const diskons = await Diskon.find({
+      _id: { $in: ids },
+      tenantID,
+      status: "Aktif",
+    })
+      .select("_id bisaDigabung status")
+      .lean();
+
+    if (diskons.length !== ids.length) {
+      return {
+        valid: false,
+        errors: ["Ada diskon yang tidak valid / non-aktif / beda tenant"],
+      };
+    }
+
+    const nonStackable = diskons.filter((d) => d.bisaDigabung === false);
+
+    if (nonStackable.length > 0) {
+      return {
+        valid: false,
+        errors: [
+          "Terdapat diskon yang tidak bisa digabung, sehingga hanya boleh 1 diskon.",
+        ],
+      };
+    }
+
+    return { valid: true };
   }
 }
 

@@ -14,40 +14,51 @@ const PajakSchema = new mongoose.Schema(
       trim: true,
     },
     tarifPajak: {
-      type: Number, // Decimal di gambar
+      type: Number,
       required: [true, "Tarif pajak wajib diisi."],
       min: 0,
     },
+
+    // akunPajakID: {
+    //   type: mongoose.Schema.Types.ObjectId,
+    //   ref: "AkunKas",
+    //   required: [true, "Akun pajak wajib diisi."],
+    // },
+
     akunPajakID: {
-      // FK akun_pajak di gambar
       type: mongoose.Schema.Types.ObjectId,
       ref: "AkunKas",
-      required: [true, "Akun pajak wajib diisi."],
     },
+
     tipePajak: {
       type: String,
       enum: ["Per Produk", "Per Transaksi"],
       default: "Per Produk",
     },
+
     modelPerhitungan: {
       type: Number,
-      enum: [1, 2, 3], // 1=Inclusive, 2=Exclusive, 3=Compound
+      enum: [1, 2, 3],
       required: true,
     },
+
     statusPajak: {
       type: Boolean,
-      default: true, // ON/OFF
+      default: true,
     },
+
     prioritas: {
       type: Number,
-      enum: [1, 2], // 1=Service Charge duluan, 2=PBJT dari total+service
+      enum: [1, 2],
       required: true,
     },
   },
-  { timestamps: true, versionKey: false },
+  {
+    timestamps: true,
+    versionKey: false,
+  }
 );
 
-// Index unik agar tidak ada nama pajak ganda dalam satu tenant
 PajakSchema.index({ tenantID: 1, namaPajak: 1 }, { unique: true });
 
-module.exports = mongoose.model("Pajak", PajakSchema);
+module.exports = mongoose.models.Pajak || mongoose.model("Pajak", PajakSchema);

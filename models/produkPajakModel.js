@@ -6,18 +6,25 @@ const ProdukPajakSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Produk",
       default: null,
+      index: true,
     },
-    asset_ID: {
+    assetID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Asset",
       default: null,
-    }, // Tambahan field revisi
+      index: true,
+    },
     pajakID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pajak",
       required: true,
+      index: true,
     },
-    nama_pajak: { type: String, required: true },
+    namaPajak: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -25,7 +32,28 @@ const ProdukPajakSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true, versionKey: false },
+  {
+    timestamps: true,
+    versionKey: false,
+  }
 );
 
-module.exports = mongoose.model("ProdukPajak", ProdukPajakSchema);
+ProdukPajakSchema.index(
+  { tenantID: 1, produkID: 1, pajakID: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { produkID: { $type: "objectId" } },
+  }
+);
+
+ProdukPajakSchema.index(
+  { tenantID: 1, assetID: 1, pajakID: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { assetID: { $type: "objectId" } },
+  }
+);
+
+module.exports =
+  mongoose.models.ProdukPajak ||
+  mongoose.model("ProdukPajak", ProdukPajakSchema);

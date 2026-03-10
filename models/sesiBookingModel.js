@@ -55,10 +55,11 @@ const sesiBookingSchema = new mongoose.Schema(
       default: null,
       min: 0,
     },
-    tarifID: {
+    dataTarif: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tarif",
       required: true,
+      index: true,
     },
   },
   {
@@ -77,9 +78,11 @@ sesiBookingSchema.pre("save", function (next) {
         new Error("Waktu selesai tidak boleh lebih awal dari waktu mulai.")
       );
     }
+
     const diffMs = new Date(this.waktuSelesai) - new Date(this.waktuMulai);
     this.durasiMenit = Math.ceil(diffMs / (1000 * 60));
   }
+
   next();
 });
 

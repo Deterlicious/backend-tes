@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
+
 const asetController = require("../controllers/asetController");
 const authPengguna = require("../middleware/authPengguna");
 
-const wrap = (fn) => (req, res, next) => {
+const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn.call(asetController, req, res, next)).catch(next);
-};
 
 router.use(authPengguna);
 

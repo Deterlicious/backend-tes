@@ -1,97 +1,195 @@
 const TipeAset = require("../models/tipeAsetModel");
-const redis = require("../config/redis"); // Pastikan path config redis benar
+const redis = require("../config/redis");
 const { validateTipeAsetPayload } = require("../validators/tipeAsetValidator");
 const createError = require("http-errors");
 
-// CACHE KEYS
-const KEY_LIST = (tenantID) => `tipeAset:list:${tenantID}`;
-const KEY_DETAIL = (tenantID, id) => `tipeAset:detail:${tenantID}:${id}`;
+const KEY_LIST = (tenantID, filterKey) =>
+  `tipeAset:list:${tenantID}:${filterKey}`;
+const KEY_DETAIL = (id) => `tipeAset:detail:${id}`;
 
 class TipeAsetService {
-  async getAll(tenantID) {
-    if (!tenantID) throw createError(400, "tenantID required");
+  async clearCache(tenantID, id) {
+    const pattern = `tipeAset:list:${tenantID}:*`;
+    let cursor = "0";
+    const keysToDelete = [];
 
-    const key = KEY_LIST(tenantID);
-    const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
+    do {
+      const res = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+      cursor = res[0];
+      const keys = res[1] || [];
 
-    const data = await TipeAset.find({ tenantID })
-      // panggil field virtual tadi
-      .populate("listTarif", "namaTarif harga durasiMinimum")
-      .sort({ namaTipeAset: 1 })
-      .lean({ virtuals: true }); // Pastikan virtuals true saat lean
+      if (keys.length) {
+        keysToDelete.push(...keys);
+      }
+    } while (cursor !== "0");
 
-    if (data.length > 0) {
-      await redis.set(key, JSON.stringify(data), "EX", 60);
+    if (id) {
+      keysToDelete.push(KEY_DETAIL(id));
     }
 
-    return data;
+    if (keysToDelete.length > 0) {
+      await redis.del(...keysToDelete);
+    }
+  }
+
+  _formatOutput(doc) {
+    if (!doc) return null;
+    if (Array.isArray(doc)) return doc.map((d) => this._formatOutput(d));
+
+    return {
+      _id: doc._id,
+      tenantID: doc.tenantID,
+      namaTipeAset: doc.namaTipeAset,
+      deskripsi: doc.deskripsi,
+      dataTarif: Array.isArray(doc.listTarif)
+        ? doc.listTarif.map((tarif) => ({
+            _id: tarif._id,
+            namaTarif: tarif.namaTarif,
+            harga: tarif.harga,
+            durasiMinimum: tarif.durasiMinimum,
+          }))
+        : [],
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+  }
+
+  async getAll(tenantID, query = {}) {
+    if (!tenantID) {
+      throw createError(400, "tenantID required");
+    }
+
+    const filter = { tenantID };
+
+    if (query.namaTipeAset) {
+      filter.namaTipeAset = {
+        $regex: query.namaTipeAset,
+        $options: "i",
+      };
+    }
+
+    const filterKey = JSON.stringify({
+      tenantID: String(tenantID),
+      namaTipeAset: query.namaTipeAset || null,
+    });
+
+    const key = KEY_LIST(tenantID, filterKey);
+    const cached = await redis.get(key);
+
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const data = await TipeAset.find(filter)
+      .populate("listTarif", "namaTarif harga durasiMinimum")
+      .sort({ namaTipeAset: 1 })
+      .lean({ virtuals: true });
+
+    const formatted = this._formatOutput(data);
+
+    if (formatted.length > 0) {
+      await redis.set(key, JSON.stringify(formatted), "EX", 300);
+    }
+
+    return formatted;
   }
 
   async getById(id, tenantID) {
-    const key = KEY_DETAIL(tenantID, id);
+    const key = KEY_DETAIL(id);
     const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached);
+
+    if (cached) {
+      const parsed = JSON.parse(cached);
+
+      if (parsed.tenantID !== tenantID.toString()) {
+        return null;
+      }
+
+      return parsed;
+    }
 
     const data = await TipeAset.findOne({ _id: id, tenantID })
       .populate("listTarif", "namaTarif harga durasiMinimum")
       .lean({ virtuals: true });
 
-    if (!data) return null;
+    if (!data) {
+      return null;
+    }
 
-    await redis.set(key, JSON.stringify(data), "EX", 60);
-    return data;
+    const formatted = this._formatOutput(data);
+    await redis.set(key, JSON.stringify(formatted), "EX", 300);
+
+    return formatted;
   }
 
   async create(payload) {
     const validation = validateTipeAsetPayload(payload);
-    if (!validation.valid) return { error: validation.errors };
+
+    if (!validation.valid) {
+      return { error: validation.errors };
+    }
 
     try {
-      const newTipeAset = await TipeAset.create(payload);
+      const tipeAset = await TipeAset.create(payload);
 
-      await redis.del(KEY_LIST(payload.tenantID));
+      await this.clearCache(payload.tenantID);
 
-      return newTipeAset;
+      const created = await TipeAset.findById(tipeAset._id)
+        .populate("listTarif", "namaTarif harga durasiMinimum")
+        .lean({ virtuals: true });
+
+      return this._formatOutput(created);
     } catch (err) {
       if (err.code === 11000) {
-        return { error: ["Nama Tipe Aset sudah ada di tenant ini"] };
+        throw createError(400, "Nama tipe aset sudah digunakan di tenant ini");
       }
+
       throw err;
     }
   }
 
   async update(id, tenantID, payload) {
     const validation = validateTipeAsetPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
 
-    delete payload.tenantID; // Security
+    if (!validation.valid) {
+      return { error: validation.errors };
+    }
+
+    delete payload.tenantID;
 
     try {
       const updated = await TipeAset.findOneAndUpdate(
         { _id: id, tenantID },
         payload,
         { new: true, runValidators: true }
-      ).lean();
+      )
+        .populate("listTarif", "namaTarif harga durasiMinimum")
+        .lean({ virtuals: true });
 
-      if (!updated) return null;
+      if (!updated) {
+        return null;
+      }
 
-      await redis.del(KEY_LIST(tenantID));
-      await redis.del(KEY_DETAIL(tenantID, id));
+      await this.clearCache(tenantID, id);
 
-      return updated;
+      return this._formatOutput(updated);
     } catch (err) {
-      if (err.code === 11000) return { error: ["Nama Tipe Aset conflict"] };
+      if (err.code === 11000) {
+        throw createError(400, "Nama tipe aset sudah digunakan di tenant ini");
+      }
+
       throw err;
     }
   }
 
   async delete(id, tenantID) {
-    const deleted = await TipeAset.findOneAndDelete({ _id: id, tenantID });
-    if (!deleted) return null;
+    const result = await TipeAset.deleteOne({ _id: id, tenantID });
 
-    await redis.del(KEY_LIST(tenantID));
-    await redis.del(KEY_DETAIL(tenantID, id));
+    if (result.deletedCount === 0) {
+      return null;
+    }
+
+    await this.clearCache(tenantID, id);
 
     return true;
   }

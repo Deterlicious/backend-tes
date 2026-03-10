@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
+
 const tarifController = require("../controllers/tarifController");
 
-const wrap = (fn) => (req, res, next) => {
+const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn.call(tarifController, req, res, next)).catch(next);
-};
 
 router
   .route("/")

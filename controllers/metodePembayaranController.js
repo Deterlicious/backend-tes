@@ -1,8 +1,8 @@
-const sesiBookingService = require("../services/sesiBookingService");
+const metodePembayaranService = require("../services/metodePembayaranService");
 const createError = require("http-errors");
 const Permission = require("../models/permissionModel");
 
-class SesiBookingController {
+class MetodePembayaranController {
   async _checkPermission(userPermissionIDs, permissionName) {
     const permissionDoc = await Permission.findOne({ nama: permissionName });
 
@@ -17,29 +17,22 @@ class SesiBookingController {
     return req.pengguna?.tenantID || null;
   }
 
-  _getRequesterUserID(req) {
-    return req.pengguna?._id || null;
-  }
-
   async getAll(req, res, next) {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-booking"
+        "kelola-metode-pembayaran"
       );
 
       if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
+        throw createError(
+          403,
+          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
+        );
       }
 
       const tenantID = this._getRequesterTenantID(req);
-
-      if (!tenantID) {
-        throw createError(403, "Akses ditolak. Tenant tidak valid.");
-      }
-
-      const tanggal = req.query.tanggal || null;
-      const result = await sesiBookingService.getAll(tenantID, tanggal);
+      const result = await metodePembayaranService.getAll(tenantID);
 
       res.json({ data: result });
     } catch (err) {
@@ -51,23 +44,24 @@ class SesiBookingController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-booking"
+        "kelola-metode-pembayaran"
       );
 
       if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
+        throw createError(
+          403,
+          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
+        );
       }
 
       const tenantID = this._getRequesterTenantID(req);
-
-      if (!tenantID) {
-        throw createError(403, "Akses ditolak. Tenant tidak valid.");
-      }
-
-      const result = await sesiBookingService.getById(req.params.id, tenantID);
+      const result = await metodePembayaranService.getById(
+        req.params.id,
+        tenantID
+      );
 
       if (!result) {
-        throw createError(404, "Booking tidak ditemukan atau beda tenant");
+        throw createError(404, "Metode Pembayaran tidak ditemukan");
       }
 
       res.json({ data: result });
@@ -80,30 +74,19 @@ class SesiBookingController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-booking"
+        "kelola-metode-pembayaran"
       );
 
       if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
+        throw createError(
+          403,
+          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
+        );
       }
 
-      const tenantID = this._getRequesterTenantID(req);
-      const userID = this._getRequesterUserID(req);
+      req.body.tenantID = this._getRequesterTenantID(req);
 
-      if (!tenantID || !userID) {
-        throw createError(403, "Akses ditolak.");
-      }
-
-      const payload = {
-        ...req.body,
-        tenantID,
-        dataPengguna: userID,
-      };
-
-      const result =
-        payload.items && Array.isArray(payload.items)
-          ? await sesiBookingService.createBatch(payload)
-          : await sesiBookingService.create(payload);
+      const result = await metodePembayaranService.create(req.body);
 
       if (result?.error) {
         return res.status(400).json({ errors: result.error });
@@ -119,20 +102,21 @@ class SesiBookingController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-booking"
+        "kelola-metode-pembayaran"
       );
 
       if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
+        throw createError(
+          403,
+          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
+        );
       }
 
       const tenantID = this._getRequesterTenantID(req);
 
-      if (!tenantID) {
-        throw createError(403, "Akses ditolak. Tenant tidak valid.");
-      }
+      delete req.body.tenantID;
 
-      const result = await sesiBookingService.update(
+      const result = await metodePembayaranService.update(
         req.params.id,
         req.body,
         tenantID
@@ -143,7 +127,7 @@ class SesiBookingController {
       }
 
       if (!result) {
-        throw createError(404, "Booking tidak ditemukan");
+        throw createError(404, "Metode Pembayaran tidak ditemukan");
       }
 
       res.json({ data: result });
@@ -156,23 +140,24 @@ class SesiBookingController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-booking"
+        "kelola-metode-pembayaran"
       );
 
       if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
+        throw createError(
+          403,
+          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
+        );
       }
 
       const tenantID = this._getRequesterTenantID(req);
-
-      if (!tenantID) {
-        throw createError(403, "Akses ditolak. Tenant tidak valid.");
-      }
-
-      const result = await sesiBookingService.delete(req.params.id, tenantID);
+      const result = await metodePembayaranService.delete(
+        req.params.id,
+        tenantID
+      );
 
       if (!result) {
-        throw createError(404, "Booking tidak ditemukan");
+        throw createError(404, "Metode Pembayaran tidak ditemukan");
       }
 
       res.json({ data: true });
@@ -182,4 +167,4 @@ class SesiBookingController {
   }
 }
 
-module.exports = new SesiBookingController();
+module.exports = new MetodePembayaranController();

@@ -5,7 +5,13 @@ class TipeAsetController {
   async getAll(req, res, next) {
     try {
       const { tenantID } = req.query;
-      const result = await tipeAsetService.getAll(tenantID);
+
+      if (!tenantID) {
+        return res.status(400).json({ message: "tenantID required" });
+      }
+
+      const result = await tipeAsetService.getAll(tenantID, req.query);
+
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -15,11 +21,17 @@ class TipeAsetController {
   async getById(req, res, next) {
     try {
       const { tenantID } = req.query;
-      if (!tenantID)
+
+      if (!tenantID) {
         return res.status(400).json({ message: "tenantID required" });
+      }
 
       const result = await tipeAsetService.getById(req.params.id, tenantID);
-      if (!result) throw createError(404, "Tipe Aset tidak ditemukan");
+
+      if (!result) {
+        throw createError(404, "Tipe Aset tidak ditemukan");
+      }
+
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -34,9 +46,7 @@ class TipeAsetController {
         return res.status(400).json({ errors: result.error });
       }
 
-      res
-        .status(201)
-        .json({ message: "Tipe Aset berhasil dibuat", data: result });
+      res.status(201).json({ data: result });
     } catch (err) {
       next(err);
     }
@@ -45,8 +55,10 @@ class TipeAsetController {
   async update(req, res, next) {
     try {
       const { tenantID } = req.query;
-      if (!tenantID)
+
+      if (!tenantID) {
         return res.status(400).json({ message: "tenantID required" });
+      }
 
       const result = await tipeAsetService.update(
         req.params.id,
@@ -57,9 +69,12 @@ class TipeAsetController {
       if (result?.error) {
         return res.status(400).json({ errors: result.error });
       }
-      if (!result) throw createError(404, "Tipe Aset tidak ditemukan");
 
-      res.json({ message: "Tipe Aset berhasil diperbarui", data: result });
+      if (!result) {
+        throw createError(404, "Tipe Aset tidak ditemukan");
+      }
+
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }
@@ -68,13 +83,18 @@ class TipeAsetController {
   async delete(req, res, next) {
     try {
       const { tenantID } = req.query;
-      if (!tenantID)
+
+      if (!tenantID) {
         return res.status(400).json({ message: "tenantID required" });
+      }
 
       const result = await tipeAsetService.delete(req.params.id, tenantID);
-      if (!result) throw createError(404, "Tipe Aset tidak ditemukan");
 
-      res.json({ message: "Tipe Aset berhasil dihapus" });
+      if (!result) {
+        throw createError(404, "Tipe Aset tidak ditemukan");
+      }
+
+      res.json({ data: true });
     } catch (err) {
       next(err);
     }

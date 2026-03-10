@@ -2,29 +2,39 @@ const mongoose = require("mongoose");
 
 const PembayaranSchema = new mongoose.Schema(
   {
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
+    akunKasID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AkunKas",
+      default: null,
+      index: true,
+    },
     penjualanID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Penjualan",
       required: true,
       index: true,
-      unique: true,
     },
-    metodeBayar: {
-      type: String,
-      enum: ["tunai", "qris_xendit", "kartu_debit"],
+    metodePembayaranID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MetodePembayaran",
       required: true,
       index: true,
     },
-    jumlahBayar: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
-    status: {
+    noReferensi: {
       type: String,
-      enum: ["PAID", "PENDING", "EXPIRED", "FAILED"],
-      default: "PENDING",
-      required: true,
+      required: [true, "No Referensi Penjualan wajib diisi"],
+      trim: true,
+      index: true,
+    },
+    tanggalBayar: {
+      type: Date,
+      default: null,
       index: true,
     },
     gatewayPaymentID: {
@@ -38,27 +48,22 @@ const PembayaranSchema = new mongoose.Schema(
       default: null,
       trim: true,
     },
-    paymentTimestamp: {
-      type: Date,
-      default: null,
-      index: true,
-    },
-    tenantID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Tenant",
-      required: true,
-      index: true,
-    },
-    kembalian: {
+    jumlahBayar: {
       type: Number,
-      default: 0,
-      min: 0,
+      required: true,
+      min: [0, "Jumlah bayar tidak boleh negatif"],
     },
-    akunKasID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "AkunKas",
+    status: {
+      type: String,
+      enum: ["PAID", "PENDING", "EXPIRED", "FAILED"],
+      default: "PENDING",
       required: true,
       index: true,
+    },
+    catatan: {
+      type: String,
+      default: null,
+      trim: true,
     },
   },
   {
@@ -68,19 +73,13 @@ const PembayaranSchema = new mongoose.Schema(
 );
 
 PembayaranSchema.pre("validate", function (next) {
-  if (this.status === "PAID" && !this.paymentTimestamp) {
+  if (this.status === "PAID" && !this.tanggalBayar) {
     this.invalidate(
-      "paymentTimestamp",
-      "Timestamp wajib diisi jika status PAID"
+      "tanggalBayar",
+      "Tanggal bayar wajib diisi jika status PAID"
     );
   }
 
-  if (this.metodeBayar === "tunai" && this.jumlahBayar < this.kembalian) {
-    this.invalidate(
-      "kembalian",
-      "Kembalian tidak boleh lebih besar dari jumlah bayar"
-    );
-  }
   next();
 });
 

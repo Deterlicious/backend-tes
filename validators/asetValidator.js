@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
-const validator = require("validator");
+
+const VALID_STATUS = ["tersedia", "digunakan", "perbaikan"];
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-const VALID_STATUS = ["tersedia", "digunakan", "perbaikan"];
 
 function validateAsetPayload(data, isUpdate = false) {
   const errors = [];
@@ -11,9 +11,11 @@ function validateAsetPayload(data, isUpdate = false) {
     if (!data.tenantID || !isValidObjectId(data.tenantID)) {
       errors.push("tenantID wajib diisi dan valid");
     }
+
     if (!data.namaAset) {
       errors.push("namaAset wajib diisi");
     }
+
     if (!data.tipeAsetID || !isValidObjectId(data.tipeAsetID)) {
       errors.push("tipeAsetID wajib diisi dan valid");
     }
@@ -27,15 +29,11 @@ function validateAsetPayload(data, isUpdate = false) {
     errors.push(`Status tidak valid. Pilihan: ${VALID_STATUS.join(", ")}`);
   }
 
-  if (errors.length > 0) return {
-    valid: false,
-    errors
-  };
-  return {
-    valid: true
-  };
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  return { valid: true };
 }
 
-module.exports = {
-  validateAsetPayload
-};
+module.exports = { validateAsetPayload };
