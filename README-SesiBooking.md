@@ -1,76 +1,291 @@
-# Dokumentasi API Sesi Booking
+# Sesi Booking API
 
-## 1. Mendaftarkan Permission Sesi Booking
+Dokumentasi ini menjelaskan cara melakukan **pengujian CRUD Sesi Booking** menggunakan Postman.
 
-Sebelum Anda bisa mengakses endpoint `sesi-booking`, Anda perlu memberikan akses (permissions) kepada Role pengguna via modul `Permission` dan lalu menetapkannya di `RolePermission`, atau Anda cukup menggunakan Role Admin Super.
+Fitur booking digunakan untuk melakukan **penyewaan aset pada waktu tertentu**.
 
-Jika Anda membuat permission baru di database, Anda bisa menembak API `POST /api/permissions`.
+Booking memiliki keterkaitan dengan beberapa data berikut:
 
-**URL Tujuan:** `POST /api/permissions`
+- **Aset**
+- **Pelanggan**
+- **Tarif**
+- **Diskon**
+- **Penjualan**
 
-**Body JSON Request:**
+---
+
+# Permission yang Dibutuhkan
+
+Fitur ini membutuhkan permission berikut:
+
+```
+kelola-booking
+```
+
+Permission ini memberikan akses untuk:
+
+- Melihat daftar booking
+- Melihat detail booking
+- Membuat booking
+- Mengubah booking
+- Menghapus booking
+
+Jika pengguna tidak memiliki permission tersebut maka API akan mengembalikan response **403 Forbidden**.
+
+---
+
+# Authorization
+
+Semua endpoint membutuhkan **Bearer Token**.
+
+### Cara menggunakan Bearer Token di Postman
+
+1. Buka request di **Postman**
+2. Pilih tab **Authorization**
+3. Pilih **Type : Bearer Token**
+4. Masukkan token pada kolom **Token**
+
+Jika token tidak dikirim atau tidak valid maka request akan ditolak oleh sistem.
+
+---
+
+# Pengujian Booking
+
+Booking akan otomatis:
+
+- menghitung **durasi penggunaan aset**
+- menghitung **harga berdasarkan tarif**
+- menghitung **diskon jika digunakan**
+- menghitung **pajak**
+- membuat **data penjualan otomatis**
+
+---
+
+# Diskon pada Booking
+
+Pada saat membuat booking, sistem mendukung penggunaan diskon.
+
+Terdapat dua jenis diskon yang dapat digunakan:
+
+### Diskon Item
+
+Diskon yang diterapkan pada **item booking**.
+
+Field yang digunakan:
+
+```
+diskonItem
+```
+
+Contoh:
+
+```
+"diskonItem": ["DISKON_ID"]
+```
+
+---
+
+### Diskon Global
+
+Diskon yang diterapkan pada **total transaksi booking**.
+
+Field yang digunakan:
+
+```
+diskonGlobal
+```
+
+Contoh:
+
+```
+"diskonGlobal": ["DISKON_ID"]
+```
+
+---
+
+# 1. Create Booking
+
+Digunakan untuk membuat booking baru.
+
+**URL**
+
+```
+POST /sesi-booking
+```
+
+**Body**
+
 ```json
 {
-  "namaPermission": "Kelola Sesi Booking",
-  "deskripsi": "Mengizinkan pengguna untuk membuat, membaca, mengubah, dan menghapus sesi booking aset."
+  "dataPelanggan": "PELANGGAN_ID",
+  "dataAset": "ASET_ID",
+  "dataTarif": "TARIF_ID",
+  "waktuMulai": "2026-03-12T10:00:00",
+  "waktuSelesai": "2026-03-12T11:00:00"
 }
 ```
 
 ---
 
-## 2. Pengetesan CRUD Sesi Booking (Postman / Insomnia)
+## Create Booking dengan Diskon
 
-Pastikan di headers HTTP Anda sudah menyertakan Token Autoritas:
-`Authorization: Bearer <token_anda>`
-Semua endpoint di bawah ini diakses di URL root: `http://localhost:5000/api/sesi-booking` (Sesuaikan port dan penamaan rute server lokal Anda).
+Contoh jika ingin menggunakan diskon.
 
-### A. CREATE Sesi Booking (Memulai Pemakaian)
-Membuka sesi penyewaan baru. `waktuMulai` akan tercatat.
-
-**Method:** `POST`
-**URL:** `/api/sesi-booking`
-**Body JSON:**
 ```json
 {
-  "tenantID": "64efc9d1a3b8c6e2a84d1234",
-  "dataPengguna": "64efc9d1a3b8c6e2a84d5678",
-  "dataPelanggan": "64efc9d1a3b8c6e2a84d9012",
-  "dataAset": "64efc9d1a3b8c6e2a84d3456",
-  "dataPenjualan": "64efc9d1a3b8c6e2a84d7890",
-  "dataTarif": "64efc9d1a3b8c6e2a84d2345",
-  "waktuMulai": "2024-10-25T14:30:00.000Z",
-  "status": "Aktif"
-}
-```
-*(Ganti ID ObjectID Mongoose di atas sesuai referensi data sebenarnya di database Anda)*
-
-### B. READ All / List
-Mendapatkan semua riwayat transaksi penyewaan (mendukung query filter jika disokong oleh Controller-nya).
-
-**Method:** `GET`
-**URL:** `/api/sesi-booking`
-
-### C. READ By ID
-Melihat satu lembar spesifik sesi rent.
-
-**Method:** `GET`
-**URL:** `/api/sesi-booking/:id` (Ganti `:id` dengan ID transaksi di respon POST)
-
-### D. UPDATE Sesi Booking (Menutup Pemakaian / Checkout)
-Sering dipakai saat aset selesai dipakai, kita _inject_ variabel `waktuSelesai`. (Mongoose model otomatis menghitung `durasiMenit` berkat `pre-save`).
-
-**Method:** `PUT`
-**URL:** `/api/sesi-booking/:id`
-**Body JSON:**
-```json
-{
-  "waktuSelesai": "2024-10-25T15:30:00.000Z",
-  "status": "Selesai"
+  "dataPelanggan": "PELANGGAN_ID",
+  "dataAset": "ASET_ID",
+  "dataTarif": "TARIF_ID",
+  "waktuMulai": "2026-03-12T10:00:00",
+  "waktuSelesai": "2026-03-12T11:00:00",
+  "diskonItem": ["DISKON_ITEM_ID"],
+  "diskonGlobal": ["DISKON_GLOBAL_ID"]
 }
 ```
 
-### E. DELETE Sesi Booking
-Menghapus riwayat transaksi penyewaan jika salah input (Bukan untuk membatalkan!).
+---
 
-**Method:** `DELETE`
-**URL:** `/api/sesi-booking/:id`
+## Response
+
+```json
+{
+  "data": {
+    "_id": "BOOKING_ID",
+    "dataAset": {
+      "namaAset": "Lapangan Futsal 1"
+    },
+    "dataPelanggan": {
+      "namaPelanggan": "Siti"
+    },
+    "waktuMulai": "2026-03-12T10:00:00",
+    "waktuSelesai": "2026-03-12T11:00:00",
+    "durasiMenit": 60,
+    "totalBiaya": 100000,
+    "status": "Aktif"
+  }
+}
+```
+
+---
+
+# 2. Get Semua Booking
+
+Digunakan untuk melihat seluruh data booking.
+
+**URL**
+
+```
+GET /sesi-booking
+```
+
+---
+
+## Filter berdasarkan tanggal
+
+Booking juga dapat difilter berdasarkan tanggal.
+
+```
+GET /sesi-booking?tanggal=2026-03-12
+```
+
+---
+
+## Response
+
+```json
+{
+  "data": [
+    {
+      "_id": "BOOKING_ID",
+      "dataAset": {
+        "namaAset": "Lapangan Futsal 1"
+      },
+      "waktuMulai": "2026-03-12T10:00:00",
+      "waktuSelesai": "2026-03-12T11:00:00",
+      "status": "Aktif"
+    }
+  ]
+}
+```
+
+---
+
+# 3. Get Booking by ID
+
+Digunakan untuk melihat detail booking.
+
+**URL**
+
+```
+GET /sesi-booking/{id}
+```
+
+---
+
+# 4. Update Booking
+
+Digunakan untuk mengubah data booking.
+
+**URL**
+
+```
+PUT /sesi-booking/{id}
+```
+
+Contoh perubahan waktu:
+
+```json
+{
+  "waktuMulai": "2026-03-12T12:00:00",
+  "waktuSelesai": "2026-03-12T13:00:00"
+}
+```
+
+Booking akan otomatis:
+
+- menghitung ulang **durasi**
+- menghitung ulang **harga**
+- menghitung ulang **diskon**
+- menghitung ulang **pajak**
+
+---
+
+# 5. Delete Booking
+
+Digunakan untuk menghapus booking.
+
+**URL**
+
+```
+DELETE /sesi-booking/{id}
+```
+
+Response:
+
+```json
+{
+  "data": true
+}
+```
+
+---
+
+# Catatan Penting
+
+Booking akan ditolak jika:
+
+- aset sedang digunakan pada waktu tersebut
+- waktu selesai lebih awal dari waktu mulai
+- aset bukan milik tenant
+- diskon tidak valid
+
+Contoh error:
+
+```json
+{
+  "errors": [
+    "Aset sedang digunakan pada jam tersebut."
+  ]
+}
+```
+sekara

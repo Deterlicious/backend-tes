@@ -1,75 +1,379 @@
-# Dokumentasi API Pembayaran
+# Pembayaran Management API
 
-## 1. Mendaftarkan Permission Pembayaran
+Dokumentasi ini menjelaskan cara melakukan **pengujian CRUD Metode Pembayaran dan Pembayaran** menggunakan Postman.
 
-Berikan batasan kepada karyawan mana yang diizinkan untuk menerima konfirmasi setoran (biasanya dipisah antara peran *Waiter* dan *Cashier*).
+Fitur ini terdiri dari dua modul utama:
 
-**URL Tujuan:** `POST /api/permissions`
+- **Metode Pembayaran**
+- **Pembayaran**
 
-**Body JSON Request:**
-```json
+---
+
+# Permission yang Dibutuhkan
+
+Fitur ini membutuhkan permission berikut:
+
+```
+kelola-metode-pembayaran
+kelola-pembayaran
+```
+
+Permission tersebut memberikan akses untuk:
+
+### Metode Pembayaran
+- Melihat daftar metode pembayaran
+- Melihat detail metode pembayaran
+- Membuat metode pembayaran
+- Mengubah metode pembayaran
+- Menghapus metode pembayaran
+
+### Pembayaran
+- Melihat daftar pembayaran
+- Melihat detail pembayaran
+- Membuat pembayaran
+- Mengubah pembayaran
+- Menghapus pembayaran
+
+Jika pengguna tidak memiliki permission tersebut maka API akan mengembalikan response **403 Forbidden**.
+
+---
+
+# Authorization
+
+Semua endpoint membutuhkan **Bearer Token**.
+
+### Cara menggunakan Bearer Token di Postman
+
+1. Buka request di **Postman**
+2. Pilih tab **Authorization**
+3. Pilih **Type : Bearer Token**
+4. Masukkan token pada kolom **Token**
+
+Jika token tidak dikirim atau tidak valid maka request akan ditolak oleh sistem.
+
+---
+
+# Urutan Pengujian
+
+Karena terdapat relasi antar data, maka pengujian harus dilakukan dengan urutan berikut:
+
+1. CRUD Metode Pembayaran
+2. CRUD Pembayaran
+
+Pembayaran membutuhkan:
+
+- `penjualanID`
+- `metodePembayaranID`
+
+Sehingga **Metode Pembayaran harus dibuat terlebih dahulu**.
+
+---
+
+# 1. Create Metode Pembayaran
+
+### URL
+
+```
+POST /metodePembayaran
+```
+
+### JSON Request
+
+```
 {
-  "namaPermission": "Terima Pembayaran",
-  "deskripsi": "Memberikan hak bagi staff untuk mengekstrak uang masuk, merilis status lunas, dan mencairkan void payment."
+  "akunKasID": "AKUN_KAS_ID",
+  "namaPembayaran": "Transfer Bank",
+  "kategori": "non-tunai"
+}
+```
+
+### Output Response
+
+```
+{
+  "data": {
+    "_id": "METODE_PEMBAYARAN_ID",
+    "tenantID": "TENANT_ID",
+    "dataAkunKas": {
+      "_id": "AKUN_KAS_ID",
+      "namaAkun": "Kas Bank",
+      "nomorAkun": "11001"
+    },
+    "namaPembayaran": "Transfer Bank",
+    "kategori": "non-tunai",
+    "isAutomated": false,
+    "xenditChannelCode": null,
+    "isActive": true,
+    "createdAt": "2026-03-11T10:00:00.000Z",
+    "updatedAt": "2026-03-11T10:00:00.000Z"
+  }
 }
 ```
 
 ---
 
-## 2. Pengetesan CRUD Pembayaran (Postman / Insomnia)
+# 2. Get All Metode Pembayaran
 
-Pastikan Header Request memuat `Authorization: Bearer <token_anda>`.
-Endpoint umum: `/api/pembayaran`
+### URL
 
-### A. CREATE Pembayaran (Menyetorkan Uang / Hit API QRIS)
-Menyekresi dana ke satu tagihan/Penjualan tertentu. 
-
-**Method:** `POST`
-**URL:** `/api/pembayaran`
-**Body JSON:**
-```json
-{
-  "tenantID": "64efc9d1a3b8c6e2a84d1234",
-  "penjualanID": "64efc9d1a3b8c6e2a84d5678",
-  "metodePembayaranID": "64efc9d1a3b8c6e2a84d9012",
-  "akunKasID": "64efc9d1a3b8c6e2a84d3456",
-  "noReferensi": "INV-202410-001",
-  "jumlahBayar": 55000,
-  "status": "PAID",
-  "tanggalBayar": "2024-10-25T11:00:00.000Z",
-  "catatan": "Uang pas dari konsumen"
-}
 ```
-*Notes:* Jika status="PAID", `tanggalBayar` **wajib** ada (sesuai verifikasi mongoose model).
+GET /metodePembayaran
+```
 
-### B. READ All
-Memperoleh jurnal semua lalu-lintas pembayaran/uang diterima.
+### Output Response
 
-**Method:** `GET`
-**URL:** `/api/pembayaran`
-
-### C. READ By ID
-Melihat kwitansi setoran spesifik (berguna saat ada *dispute* apakah pelanggan sudah transfer atau belum).
-
-**Method:** `GET`
-**URL:** `/api/pembayaran/:id` 
-
-### D. UPDATE Pembayaran (Proses Pelunasan Tertunda)
-Hal ini rutin dijajal apabila kasir memilih mode Virtual Account yang `status`-nya sebelumnya **`PENDING`**, dan webhook Xendit memicu callback untuk menggantinya jadi **`PAID`**.
-
-**Method:** `PUT`
-**URL:** `/api/pembayaran/:id`
-**Body JSON:**
-```json
+```
 {
-  "status": "PAID",
-  "tanggalBayar": "2024-10-25T11:05:33.000Z",
-  "gatewayPaymentID": "qr_12345xcvb"
+  "data": [
+    {
+      "_id": "METODE_PEMBAYARAN_ID",
+      "tenantID": "TENANT_ID",
+      "dataAkunKas": {
+        "_id": "AKUN_KAS_ID",
+        "namaAkun": "Kas Bank",
+        "nomorAkun": "11001"
+      },
+      "namaPembayaran": "Transfer Bank",
+      "kategori": "non-tunai",
+      "isAutomated": false,
+      "xenditChannelCode": null,
+      "isActive": true
+    }
+  ]
 }
 ```
 
-### E. DELETE Pembayaran (Void / Batal Setor)
-Membatalkan / Merobek bukti setoran (Harap diperhatikan ini tidak membatalkan isi pesanan makanannya (Penjualan), namun murni merevisi transaksional dana!).
+---
 
-**Method:** `DELETE`
-**URL:** `/api/pembayaran/:id`
+# 3. Get Metode Pembayaran by ID
+
+### URL
+
+```
+GET /metodePembayaran/:id
+```
+
+### Output Response
+
+```
+{
+  "data": {
+    "_id": "METODE_PEMBAYARAN_ID",
+    "tenantID": "TENANT_ID",
+    "namaPembayaran": "Transfer Bank",
+    "kategori": "non-tunai",
+    "isActive": true
+  }
+}
+```
+
+---
+
+# 4. Update Metode Pembayaran
+
+### URL
+
+```
+PUT /metodePembayaran/:id
+```
+
+### JSON Request
+
+```
+{
+  "namaPembayaran": "Transfer Bank BCA"
+}
+```
+
+### Output Response
+
+```
+{
+  "data": {
+    "_id": "METODE_PEMBAYARAN_ID",
+    "namaPembayaran": "Transfer Bank BCA",
+    "kategori": "non-tunai",
+    "isActive": true
+  }
+}
+```
+
+---
+
+# 5. Delete Metode Pembayaran
+
+### URL
+
+```
+DELETE /metodePembayaran/:id
+```
+
+### Output Response
+
+```
+{
+  "data": true
+}
+```
+
+---
+
+# 6. Create Pembayaran
+
+### URL
+
+```
+POST /pembayaran
+```
+
+### JSON Request
+
+```
+{
+  "penjualanID": "PENJUALAN_ID",
+  "metodePembayaranID": "METODE_PEMBAYARAN_ID",
+  "jumlahBayar": 100000
+}
+```
+
+### Output Response
+
+```
+{
+  "data": {
+    "_id": "PEMBAYARAN_ID",
+    "tenantID": "TENANT_ID",
+    "penjualanID": "PENJUALAN_ID",
+    "metodePembayaranID": "METODE_PEMBAYARAN_ID",
+    "jumlahBayar": 100000,
+    "status": "PAID",
+    "tanggalBayar": "2026-03-11T10:30:00.000Z"
+  }
+}
+```
+
+---
+
+# 7. Get All Pembayaran
+
+### URL
+
+```
+GET /pembayaran
+```
+
+### Output Response
+
+```
+{
+  "data": [
+    {
+      "_id": "PEMBAYARAN_ID",
+      "penjualanID": "PENJUALAN_ID",
+      "metodePembayaranID": "METODE_PEMBAYARAN_ID",
+      "jumlahBayar": 100000,
+      "status": "PAID"
+    }
+  ]
+}
+```
+
+---
+
+# 8. Get Pembayaran by ID
+
+### URL
+
+```
+GET /pembayaran/:id
+```
+
+### Output Response
+
+```
+{
+  "data": {
+    "_id": "PEMBAYARAN_ID",
+    "penjualanID": "PENJUALAN_ID",
+    "metodePembayaranID": "METODE_PEMBAYARAN_ID",
+    "jumlahBayar": 100000,
+    "status": "PAID"
+  }
+}
+```
+
+---
+
+# 9. Update Pembayaran
+
+### URL
+
+```
+PUT /pembayaran/:id
+```
+
+### JSON Request
+
+```
+{
+  "catatan": "Pembayaran melalui transfer bank"
+}
+```
+
+### Output Response
+
+```
+{
+  "data": {
+    "_id": "PEMBAYARAN_ID",
+    "jumlahBayar": 100000,
+    "status": "PAID",
+    "catatan": "Pembayaran melalui transfer bank"
+  }
+}
+```
+
+---
+
+# 10. Delete Pembayaran
+
+### URL
+
+```
+DELETE /pembayaran/:id
+```
+
+### Output Response
+
+```
+{
+  "data": true
+}
+```
+
+---
+
+# Catatan Penting
+
+Beberapa aturan penting pada sistem pembayaran:
+
+### 1. Pembayaran tidak boleh melebihi sisa tagihan
+Jika jumlah bayar melebihi sisa tagihan maka sistem akan menolak request.
+
+### 2. Jika penjualan sudah lunas
+Maka pembayaran baru tidak dapat ditambahkan.
+
+### 3. Status pembayaran otomatis
+
+Metode pembayaran:
+
+- **Manual → status otomatis PAID**
+- **Automated (Gateway) → status PENDING**
+
+### 4. Tanggal pembayaran
+
+Tanggal pembayaran tidak boleh:
+
+- lebih awal dari tanggal transaksi penjualan
+- lebih dari **3 bulan ke belakang**
+- berada di masa depan
