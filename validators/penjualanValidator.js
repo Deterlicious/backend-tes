@@ -95,6 +95,16 @@ function validatePenjualanPayload(data, isUpdate = false) {
     validateIdOrArray(data.diskonGlobal, "diskonGlobal", errors);
 
     if (
+      data.jumlahDiskonTransaksi !== undefined &&
+      (typeof data.jumlahDiskonTransaksi !== "number" ||
+        data.jumlahDiskonTransaksi < 0)
+    ) {
+      errors.push(
+        "jumlahDiskonTransaksi manual harus berupa angka dan tidak boleh negatif"
+      );
+    }
+
+    if (
       !data.itemPenjualan ||
       !Array.isArray(data.itemPenjualan) ||
       data.itemPenjualan.length === 0
@@ -112,6 +122,15 @@ function validatePenjualanPayload(data, isUpdate = false) {
 
         if (item.hargaJual !== undefined && item.hargaJual < 0) {
           errors.push(`Item #${index + 1}: hargaJual tidak boleh negatif`);
+        }
+
+        if (
+          item.jumlahDiskon !== undefined &&
+          (typeof item.jumlahDiskon !== "number" || item.jumlahDiskon < 0)
+        ) {
+          errors.push(
+            `Item #${index + 1}: jumlahDiskon manual harus berupa angka dan tidak boleh negatif`
+          );
         }
 
         validateIdOrArray(
@@ -141,6 +160,16 @@ function validatePenjualanPayload(data, isUpdate = false) {
       validateIdOrArray(data.diskonGlobal, "diskonGlobal", errors);
     }
 
+    if (
+      data.jumlahDiskonTransaksi !== undefined &&
+      (typeof data.jumlahDiskonTransaksi !== "number" ||
+        data.jumlahDiskonTransaksi < 0)
+    ) {
+      errors.push(
+        "jumlahDiskonTransaksi manual harus berupa angka dan tidak boleh negatif"
+      );
+    }
+
     if (data.itemPenjualan !== undefined) {
       if (!Array.isArray(data.itemPenjualan) || data.itemPenjualan.length === 0) {
         errors.push("itemPenjualan tidak boleh kosong jika dikirim");
@@ -148,6 +177,15 @@ function validatePenjualanPayload(data, isUpdate = false) {
         data.itemPenjualan.forEach((item, index) => {
           if (item.produkID !== undefined && !isValidObjectId(item.produkID)) {
             errors.push(`Item #${index + 1}: produkID tidak valid`);
+          }
+
+          if (
+            item.jumlahDiskon !== undefined &&
+            (typeof item.jumlahDiskon !== "number" || item.jumlahDiskon < 0)
+          ) {
+            errors.push(
+              `Item #${index + 1}: jumlahDiskon manual harus berupa angka dan tidak boleh negatif`
+            );
           }
 
           if (item.diskonItem !== undefined) {

@@ -69,9 +69,14 @@ class PenjualanService {
           total: item.total,
           rincianPajak: Array.isArray(item.rincianPajak)
             ? item.rincianPajak.map((pajak) => ({
-                _id: pajak._id,
-                namaPajak: pajak.namaPajak,
-                tarifPajak: pajak.tarifPajak,
+                _id: pajak._id || pajak.pajakID || null,
+                namaPajak: pajak.namaPajak || null,
+                tarifPajak:
+                  pajak.tarifPajak !== undefined
+                    ? pajak.tarifPajak
+                    : pajak.tarif !== undefined
+                      ? pajak.tarif
+                      : 0,
                 jumlah: pajak.jumlah || 0,
                 model: pajak.model || null,
               }))
@@ -388,21 +393,37 @@ class PenjualanService {
 
         const itemDiskonIds = this._normalizeIds(item.diskonItem);
 
-        const diskonItemRes = await this._applyDiskonBerurutan({
-          baseAmount: item.subTotal,
-          diskonIds: itemDiskonIds,
-          tenantID,
-          cakupan: "Item",
-        });
+        if (itemDiskonIds.length > 0) {
+          const diskonItemRes = await this._applyDiskonBerurutan({
+            baseAmount: item.subTotal,
+            diskonIds: itemDiskonIds,
+            tenantID,
+            cakupan: "Item",
+          });
 
-        if (diskonItemRes.error) {
-          return {
-            error: [`Item #${index + 1}: ${diskonItemRes.error.join(", ")}`],
-          };
+          if (diskonItemRes.error) {
+            return {
+              error: [`Item #${index + 1}: ${diskonItemRes.error.join(", ")}`],
+            };
+          }
+
+          item.jumlahDiskon = diskonItemRes.totalDiskon;
+          item.diskonItemIDs = diskonItemRes.appliedIds;
+        } else {
+          let manualDiskon = Number(item.jumlahDiskon) || 0;
+
+          if (manualDiskon < 0) {
+            manualDiskon = 0;
+          }
+
+          if (manualDiskon > item.subTotal) {
+            manualDiskon = item.subTotal;
+          }
+
+          item.jumlahDiskon = manualDiskon;
+          item.diskonItemIDs = [];
         }
 
-        item.jumlahDiskon = diskonItemRes.totalDiskon;
-        item.diskonItemIDs = diskonItemRes.appliedIds;
         delete item.diskonItem;
 
         item.total = item.subTotal - item.jumlahDiskon;
@@ -427,19 +448,35 @@ class PenjualanService {
 
     const globalDiskonIds = this._normalizeIds(payload.diskonGlobal);
 
-    const diskonGblRes = await this._applyDiskonBerurutan({
-      baseAmount: grandTotalItem,
-      diskonIds: globalDiskonIds,
-      tenantID,
-      cakupan: "Global",
-    });
+    if (globalDiskonIds.length > 0) {
+      const diskonGblRes = await this._applyDiskonBerurutan({
+        baseAmount: grandTotalItem,
+        diskonIds: globalDiskonIds,
+        tenantID,
+        cakupan: "Global",
+      });
 
-    if (diskonGblRes.error) {
-      return { error: [diskonGblRes.error.join(", ")] };
+      if (diskonGblRes.error) {
+        return { error: [diskonGblRes.error.join(", ")] };
+      }
+
+      payload.jumlahDiskonTransaksi = diskonGblRes.totalDiskon;
+      payload.diskonGlobalIDs = diskonGblRes.appliedIds;
+    } else {
+      let manualDiskonTransaksi = Number(payload.jumlahDiskonTransaksi) || 0;
+
+      if (manualDiskonTransaksi < 0) {
+        manualDiskonTransaksi = 0;
+      }
+
+      if (manualDiskonTransaksi > grandTotalItem) {
+        manualDiskonTransaksi = grandTotalItem;
+      }
+
+      payload.jumlahDiskonTransaksi = manualDiskonTransaksi;
+      payload.diskonGlobalIDs = [];
     }
 
-    payload.jumlahDiskonTransaksi = diskonGblRes.totalDiskon;
-    payload.diskonGlobalIDs = diskonGblRes.appliedIds;
     delete payload.diskonGlobal;
 
     const dasarSetelahDiskon = Math.max(
