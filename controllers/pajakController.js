@@ -2,29 +2,30 @@ const pajakService = require("../services/pajakService");
 const createError = require("http-errors");
 
 class PajakController {
-  async simulasi(req, res, next) {
+  // Simulasi khusus pajak per produk
+  async simulasiProduk(req, res, next) {
     try {
       const { produkID, harga } = req.body;
-      const tenantID = req.pengguna.tenantID;
-
-      if (!produkID || harga === undefined) {
-        throw createError(
-          400,
-          "Produk ID dan Harga wajib diisi untuk simulasi."
-        );
-      }
-
-      const hasil = await pajakService.simulasiHitung(
+      const result = await pajakService.hitungPajakProduk(
         produkID,
-        Number(harga),
-        tenantID
+        harga,
+        req.pengguna.tenantID, // Pastikan menggunakan req.pengguna sesuai middleware-mu
       );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
 
-      res.status(200).json({
-        success: true,
-        message: "Simulasi perhitungan berhasil",
-        data: hasil,
-      });
+  // Simulasi khusus pajak per transaksi (global)
+  async simulasiTransaksi(req, res, next) {
+    try {
+      const { subtotal } = req.body;
+      const result = await pajakService.hitungPajakTransaksi(
+        subtotal,
+        req.pengguna.tenantID,
+      );
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
@@ -59,7 +60,7 @@ class PajakController {
     try {
       const data = await pajakService.getById(
         req.params.id,
-        req.pengguna.tenantID
+        req.pengguna.tenantID,
       );
 
       res.status(200).json({ success: true, data });
@@ -73,7 +74,7 @@ class PajakController {
       const data = await pajakService.update(
         req.params.id,
         req.pengguna.tenantID,
-        req.body
+        req.body,
       );
 
       res.status(200).json({
@@ -90,7 +91,7 @@ class PajakController {
     try {
       const result = await pajakService.delete(
         req.params.id,
-        req.pengguna.tenantID
+        req.pengguna.tenantID,
       );
 
       res.status(200).json({ success: true, ...result });

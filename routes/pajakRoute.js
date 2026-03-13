@@ -37,7 +37,8 @@ const validateUpdate = (req, res, next) => {
 router.use(authPengguna);
 
 router.post("/", validateCreate, wrap(pajakController.createPajak));
-router.post("/simulasi", wrap(pajakController.simulasi));
+router.post("/simulasi-produk", wrap(pajakController.simulasiProduk));
+router.post("/simulasi-transaksi", wrap(pajakController.simulasiTransaksi));
 router.get("/", wrap(pajakController.getAllPajak));
 router.get("/:id", wrap(pajakController.getPajakById));
 router.put("/:id", validateUpdate, wrap(pajakController.updatePajak));

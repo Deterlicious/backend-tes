@@ -23,7 +23,7 @@ function validatePajakPayload(data, isUpdate = false) {
       !VALID_MODEL.includes(data.modelPerhitungan)
     ) {
       errors.push(
-        "modelPerhitungan wajib diisi (1=Inclusive, 2=Exclusive, 3=Compound)"
+        "modelPerhitungan wajib diisi (1=Inclusive, 2=Exclusive, 3=Compound)",
       );
     }
 
@@ -65,8 +65,15 @@ function validatePajakPayload(data, isUpdate = false) {
     errors.push("prioritas tidak valid (1/2)");
   }
 
-  if (data.tipePajak !== undefined && !VALID_TIPE.includes(data.tipePajak)) {
-    errors.push("tipePajak tidak valid (Per Produk / Per Transaksi)");
+  if (data.tipePajak !== undefined) {
+    if (typeof data.tipePajak !== "boolean") {
+      errors.push(
+        "tipePajak harus bernilai boolean (true untuk Produk, false untuk Transaksi)",
+      );
+    }
+  } else {
+    // Hanya jika sedang proses CREATE
+    errors.push("tipePajak wajib diisi");
   }
 
   // if (data.akunPajakID && !isValidObjectId(data.akunPajakID)) {

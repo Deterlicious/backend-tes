@@ -19,21 +19,14 @@ const PajakSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // akunPajakID: {
-    //   type: mongoose.Schema.Types.ObjectId,
-    //   ref: "AkunKas",
-    //   required: [true, "Akun pajak wajib diisi."],
-    // },
-
     akunPajakID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "AkunKas",
     },
 
     tipePajak: {
-      type: String,
-      enum: ["Per Produk", "Per Transaksi"],
-      default: "Per Produk",
+      type: Boolean,
+      default: true, // true = Per Produk, false = Per Transaksi
     },
 
     modelPerhitungan: {
@@ -56,7 +49,7 @@ const PajakSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 PajakSchema.index({ tenantID: 1, namaPajak: 1 }, { unique: true });

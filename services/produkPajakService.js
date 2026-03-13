@@ -29,14 +29,19 @@ class ProdukPajakService {
 
       // --- LOGIKA PEMBERSIHAN CACHE ---
       if (payload.produkID) {
-        // Hapus cache list produk tenant tersebut
         await redis.del(`produk:list:${payload.tenantID}`);
-        // Hapus cache detail produk spesifik tersebut
         await redis.del(`produk:detail:${payload.produkID}`);
       }
 
       return data;
     } catch (error) {
+      // Tambahkan pengecekan index unik di sini
+      if (error.code === 11000) {
+        throw createError(
+          400,
+          "Produk ini sudah memiliki pajak. Silakan hapus pajak lama untuk menggantinya.",
+        );
+      }
       throw this.#handleDbError(error);
     }
   }
