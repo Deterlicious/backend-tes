@@ -11,7 +11,7 @@ const PembayaranSchema = new mongoose.Schema(
     akunKasID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "AkunKas",
-      default: null,
+      required: [true, "Akun Kas wajib diisi"],
       index: true,
     },
     penjualanID: {

@@ -55,6 +55,31 @@ class PembayaranService {
     };
   }
 
+  async _updateSaldoAkunKas({ akunKasID, tenantID, amount }) {
+    if (!akunKasID) return;
+
+    const akunKas = await AkunKas.findOne({
+      _id: akunKasID,
+      tenantID,
+    });
+
+    if (!akunKas) {
+      throw createError(404, "Akun Kas tidak ditemukan");
+    }
+
+    const saldoBaru = (akunKas.saldo || 0) + amount;
+
+    if (saldoBaru < 0) {
+      throw createError(400, "Saldo akun kas tidak boleh negatif");
+    }
+
+    akunKas.saldo = saldoBaru;
+    await akunKas.save();
+
+    await redis.del(`akunkas:list:${tenantID}`);
+    await redis.del(`akunkas:detail:${akunKasID}`);
+  }
+
   async _syncPenjualan(penjualanID, tenantID) {
     const penjualan = await Penjualan.findOne({ _id: penjualanID, tenantID });
 
@@ -242,6 +267,12 @@ class PembayaranService {
       payload.status = "PAID";
     }
 
+    if (payload.status === "PAID" && !payload.akunKasID) {
+      return {
+        error: ["akunKasID wajib diisi jika status pembayaran PAID"],
+      };
+    }
+
     const tglRule = this._applyTanggalBayarRules({
       payload,
       penjualanDoc: penjualanValid,
@@ -305,6 +336,14 @@ class PembayaranService {
 
     try {
       const created = await Pembayaran.create(payload);
+
+      if (created.status === "PAID") {
+        await this._updateSaldoAkunKas({
+          akunKasID: created.akunKasID,
+          tenantID: created.tenantID,
+          amount: created.jumlahBayar,
+        });
+      }
 
       await this._syncPenjualan(payload.penjualanID, payload.tenantID);
       await redis.del(CACHE_KEY_LIST(payload.tenantID));
@@ -405,6 +444,12 @@ class PembayaranService {
 
     const statusSetelah = payload.status || pembayaranLama.status;
 
+    if (statusSetelah === "PAID" && !payload.akunKasID && !pembayaranLama.akunKasID) {
+      return {
+        error: ["akunKasID wajib diisi jika status pembayaran PAID"],
+      };
+    }
+
     if (statusSetelah === "PAID") {
       const tmp = { ...payload, status: "PAID" };
 
@@ -461,6 +506,22 @@ class PembayaranService {
       return null;
     }
 
+    if (pembayaranLama.status === "PAID") {
+      await this._updateSaldoAkunKas({
+        akunKasID: pembayaranLama.akunKasID,
+        tenantID: requesterTenantID,
+        amount: -pembayaranLama.jumlahBayar,
+      });
+    }
+
+    if (updated.status === "PAID") {
+      await this._updateSaldoAkunKas({
+        akunKasID: updated.akunKasID,
+        tenantID: requesterTenantID,
+        amount: updated.jumlahBayar,
+      });
+    }
+
     await this._syncPenjualan(updated.penjualanID, requesterTenantID);
 
     await redis.del(CACHE_KEY_LIST(requesterTenantID));
@@ -480,6 +541,14 @@ class PembayaranService {
     }
 
     const penjualanID = target.penjualanID;
+
+    if (target.status === "PAID") {
+      await this._updateSaldoAkunKas({
+        akunKasID: target.akunKasID,
+        tenantID: requesterTenantID,
+        amount: -target.jumlahBayar,
+      });
+    }
 
     const result = await Pembayaran.deleteOne({
       _id: id,

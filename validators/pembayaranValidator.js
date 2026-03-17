@@ -49,6 +49,10 @@ function validatePembayaranPayload(data, isUpdate = false) {
       errors.push("metodePembayaranID wajib diisi dan valid");
     }
 
+    if (!data.akunKasID || !isValidObjectId(data.akunKasID)) {
+      errors.push("akunKasID wajib diisi dan valid");
+    }
+
     const n = toNumber(data.jumlahBayar);
 
     if (!Number.isFinite(n) || n < 0) {
@@ -66,8 +70,10 @@ function validatePembayaranPayload(data, isUpdate = false) {
     }
   }
 
-  if (data.akunKasID && !isValidObjectId(data.akunKasID)) {
-    errors.push("akunKasID tidak valid");
+  if (data.akunKasID !== undefined) {
+    if (!data.akunKasID || !isValidObjectId(data.akunKasID)) {
+      errors.push("akunKasID wajib diisi dan valid");
+    }
   }
 
   if (data.status && !VALID_STATUS.includes(data.status)) {
