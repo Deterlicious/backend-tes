@@ -18,7 +18,9 @@ class AkunController {
   async register(req, res, next) {
     try {
       const result = await akunService.register(req.body);
-      res.status(201).json({ message: "Registrasi berhasil", data: result });
+      const dataAkun = result.toObject ? result.toObject() : { ...result };
+      delete dataAkun.password;
+      res.status(201).json({ message: "Registrasi berhasil", data: dataAkun });
     } catch (err) { next(err); }
   }
 
@@ -29,6 +31,7 @@ class AkunController {
         return res.status(400).json({ message: "Email, Password, dan Device ID wajib diisi." });
       }
       const result = await akunService.login(req.body);
+      const { tokens, message, ...userData } = result;
       if (result.error) return res.status(400).json({ message: result.error });
 
       setRefreshTokenCookie(res, result.tokens.refreshToken);
@@ -36,7 +39,7 @@ class AkunController {
         message: result.message,
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
-        data: result.user
+        data: userData
       });
     } catch (err) { next(err); }
   }

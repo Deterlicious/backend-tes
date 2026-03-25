@@ -22,15 +22,14 @@ class ProdukController {
   }
 
   async create(req, res) {
-    const validation = validateProdukPayload(req.body);
-    if (!validation.valid) {
-      throw createError(400, validation.errors.join(", "));
-    }
-
     const payload = {
       ...req.body,
       tenantID: req.pengguna.tenantID,
     };
+    const validation = validateProdukPayload(payload);
+    if (!validation.valid) {
+      throw createError(400, validation.errors.join(", "));
+    }
 
     const data = await produkService.create(payload);
     res.status(201).json({ success: true, data });
