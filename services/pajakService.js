@@ -158,32 +158,44 @@ class PajakService {
 
   async update(id, tenantID, payload) {
     try {
-      // AUTO-SWITCH SAAT UPDATE
-      // Kita cek jika statusPajak dikirim sebagai true
-      if (payload.statusPajak === true) {
-        // Ambil data asli untuk memastikan apakah ini tipe transaksi (false)
-        const dataLama = await Pajak.findOne({ _id: id, tenantID });
+      // 1. Ambil data asli dari database
+      const dataLama = await Pajak.findOne({ _id: id, tenantID });
+      if (!dataLama) throw createError(404, "Data pajak tidak ditemukan.");
 
-        // Jika di payload tipePajak adalah false, ATAU di database tipePajak-nya false
-        const isTipeTransaksi =
-          payload.tipePajak === false ||
-          (dataLama && dataLama.tipePajak === false);
+      // 2. AUTO-SWITCH: Jalankan hanya jika STATUS akhirnya adalah AKTIF
+      if (
+        payload.statusPajak === true ||
+        (payload.statusPajak === undefined && dataLama.statusPajak === true)
+      ) {
+        /** * LOGIKA PERBAIKAN:
+         * Gunakan Nullish Coalescing (??) atau pengecekan manual.
+         * Kita ingin tahu: "Setelah update ini, apakah dia akan menjadi Tipe Transaksi?"
+         */
+        const tipeAkhir =
+          payload.tipePajak !== undefined
+            ? payload.tipePajak
+            : dataLama.tipePajak;
 
-        if (isTipeTransaksi) {
+        // HANYA matikan pajak lain jika tipe akhirnya adalah FALSE (Per Transaksi)
+        if (tipeAkhir === false) {
           await Pajak.updateMany(
-            { tenantID, tipePajak: false, _id: { $ne: id } },
+            {
+              tenantID,
+              tipePajak: false,
+              _id: { $ne: id }, // Kecuali data yang sedang di-update
+            },
             { $set: { statusPajak: false } },
           );
         }
       }
 
+      // 3. Eksekusi Update
       const updated = await Pajak.findOneAndUpdate(
         { _id: id, tenantID },
         { $set: payload },
         { new: true, runValidators: true },
       ).lean();
 
-      // ... rest of code (redis del, etc)
       return updated;
     } catch (error) {
       throw this.#handleDbError(error);
