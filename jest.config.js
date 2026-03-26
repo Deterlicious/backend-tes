@@ -6,12 +6,15 @@
 //   collectCoverageFrom: ["services/**/*.js", "models/**/*.js", "middleware/**/*.js"],
 // };
 
-
 module.exports = {
   testEnvironment: "node",
   testTimeout: 30000,
   coverageDirectory: "coverage",
-  collectCoverageFrom: ["services/**/*.js", "models/**/*.js", "middleware/**/*.js"],
+  collectCoverageFrom: [
+    "services/**/*.js",
+    "models/**/*.js",
+    "middleware/**/*.js",
+  ],
   projects: [
     {
       displayName: "unit",
@@ -22,6 +25,11 @@ module.exports = {
       displayName: "integration",
       testMatch: ["**/__tests__/integration/**/*.test.js"],
       setupFilesAfterEnv: ["./jest.setup.integration.js"], // ← TANPA afterEach
+    },
+    {
+      displayName: "e2e",
+      testMatch: ["**/__tests__/e2e/**/*.test.js"],
+      setupFilesAfterEnv: ["./jest.setup.integration.js"], // ← pakai setup yang sama, tanpa afterEach
     },
   ],
 };
