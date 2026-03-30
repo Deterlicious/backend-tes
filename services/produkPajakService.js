@@ -15,34 +15,28 @@ class ProdukPajakService {
   async assignPajak(payload) {
     try {
       const masterPajak = await Pajak.findById(payload.pajakID).lean();
-      if (!masterPajak) throw createError(404, "Master Pajak tidak ditemukan.");
+      if (!masterPajak) throw createError(404, "Pajak tidak ditemukan.");
 
-      payload.namaPajak = masterPajak.namaPajak;
+      // Gunakan findOneAndUpdate untuk "Menimpa" jika sudah ada produkID yang sama
+      const data = await ProdukPajak.findOneAndUpdate(
+        { produkID: payload.produkID, tenantID: payload.tenantID },
+        {
+          $set: {
+            pajakID: payload.pajakID,
+            namaPajak: masterPajak.namaPajak,
+            assetID: payload.assetID || null,
+          },
+        },
+        { upsert: true, new: true }, // Upsert: Buat baru jika belum ada, Update jika sudah ada
+      );
 
-      const data = await ProdukPajak.create({
-        produkID: payload.produkID || null,
-        assetID: payload.assetID || null,
-        pajakID: payload.pajakID,
-        namaPajak: payload.namaPajak,
-        tenantID: payload.tenantID,
-      });
-
-      // --- LOGIKA PEMBERSIHAN CACHE ---
-      if (payload.produkID) {
-        await redis.del(`produk:list:${payload.tenantID}`);
-        await redis.del(`produk:detail:${payload.produkID}`);
-      }
+      // Bersihkan Cache agar perubahan langsung terlihat di App
+      await redis.del(`produk:list:${payload.tenantID}`);
+      await redis.del(`produk:detail:${payload.produkID}`);
 
       return data;
     } catch (error) {
-      // Tambahkan pengecekan index unik di sini
-      if (error.code === 11000) {
-        throw createError(
-          400,
-          "Produk ini sudah memiliki pajak. Silakan hapus pajak lama untuk menggantinya.",
-        );
-      }
-      throw this.#handleDbError(error);
+      throw createError(500, "Gagal mengatur pajak produk.");
     }
   }
 

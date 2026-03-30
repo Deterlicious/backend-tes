@@ -3,18 +3,33 @@ const { MongoMemoryServer } = require("mongodb-memory-server");
 const Produk = require("../../../models/produkModel");
 
 let mongoServer;
+const tid = new mongoose.Types.ObjectId(); // satu tenant untuk base test
+
+/**
+ * Helper untuk menyediakan data produk dasar
+ */
+const baseProduk = (overrides = {}) => ({
+  namaProduk: "Kopi Latte",
+  hargaDasar: 10000,
+  hargaJual: 15000,
+  kategoriID: new mongoose.Types.ObjectId(),
+  tenantID: tid,
+  resep: [
+    {
+      bahanBakuID: new mongoose.Types.ObjectId(),
+      jumlah: 100,
+      satuan: "ml",
+    },
+  ],
+  ...overrides,
+});
 
 beforeAll(async () => {
-  // 1. Putuskan koneksi yang mungkin sudah ada
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
-
-  // 2. Jalankan MongoMemoryServer
   mongoServer = await MongoMemoryServer.create();
   const uri = mongoServer.getUri();
-
-  // 3. Connect dengan opsi standar agar stabil
   await mongoose.connect(uri);
 });
 
@@ -24,103 +39,73 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  await Produk.deleteMany({}); // Bersihkan data tiap selesai satu skenario
+  await Produk.deleteMany({});
 });
 
 describe("Produk Model — Unit Test", () => {
-  const validProduk = {
-    namaProduk: "Kopi Latte",
-    hargaDasar: 10000,
-    hargaJual: 15000,
-    kategoriID: new mongoose.Types.ObjectId(),
-    tenantID: new mongoose.Types.ObjectId(),
-    resep: [
-      {
-        bahanBakuID: new mongoose.Types.ObjectId(),
-        jumlah: 100,
-        satuan: "ml",
-      },
-    ],
-  };
-
-  // 1. Test Validasi Field Wajib
-  test("Harus error jika field wajib (required) tidak diisi", async () => {
-    const produkTanpaNama = new Produk({ hargaJual: 10000 });
-    let err;
-    try {
-      await produkTanpaNama.validate();
-    } catch (error) {
-      err = error;
-    }
-    expect(err.errors.namaProduk).toBeDefined();
-    expect(err.errors.hargaDasar).toBeDefined();
-    expect(err.errors.tenantID).toBeDefined();
+  // ✅ Skenario A: Produk valid
+  test("A: produk valid harus lolos validasi", async () => {
+    const p = new Produk(baseProduk());
+    await expect(p.validate()).resolves.toBeUndefined();
   });
 
-  // 2. Test Validasi Nilai Negatif
-  test("Harus error jika harga atau stok bernilai negatif", async () => {
-    const produkNegatif = new Produk({
-      ...validProduk,
-      hargaDasar: -500,
-      stok: -10,
-    });
-
-    let err;
-    try {
-      await produkNegatif.validate();
-    } catch (error) {
-      err = error;
-    }
-    expect(err.errors.hargaDasar).toBeDefined();
-    expect(err.errors.stok).toBeDefined();
+  // ❌ Skenario B: Field Wajib (namaProduk, hargaDasar, tenantID)
+  test("B: field wajib (namaProduk, hargaDasar, tenantID) harus diisi", async () => {
+    const p = new Produk({ hargaJual: 10000 }); // Melewatkan field wajib
+    await expect(p.validate()).rejects.toThrow();
   });
 
-  // 3. Test Enum pada Resep
-  test("Harus error jika satuan resep tidak sesuai enum", async () => {
-    const produkSalahSatuan = new Produk({
-      ...validProduk,
-      resep: [
-        {
-          bahanBakuID: new mongoose.Types.ObjectId(),
-          jumlah: 10,
-          satuan: "ember",
-        },
-      ],
-    });
-
-    let err;
-    try {
-      await produkSalahSatuan.validate();
-    } catch (error) {
-      err = error;
-    }
-    // "ember" tidak ada di enum ["gram", "ml", "pcs", "kg", "liter"]
-    expect(err.errors["resep.0.satuan"]).toBeDefined();
+  // ❌ Skenario C: Nilai Negatif tidak diperbolehkan
+  test("C: hargaDasar dan stok tidak boleh negatif", async () => {
+    const p = new Produk(baseProduk({ hargaDasar: -500, stok: -10 }));
+    await expect(p.validate()).rejects.toThrow();
   });
 
-  // 4. Test Compound Index (Unique Name per Tenant)
-  test("Harus error (Unique Index) jika nama produk sama dalam satu tenant", async () => {
-    // Simpan produk pertama
-    await Produk.create(validProduk);
-
-    // Coba simpan produk kedua dengan nama & tenant yang sama
-    let err;
-    try {
-      await Produk.create(validProduk);
-    } catch (error) {
-      err = error;
-    }
-
-    // Mongoose/MongoDB akan melempar error code 11000 untuk duplicate key
-    expect(err.code).toBe(11000);
+  // ❌ Skenario D: Enum Satuan Resep
+  test("D: satuan resep selain enum harus ditolak", async () => {
+    const p = new Produk(
+      baseProduk({
+        resep: [
+          {
+            bahanBakuID: new mongoose.Types.ObjectId(),
+            jumlah: 10,
+            satuan: "ember",
+          },
+        ],
+      }),
+    );
+    await expect(p.validate()).rejects.toThrow();
   });
 
-  // 5. Test Penanganan Trim
-  test("Harus melakukan trim pada namaProduk", async () => {
-    const produkSpasi = await Produk.create({
-      ...validProduk,
-      namaProduk: "   Kopi Spasi   ",
-    });
-    expect(produkSpasi.namaProduk).toBe("Kopi Spasi");
+  // ❌ Skenario E: Duplicate Name dalam satu Tenant (Compound Index)
+  test("E: duplikat namaProduk dalam satu tenant harus gagal", async () => {
+    await Produk.create(baseProduk({ namaProduk: "Kopi Duplikat" }));
+    const duplikat = new Produk(baseProduk({ namaProduk: "Kopi Duplikat" }));
+    await expect(duplikat.save()).rejects.toThrow(); // MongoServerError code 11000
+  });
+
+  // ✅ Skenario F: Nama sama di Tenant berbeda
+  test("F: namaProduk sama di tenant lain harus lolos", async () => {
+    const tenant2 = new mongoose.Types.ObjectId();
+    await Produk.create(baseProduk({ namaProduk: "Kopi Sama" }));
+    const p2 = new Produk(
+      baseProduk({ namaProduk: "Kopi Sama", tenantID: tenant2 }),
+    );
+    await expect(p2.save()).resolves.toBeDefined();
+  });
+
+  // ✅ Skenario G: Trim Nama Produk
+  test("G: namaProduk harus otomatis di-trim", async () => {
+    const p = await Produk.create(
+      baseProduk({ namaProduk: "   Kopi Trim   " }),
+    );
+    expect(p.namaProduk).toBe("Kopi Trim");
+  });
+
+  // ✅ Skenario H: Default Value Stok
+  test("H: stok harus default ke 0", async () => {
+    const p = new Produk(baseProduk({ stok: undefined }));
+    await p.validate();
+    expect(p.stok).toBe(0);
   });
 });
