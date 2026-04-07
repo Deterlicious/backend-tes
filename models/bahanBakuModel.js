@@ -12,6 +12,11 @@ const bahanBakuSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    minimalStok: {
+      type: Number,
+      default: 0,
+      min: [0, "Minimal stok tidak boleh negatif"],
+    },
     satuan: {
       type: String,
       required: [true, "Isi seperti kg, gram, liter, ml, pcs, pak, unit."],
@@ -24,10 +29,9 @@ const bahanBakuSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-// COMPOUND INDEX: Unik per tenant
 bahanBakuSchema.index({ tenantID: 1, namaBahan: 1 }, { unique: true });
 
 module.exports = mongoose.model("BahanBaku", bahanBakuSchema);

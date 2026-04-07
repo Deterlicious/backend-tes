@@ -15,8 +15,13 @@ class InventoryController {
 
   async getInventories(req, res, next) {
     try {
-      const data = await inventoryService.getAll(req.pengguna.tenantID);
-      res.status(200).json({ success: true, data });
+      const data = await inventoryService.getAll(req.query, req.pengguna);
+
+      res.status(200).json({
+        success: true,
+        count: data.length, // Tambahkan count agar Frontend mudah memproses pagination/label
+        data,
+      });
     } catch (err) {
       next(err);
     }

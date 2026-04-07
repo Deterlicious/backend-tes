@@ -19,7 +19,7 @@ const permissionsList = [
   
   // Grup: Produk
   { nama: "kelola-produk", grup: "Manajemen Produk", deskripsi: "Dapat mengatur menu dan harga" },
-  { nama: "kelola-kategori", grup: "Manajemen Produk", deskripsi: "Dapat mengatur kategori menu" },
+  { nama: "kelola-kategori", grup: "Manajemen Produk",  deskripsi: "Dapat mengatur kategori menu" },
   { nama: "kelola-bahan", grup: "Manajemen Produk", deskripsi: "Dapat mengatur stok bahan baku" },
   
   // Grup: Toko
