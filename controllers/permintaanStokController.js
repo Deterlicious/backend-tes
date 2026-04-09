@@ -6,7 +6,7 @@ class PermintaanStokController {
       const payload = {
         ...req.body,
         tenantID: req.pengguna.tenantID,
-        dimintaOleh: req.pengguna._id,
+        dimintaOleh: req.pengguna._id, // Staff yang login
       };
       const data = await permintaanStokService.create(payload);
       res.status(201).json({ success: true, data });
@@ -15,16 +15,14 @@ class PermintaanStokController {
     }
   }
 
-  // Action spesifik untuk tim kamu
   async submitRequest(req, res, next) {
     try {
+      const { id } = req.params; // Pastikan mengambil 'id' dari params
       const data = await permintaanStokService.submit(
-        req.params.id,
+        id,
         req.pengguna.tenantID,
       );
-      res
-        .status(200)
-        .json({ success: true, message: "Status: SUBMITTED", data });
+      res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
     }
@@ -32,19 +30,24 @@ class PermintaanStokController {
 
   async approveRequest(req, res, next) {
     try {
+      // PENTING: Tambahkan req.pengguna._id sebagai argumen ketiga
+      // Agar JurnalStok mencatat siapa Admin yang melakukan approve
       const data = await permintaanStokService.approve(
         req.params.id,
         req.pengguna.tenantID,
+        req.pengguna._id,
       );
+
       res.status(200).json({
         success: true,
-        message: "Status: APPROVED & STOK BERPINDAH",
+        message: "Status: COMPLETED & STOK BERPINDAH",
         data,
       });
     } catch (err) {
       next(err);
     }
   }
+
   async rejectRequest(req, res, next) {
     try {
       const data = await permintaanStokService.reject(

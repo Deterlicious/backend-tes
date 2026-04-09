@@ -1,5 +1,6 @@
 const PermintaanStok = require("../models/permintaanStokModel");
 const Inventory = require("../models/inventoryModel");
+const JurnalStok = require("../models/jurnalStokModel"); // Tambahkan ini
 const createError = require("http-errors");
 const redis = require("../config/redis");
 
@@ -8,64 +9,22 @@ class PermintaanStokService {
     return `permintaanStok:list:${tenantID}`;
   }
 
-  // FUNGSI INTI: Semua perubahan status lewat sini
-  async #changeStatus(id, tenantID, nextStatus, requestedBy) {
-    const data = await PermintaanStok.findOne({ _id: id, tenantID });
-    if (!data) throw createError(404, "Data tidak ditemukan");
-
-    // Validasi sederhana: Jangan pindahkan stok jika sudah COMPLETED
-    if (data.status === "COMPLETED")
-      throw createError(400, "Transaksi sudah selesai.");
-
-    // LOGIKA MUTASI STOK: Hanya jalan jika status menjadi COMPLETED
-    if (nextStatus === "COMPLETED") {
-      for (const item of data.items) {
-        // Kurangi asal, Tambah tujuan
-        await Inventory.findOneAndUpdate(
-          {
-            bahanBakuID: item.bahanBakuID,
-            locationID: data.dariLocationID,
-            tenantID,
-          },
-          { $inc: { stok: -item.jumlah } },
-        );
-        await Inventory.findOneAndUpdate(
-          {
-            bahanBakuID: item.bahanBakuID,
-            locationID: data.keLocationID,
-            tenantID,
-          },
-          { $inc: { stok: item.jumlah } },
-          { upsert: true },
-        );
-      }
-      await redis.del(`inventory:list:${tenantID}`);
-    }
-
-    data.status = nextStatus;
-    await data.save();
-    await redis.del(this.#KEY_LIST(tenantID));
-    return data;
-  }
-
-  // Wrapper fungsi agar Controller tetap terlihat rapi dan spesifik
   async create(payload) {
-    // Logika Penomoran Otomatis: REQ/YYYYMM/Counter
+    // Logika Penomoran Otomatis tetap di sini
     if (!payload.nomorRequest) {
       const date = new Date();
       const yearMonth = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, "0")}`;
-
-      // Mencari dokumen terakhir di bulan yang sama untuk menentukan urutan (counter)
       const lastDoc = await PermintaanStok.findOne({
         nomorRequest: new RegExp(`REQ/${yearMonth}/`),
-      }).sort({ createdAt: -1 });
+      })
+        .sort({ createdAt: -1 })
+        .lean();
 
       let counter = 1;
       if (lastDoc) {
         const lastCounter = parseInt(lastDoc.nomorRequest.split("/")[2]);
         counter = lastCounter + 1;
       }
-
       payload.nomorRequest = `REQ/${yearMonth}/${counter.toString().padStart(4, "0")}`;
     }
 
@@ -73,43 +32,35 @@ class PermintaanStokService {
     await redis.del(this.#KEY_LIST(payload.tenantID));
     return data;
   }
-  async getAll(tenantID) {
-    /* Logic GET seperti biasa dengan Redis */
-  }
 
-  // Fungsi yang dipanggil oleh berbagai endpoint action
-  async submit(id, tenantID) {
-    return this.#changeStatus(id, tenantID, "SUBMITTED");
-  }
-  async approve(id, tenantID) {
+  async approve(id, tenantID, userID) {
     const data = await PermintaanStok.findOne({ _id: id, tenantID });
     if (!data) throw createError(404, "Data permintaan tidak ditemukan.");
-    if (data.status === "COMPLETED")
-      throw createError(400, "Permintaan sudah selesai diproses.");
+    if (data.status !== "SUBMITTED")
+      throw createError(
+        400,
+        "Hanya permintaan dengan status SUBMITTED yang bisa disetujui.",
+      );
 
-    // --- STEP BY STEP VALIDASI STOK ---
+    // --- 1. VALIDASI STOK ASAL (GUDANG) ---
     for (const item of data.items) {
-      // 1. Cari data stok di lokasi asal (Gudang)
       const invAsal = await Inventory.findOne({
         bahanBakuID: item.bahanBakuID,
         locationID: data.dariLocationID,
         tenantID,
       });
 
-      // 2. Cek apakah record inventory ada ATAU stoknya kurang dari yang diminta
       if (!invAsal || invAsal.stok < item.jumlah) {
-        // Ambil nama bahan baku untuk pesan error yang lebih informatif (opsional tapi matang)
         throw createError(
           400,
-          `Stok tidak mencukupi. Sisa stok di lokasi asal hanya ${invAsal ? invAsal.stok : 0}`,
+          `Stok bahan baku ID ${item.bahanBakuID} tidak mencukupi di lokasi asal.`,
         );
       }
     }
-    // --- AKHIR VALIDASI STOK ---
 
-    // Jika semua item lolos validasi, baru jalankan mutasi
+    // --- 2. EKSEKUSI MUTASI & PENCATATAN JURNAL ---
     for (const item of data.items) {
-      // Kurangi stok asal
+      // A. Kurangi Stok Asal (Gudang)
       await Inventory.findOneAndUpdate(
         {
           bahanBakuID: item.bahanBakuID,
@@ -118,7 +69,8 @@ class PermintaanStokService {
         },
         { $inc: { stok: -item.jumlah } },
       );
-      // Tambah/Update stok tujuan
+
+      // B. Tambah Stok Tujuan (Outlet)
       await Inventory.findOneAndUpdate(
         {
           bahanBakuID: item.bahanBakuID,
@@ -128,19 +80,64 @@ class PermintaanStokService {
         { $inc: { stok: item.jumlah } },
         { upsert: true },
       );
+
+      // C. Catat Jurnal Stok (Keluar dari Gudang)
+      await JurnalStok.create({
+        bahanBakuID: item.bahanBakuID,
+        locationID: data.dariLocationID,
+        jumlah: item.jumlah,
+        tipeKoreksi: "Keluar",
+        alasan: "Transfer Gudang", // Enum dari model kamu
+        keterangan: `Kirim ke Outlet via ${data.nomorRequest}`,
+        dicatatOleh: userID,
+        tenantID,
+        tanggal: new Date(), // Pastikan tanggal tercatat dengan benar
+      });
+
+      // D. Catat Jurnal Stok (Masuk ke Outlet)
+      await JurnalStok.create({
+        bahanBakuID: item.bahanBakuID,
+        locationID: data.keLocationID,
+        jumlah: item.jumlah,
+        tipeKoreksi: "Masuk",
+        alasan: "Transfer Gudang",
+        keterangan: `Terima dari Gudang via ${data.nomorRequest}`,
+        dicatatOleh: userID,
+        tenantID,
+        tanggal: new Date(),
+      });
     }
 
     data.status = "COMPLETED";
     await data.save();
 
-    // Invalidate Redis agar data inventory di dashboard langsung terupdate
     await redis.del(`inventory:list:${tenantID}`);
     await redis.del(this.#KEY_LIST(tenantID));
 
     return data;
-  } // Langsung mutasi di MVP
+  }
+
+  async submit(id, tenantID) {
+    const data = await PermintaanStok.findOneAndUpdate(
+      { _id: id, tenantID, status: "PENDING" },
+      { status: "SUBMITTED" },
+      { new: true },
+    );
+    if (!data)
+      throw createError(404, "Data tidak ditemukan atau status bukan PENDING");
+    return data;
+  }
+
   async reject(id, tenantID) {
-    return this.#changeStatus(id, tenantID, "REJECTED");
+    const data = await PermintaanStok.findOneAndUpdate(
+      { _id: id, tenantID, status: "SUBMITTED" },
+      { status: "REJECTED" },
+      { new: true },
+    );
+    if (!data)
+      throw createError(404, "Data tidak ditemukan atau status tidak valid.");
+    await redis.del(this.#KEY_LIST(tenantID));
+    return data;
   }
 }
 

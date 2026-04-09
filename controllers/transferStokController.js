@@ -1,166 +1,116 @@
-// transferStokController.js
 const TransferStokService = require("../services/transferStokService");
-const createError = require("http-errors");
 
-// Helper untuk menangani HttpErrors yang dilempar dari Service
-const handleServiceError = (res, error) => {
-  if (createError.isHttpError(error) && error.statusCode) {
-    return res.status(error.statusCode).json({
-      message: error.message,
-      errors: error.errors,
+class TransferStokController {
+  // ✅ CREATE: Membuat Draft Transfer (PENDING)
+  async createTransferStok(req, res) {
+    const payload = {
+      ...req.body,
+      tenantID: req.pengguna.tenantID,
+      pengirimID: req.pengguna._id, // Default pengirim adalah pembuat draft
+    };
+    const data = await TransferStokService.create(payload);
+    res.status(201).json({
+      success: true,
+      message: "Draft Transfer Stok berhasil dibuat (PENDING)",
+      data,
     });
   }
-  res
-    .status(500)
-    .json({ message: error.message || "Kesalahan internal server." });
-};
 
-// ===============================================
-// ✅ CREATE: Membuat Draft Transfer (PENDING)
-// ===============================================
-exports.createTransferStok = async (req, res) => {
-  try {
-    const newTransfer = await TransferStokService.create(req.body);
-    res
-      .status(201)
-      .json({
-        message: "Draft Transfer Stok berhasil dibuat (PENDING)",
-        data: newTransfer,
-      });
-  } catch (error) {
-    handleServiceError(res, error);
+  // ✅ READ ALL: Otomatis filter berdasarkan tenant pengguna yang login
+  async getAllTransferStok(req, res) {
+    const { tenantID } = req.pengguna;
+    const data = await TransferStokService.getAll(tenantID);
+    res.status(200).json({ success: true, count: data.length, data });
   }
-};
 
-// ===============================================
-// ✅ READ ALL: Filter berdasarkan tenantID
-// ===============================================
-exports.getAllTransferStok = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
-    const transfer = await TransferStokService.getAll(tenantID);
-    res.status(200).json(transfer);
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
-
-// ===============================================
-// ✅ READ BY ID (Query: tenantID, Params: id)
-// ===============================================
-exports.getTransferStokById = async (req, res) => {
-  try {
+  // ✅ READ BY ID
+  async getTransferStokById(req, res) {
     const { id } = req.params;
-    const { tenantID } = req.query;
-    const transfer = await TransferStokService.getById(tenantID, id);
-    res.status(200).json(transfer);
-  } catch (error) {
-    handleServiceError(res, error);
+    const { tenantID } = req.pengguna;
+    const data = await TransferStokService.getById(tenantID, id);
+    res.status(200).json({ success: true, data });
   }
-};
 
-// ===============================================
-// 🔄 UPDATE DRAFT (Hanya saat PENDING)
-// ===============================================
-exports.updateTransferDraft = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
+  // 🔄 UPDATE DRAFT (Hanya saat PENDING)
+  async updateTransferDraft(req, res) {
+    const { tenantID } = req.pengguna;
     const { id } = req.params;
-    const updatedTransfer = await TransferStokService.updateDraft(
-      tenantID,
-      id,
-      req.body
-    );
-    res
-      .status(200)
-      .json({
-        message: "Draft Transfer Stok berhasil diperbarui",
-        data: updatedTransfer,
-      });
-  } catch (error) {
-    handleServiceError(res, error);
+    const data = await TransferStokService.updateDraft(tenantID, id, req.body);
+    res.status(200).json({
+      success: true,
+      message: "Draft Transfer Stok berhasil diperbarui",
+      data,
+    });
   }
-};
 
-// ===============================================
-// 🚚 UPDATE STATUS: KIRIM (Dari PENDING ke DIKIRIM)
-// Endpoint: PUT /api/transferstok/:id/kirim
-// ===============================================
-exports.markAsKirim = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
+  // 🚚 UPDATE STATUS: KIRIM (Potong Stok Asal)
+  async markAsKirim(req, res) {
+    const { tenantID, _id: userID } = req.pengguna;
     const { id } = req.params;
-    const updatedTransfer = await TransferStokService.updateStatus(
+
+    // Kirim userID di dalam updates agar JurnalStok mencatat siapa yang mengirim
+    const data = await TransferStokService.updateStatus(
       tenantID,
       id,
       "DIKIRIM",
-      req.body
+      {
+        ...req.body,
+        pengirimID: userID,
+      },
     );
-    res.status(200).json({
-      message: "Transfer Stok berhasil dikirim. Stok Gudang telah berkurang.",
-      data: updatedTransfer,
-    });
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
 
-// ===============================================
-// 📦 UPDATE STATUS: TERIMA (Dari DIKIRIM ke DITERIMA)
-// Endpoint: PUT /api/transferstok/:id/terima
-// ===============================================
-exports.markAsTerima = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
+    res.status(200).json({
+      success: true,
+      message: "Transfer Stok berhasil dikirim. Stok Gudang telah berkurang.",
+      data,
+    });
+  }
+
+  // 📦 UPDATE STATUS: TERIMA (Tambah Stok Tujuan)
+  async markAsTerima(req, res) {
+    const { tenantID, _id: userID } = req.pengguna;
     const { id } = req.params;
-    // Payload harus menyertakan items dengan qtyTerima
-    const updatedTransfer = await TransferStokService.updateStatus(
+
+    const data = await TransferStokService.updateStatus(
       tenantID,
       id,
       "DITERIMA",
-      req.body
+      {
+        ...req.body,
+        penerimaID: userID,
+      },
     );
+
     res.status(200).json({
+      success: true,
       message: "Transfer Stok berhasil diterima. Stok Toko telah bertambah.",
-      data: updatedTransfer,
+      data,
     });
-  } catch (error) {
-    handleServiceError(res, error);
   }
-};
 
-// ===============================================
-// ❌ UPDATE STATUS: BATAL (Dari PENDING/DIKIRIM ke BATAL)
-// Endpoint: PUT /api/transferstok/:id/batal
-// ===============================================
-exports.markAsBatal = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
+  // ❌ UPDATE STATUS: BATAL
+  async markAsBatal(req, res) {
+    const { tenantID, _id: userID } = req.pengguna;
     const { id } = req.params;
-    const updatedTransfer = await TransferStokService.updateStatus(
-      tenantID,
-      id,
-      "BATAL"
-    );
-    res.status(200).json({
-      message: "Transfer Stok berhasil dibatalkan.",
-      data: updatedTransfer,
-    });
-  } catch (error) {
-    handleServiceError(res, error);
-  }
-};
 
-// ===============================================
-// 🗑️ DELETE DRAFT (Hanya saat PENDING)
-// ===============================================
-exports.deleteTransferDraft = async (req, res) => {
-  try {
-    const { tenantID } = req.query;
+    const data = await TransferStokService.updateStatus(tenantID, id, "BATAL", {
+      pengirimID: userID, // Untuk log rollback jurnal
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Transfer Stok berhasil dibatalkan.",
+      data,
+    });
+  }
+
+  // 🗑️ DELETE DRAFT
+  async deleteTransferDraft(req, res) {
+    const { tenantID } = req.pengguna;
     const { id } = req.params;
     const result = await TransferStokService.deleteDraft(tenantID, id);
-    res.status(200).json(result);
-  } catch (error) {
-    handleServiceError(res, error);
+    res.status(200).json({ success: true, ...result });
   }
-};
+}
+
+module.exports = new TransferStokController();
