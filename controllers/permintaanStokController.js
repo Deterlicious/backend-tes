@@ -6,9 +6,11 @@ class PermintaanStokController {
       const payload = {
         ...req.body,
         tenantID: req.pengguna.tenantID,
-        dimintaOleh: req.pengguna._id, // Staff yang login
+        dimintaOleh: req.pengguna._id,
       };
+
       const data = await permintaanStokService.create(payload);
+
       res.status(201).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -17,11 +19,13 @@ class PermintaanStokController {
 
   async submitRequest(req, res, next) {
     try {
-      const { id } = req.params; // Pastikan mengambil 'id' dari params
+      const { id } = req.params;
+
       const data = await permintaanStokService.submit(
         id,
         req.pengguna.tenantID,
       );
+
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -30,12 +34,10 @@ class PermintaanStokController {
 
   async approveRequest(req, res, next) {
     try {
-      // PENTING: Tambahkan req.pengguna._id sebagai argumen ketiga
-      // Agar JurnalStok mencatat siapa Admin yang melakukan approve
       const data = await permintaanStokService.approve(
         req.params.id,
         req.pengguna.tenantID,
-        req.pengguna._id,
+        req.pengguna._id, // untuk dicatat di JurnalStok
       );
 
       res.status(200).json({
@@ -54,9 +56,12 @@ class PermintaanStokController {
         req.params.id,
         req.pengguna.tenantID,
       );
-      res
-        .status(200)
-        .json({ success: true, message: "Status: REJECTED", data });
+
+      res.status(200).json({
+        success: true,
+        message: "Status: REJECTED",
+        data,
+      });
     } catch (err) {
       next(err);
     }
