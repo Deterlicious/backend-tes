@@ -20,37 +20,35 @@ class InventoryService {
 
   async getAll(query, user) {
     const { tenantID } = user;
-    const { lokasiId, kategori, search } = query;
+    // Konsistensi: Hanya menggunakan locationID sesuai nama field di Model
+    const { locationID, kategori, search } = query;
 
-    // 1. Cek Cache (Hanya untuk view "All" tanpa filter)
-    const isFiltered = lokasiId || kategori || search;
+    // 1. Cek Cache (Hanya untuk view tanpa filter)
+    const isFiltered = locationID || kategori || search;
     if (!isFiltered) {
       const cache = await redis.get(this.#KEY_LIST(tenantID));
       if (cache) return JSON.parse(cache);
     }
 
-    // 2. Membangun Filter Query (Akses dibuka untuk Owner/Testing)
+    // 2. Membangun Filter Query
     let filter = { tenantID };
 
-    // Jika ada lokasiId dari query, gunakan. Jika tidak, ambil semua lokasi (Owner View)
-    if (lokasiId) {
-      filter.locationID = lokasiId;
+    if (locationID) {
+      filter.locationID = locationID;
     }
 
-    // 3. Eksekusi Query dengan Populate dan Match Kategori
+    // 3. Eksekusi Query
     let data = await Inventory.find(filter)
       .populate({
         path: "bahanBakuID",
         select: "namaBahan satuan kategori",
-        // Filter kategori dilakukan di level database melalui match
         match: kategori ? { kategori: kategori } : {},
       })
       .populate("locationID", "nama tipe")
       .sort({ createdAt: -1 })
-      .lean(); // Menggunakan lean agar performa filtering manual lebih cepat
+      .lean();
 
-    // 4. Post-Filtering: Membersihkan data yang tidak match kategori
-    // Mongoose tetap mengembalikan parent (Inventory) meski child (BahanBaku) null jika tidak match
+    // 4. Post-Filtering: Membersihkan data null akibat match kategori
     data = data.filter((item) => item.bahanBakuID !== null);
 
     // 5. Post-Filtering: Pencarian Nama Bahan
@@ -61,7 +59,7 @@ class InventoryService {
       );
     }
 
-    // 6. Simpan Cache hanya untuk data "mentah"
+    // 6. Simpan Cache
     if (!isFiltered && data.length > 0) {
       await redis.set(
         this.#KEY_LIST(tenantID),
@@ -112,35 +110,30 @@ class InventoryService {
 
   async submitOpname(id, payload, user) {
     const { fisikAktual, catatan } = payload;
-    // 'user' di sini adalah req.pengguna dari controller
     const { tenantID, _id: userID } = user;
 
     const inventory = await Inventory.findOne({ _id: id, tenantID });
-    if (!inventory) throw new Error("Data stok tidak ditemukan");
+    if (!inventory) throw createError(404, "Data stok tidak ditemukan");
 
     const stokLama = inventory.stok;
     const delta = fisikAktual - stokLama;
 
-    // 1. Update stok di Inventory
     inventory.stok = fisikAktual;
     await inventory.save();
 
-    // 2. Buat JurnalStok sesuai skema kamu
     await JurnalStok.create({
       bahanBakuID: inventory.bahanBakuID,
       tanggal: new Date(),
       tipeKoreksi: delta > 0 ? "Masuk" : "Keluar",
-      jumlah: Math.abs(delta), // Sesuai aturan min: 1 di skema kamu
-      alasan: "Stok Opname", // Sesuaikan dengan ENUM: "Stok Opname", "Rusak/Hilang", dll
+      jumlah: Math.abs(delta),
+      alasan: "Stok Opname",
       keterangan: catatan || "Koreksi stok fisik",
-      dicatatOleh: userID, // Gunakan userID dari parameter user
-      locationID: inventory.locationID,
+      dicatatOleh: userID,
+      locationID: inventory.locationID, // Konsisten menggunakan field model
       tenantID: tenantID,
     });
 
-    // 3. Clear Cache
-    await redis.del(`inventory:list:${tenantID}`);
-
+    await redis.del(this.#KEY_LIST(tenantID));
     return inventory;
   }
 
@@ -148,8 +141,8 @@ class InventoryService {
     const { stokMinimum } = payload;
     const { tenantID } = user;
 
-    // Pastikan angka tidak negatif sesuai aturan bisnis
-    if (stokMinimum < 0) throw new Error("Stok minimum tidak boleh negatif");
+    if (stokMinimum < 0)
+      throw createError(400, "Stok minimum tidak boleh negatif");
 
     const inventory = await Inventory.findOneAndUpdate(
       { _id: id, tenantID },
@@ -157,97 +150,87 @@ class InventoryService {
       { new: true },
     );
 
-    if (!inventory) throw new Error("Data stok tidak ditemukan");
+    if (!inventory) throw createError(404, "Data stok tidak ditemukan");
 
-    // Hapus cache agar UI Frontend langsung melihat perubahan warna indikator
-    await redis.del(`inventory:list:${tenantID}`);
-
+    await redis.del(this.#KEY_LIST(tenantID));
     return inventory;
   }
 
   async decreaseStok(id, qty, user) {
     const { tenantID } = user;
 
-    // Mencari inventory yang stoknya CUKUP ($gte: qty)
     const inventory = await Inventory.findOneAndUpdate(
       {
         _id: id,
         tenantID,
-        stok: { $gte: qty }, // Guard: Stok di DB harus >= qty yang diminta
+        stok: { $gte: qty },
       },
-      { $inc: { stok: -qty } }, // Kurangi stok
+      { $inc: { stok: -qty } },
       { new: true },
     );
 
     if (!inventory) {
-      // Jika tidak ditemukan, berarti stok tidak cukup
-      throw new Error("Stok tidak mencukupi untuk melakukan transaksi ini");
-    }
-
-    // Hapus cache agar UI Dashboard sinkron
-    await redis.del(`inventory:list:${tenantID}`);
-
-    return inventory;
-  }
-
-  async processSaleStock(produkID, qtyJual, lokasiID, tenantID, userID) {
-    // 1. Ambil data produk & resep (Lean agar cepat)
-    const produk = await Produk.findOne({ _id: produkID, tenantID }).lean();
-    if (!produk) throw new Error("Produk tidak ditemukan");
-
-    // Proteksi Input
-    if (!produkID || !lokasiID || !tenantID || !userID) {
-      throw new Error(
-        "Data transaksi tidak lengkap (ID Produk/Lokasi/Tenant/User wajib ada)",
+      throw createError(
+        400,
+        "Stok tidak mencukupi untuk melakukan transaksi ini",
       );
     }
 
-    if (qtyJual <= 0) {
-      throw new Error("Jumlah penjualan harus lebih dari 0");
+    await redis.del(this.#KEY_LIST(tenantID));
+    return inventory;
+  }
+
+  async processSaleStock(produkID, qtyJual, locationID, tenantID, userID) {
+    // Parameter diganti menjadi locationID agar konsisten dengan tim FE
+    const produk = await Produk.findOne({ _id: produkID, tenantID }).lean();
+    if (!produk) throw createError(404, "Produk tidak ditemukan");
+
+    if (!produkID || !locationID || !tenantID || !userID) {
+      throw createError(
+        400,
+        "Data transaksi tidak lengkap (ID Produk/Location/Tenant/User wajib ada)",
+      );
     }
 
-    // 2. Update Stok Produk (Field stok di tabel Produk)
-    // Gunakan $gte: qtyJual agar stok produk tidak jadi minus
+    if (qtyJual <= 0)
+      throw createError(400, "Jumlah penjualan harus lebih dari 0");
+
     const updatedProduk = await Produk.findOneAndUpdate(
       { _id: produkID, tenantID, stok: { $gte: qtyJual } },
       { $inc: { stok: -qtyJual } },
       { new: true },
     );
 
-    if (!updatedProduk) {
-      throw new Error("Stok porsi produk tidak mencukupi");
-    }
+    if (!updatedProduk)
+      throw createError(400, "Stok porsi produk tidak mencukupi");
 
-    // 3. Update Bahan Baku di Inventory (Jika ada resep)
     if (produk.resep && produk.resep.length > 0) {
       try {
         for (const item of produk.resep) {
           const totalButuh = item.jumlah * qtyJual;
 
-          // Update Inventory Outlet secara Atomic
           const inv = await Inventory.findOneAndUpdate(
             {
               bahanBakuID: item.bahanBakuID,
-              locationID: lokasiID,
-              tenantID: tenantID, // Pastikan tenantID ikut terkunci
+              locationID: locationID, // Konsisten
+              tenantID: tenantID,
               stok: { $gte: totalButuh },
             },
             { $inc: { stok: -totalButuh } },
             { new: true },
           );
 
-          // JIKA BAHAN BAKU TIDAK CUKUP
-          if (!inv) {
-            throw new Error(`Bahan baku tidak mencukupi untuk lokasi ini`);
-          }
+          if (!inv)
+            throw createError(
+              400,
+              `Bahan baku ${item.bahanBakuID} tidak mencukupi`,
+            );
 
-          // 4. Catat ke JurnalStok untuk Laporan Owner
           await JurnalStok.create({
             bahanBakuID: item.bahanBakuID,
-            locationID: lokasiID,
+            locationID: locationID, // Konsisten
             jumlah: totalButuh,
             tipeKoreksi: "Keluar",
-            // Pastikan string ini ada di ENUM model JurnalStok kamu
             alasan: "Lainnya",
             keterangan: `Penjualan ${produk.namaProduk} x${qtyJual}`,
             dicatatOleh: userID,
@@ -256,23 +239,16 @@ class InventoryService {
           });
         }
       } catch (error) {
-        // --- MANUAL ROLLBACK ---
-        // Jika salah satu bahan gagal di tengah jalan, kembalikan stok Produk yang tadi dipotong
+        // Rollback stok produk
         await Produk.findOneAndUpdate(
           { _id: produkID, tenantID },
           { $inc: { stok: qtyJual } },
         );
-
-        // Lempar kembali error-nya agar ditangkap oleh Controller atau Jest
         throw error;
       }
     }
 
-    // Bersihkan cache agar Dashboard Owner terupdate
-    if (redis.del) {
-      await redis.del(`inventory:list:${tenantID}`);
-    }
-
+    await redis.del(this.#KEY_LIST(tenantID));
     return updatedProduk;
   }
 }

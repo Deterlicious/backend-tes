@@ -29,6 +29,6 @@ router.patch("/:id/minimum-stok", wrap(inventoryController.updateMinimumStok));
 /** * POST /api/inventory/process-sale
  * Digunakan oleh modul penjualan untuk memotong stok berdasarkan resep produk
  */
-router.post("/process-sale", wrap(inventoryController.processSale));
+router.post("/process-sale", wrap(inventoryController.processSaleStock));
 
 module.exports = router;

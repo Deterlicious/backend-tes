@@ -94,15 +94,15 @@ class InventoryController {
    * Process Sale Stock: Fitur untuk temanmu (Bagian Penjualan)
    * Menghitung resep dan memotong stok otomatis
    */
-  async processSale(req, res, next) {
+  async processSaleStock(req, res, next) {
     try {
-      const { produkID, qtyJual, lokasiID } = req.body;
+      const { produkID, qtyJual, locationID } = req.body;
       const { tenantID, _id: userID } = req.pengguna;
 
       const data = await inventoryService.processSaleStock(
         produkID,
         qtyJual,
-        lokasiID,
+        locationID,
         tenantID,
         userID,
       );

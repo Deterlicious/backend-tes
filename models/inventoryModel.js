@@ -9,7 +9,7 @@ const inventorySchema = new mongoose.Schema(
     },
     locationID: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Lokasi", // Pastikan kamu punya model Lokasi (Gudang/Outlet)
+      ref: "Location", // Pastikan kamu punya model Lokasi (Gudang/Outlet)
       required: true,
     },
     stok: {
