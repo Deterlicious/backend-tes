@@ -9,7 +9,11 @@ const wrap = (fn) => (req, res, next) =>
 router.use(authPengguna);
 
 // Membuat draft permintaan baru
+router.get("/", wrap(permintaanStokController.getAllPermintaanStok));
+// Membuat draft baru
 router.post("/", wrap(permintaanStokController.createPermintaanStok));
+// Update isi barang (Hanya jika DRAFT atau PENDING < 5 menit)
+router.put("/:id", wrap(permintaanStokController.updatePermintaanStok));
 
 // Menggunakan PATCH untuk perubahan status (Workflow)
 router.patch("/:id/submit", wrap(permintaanStokController.submitRequest));

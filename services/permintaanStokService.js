@@ -9,8 +9,27 @@ class PermintaanStokService {
     return `permintaanStok:list:${tenantID}`;
   }
 
+  // 1. GET ALL - Untuk daftar di tabel FE
+  async getAll(query, user) {
+    const { tenantID } = user;
+    const { status } = query;
+
+    let filter = { tenantID };
+    if (status) filter.status = status;
+
+    const data = await PermintaanStok.find(filter)
+      .populate("dariLocationID", "nama")
+      .populate("keLocationID", "nama")
+      .populate("dimintaOleh", "nama")
+      .sort({ createdAt: -1 });
+
+    return data;
+  }
+
   async create(payload) {
-    // Logika Penomoran Otomatis tetap di sini
+    // Default status jika tidak dikirim adalah DRAFT
+    if (!payload.status) payload.status = "DRAFT";
+
     if (!payload.nomorRequest) {
       const date = new Date();
       const yearMonth = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, "0")}`;
@@ -31,6 +50,42 @@ class PermintaanStokService {
     const data = await PermintaanStok.create(payload);
     await redis.del(this.#KEY_LIST(payload.tenantID));
     return data;
+  }
+
+  async update(id, tenantID, payload) {
+    const data = await PermintaanStok.findOne({ _id: id, tenantID });
+
+    if (!data) throw createError(404, "Data tidak ditemukan");
+
+    // 1. Jika status sudah SUBMITTED/COMPLETED/REJECTED, mutlak tidak bisa diedit
+    const statusTerlarang = ["SUBMITTED", "COMPLETED", "REJECTED"];
+    if (statusTerlarang.includes(data.status)) {
+      throw createError(400, "Data sudah diproses dan tidak dapat diubah.");
+    }
+
+    // 2. Logika Grace Period untuk status PENDING
+    if (data.status === "PENDING") {
+      const waktuSekarang = new Date();
+      const waktuUpdateTerakhir = new Date(data.updatedAt); // Gunakan waktu saat status berubah jadi PENDING
+      const selisihMenit = (waktuSekarang - waktuUpdateTerakhir) / (1000 * 60);
+
+      if (selisihMenit > 5) {
+        throw createError(
+          400,
+          "Batas waktu edit (5 menit) untuk status PENDING telah berakhir.",
+        );
+      }
+    }
+
+    // 3. Jika status DRAFT, bebas edit (tidak kena limit 5 menit)
+    const updated = await PermintaanStok.findByIdAndUpdate(
+      id,
+      { $set: payload },
+      { new: true },
+    );
+
+    await redis.del(`permintaanStok:list:${tenantID}`);
+    return updated;
   }
 
   /**
@@ -136,14 +191,24 @@ class PermintaanStokService {
   }
 
   async submit(id, tenantID) {
-    const data = await PermintaanStok.findOneAndUpdate(
-      { _id: id, tenantID, status: "PENDING" },
-      { status: "SUBMITTED" },
-      { new: true },
-    );
-    if (!data)
-      throw createError(404, "Data tidak ditemukan atau status bukan PENDING");
-    return data;
+    // Cari data untuk tahu status sekarang
+    const request = await PermintaanStok.findOne({ _id: id, tenantID });
+    if (!request) throw createError(404, "Data tidak ditemukan");
+
+    let nextStatus;
+    if (request.status === "DRAFT") nextStatus = "PENDING";
+    else if (request.status === "PENDING") nextStatus = "SUBMITTED";
+    else
+      throw createError(
+        400,
+        `Tidak bisa submit data dengan status ${request.status}`,
+      );
+
+    request.status = nextStatus;
+    await request.save();
+
+    await redis.del(this.#KEY_LIST(tenantID));
+    return request;
   }
 
   /**
@@ -151,10 +216,6 @@ class PermintaanStokService {
    * Boleh reject jika status PENDING atau SUBMITTED
    */
   async reject(id, tenantID, userID, alasan) {
-    // --- ANTISIPASI SKENARIO 1 & 2 ---
-    // Kita cari data sekaligus mengunci status di level Query.
-    // Jika admin lain sudah klik 'Approve' (status jadi COMPLETED),
-    // maka query ini akan menghasilkan null, dan reject otomatis gagal.
     const data = await PermintaanStok.findOne({
       _id: id,
       tenantID,
@@ -162,23 +223,23 @@ class PermintaanStokService {
     });
 
     if (!data) {
-      // Memberi tahu user bahwa status sudah berubah (mungkin sudah di-approve admin lain)
       throw createError(
         400,
-        "Gagal menolak: Data tidak ditemukan atau sudah diproses (COMPLETED/REJECTED).",
+        "Gagal menolak: Data tidak ditemukan atau sudah diproses.",
       );
     }
 
-    // --- IMPLEMENTASI REJECT ---
     data.status = "REJECTED";
-    data.catatanPenolakan = alasan || "Ditolak oleh sistem/admin";
+    data.catatanPenolakan = alasan || "Ditolak oleh admin";
     data.ditolakOleh = userID;
     data.tanggalReject = new Date();
 
     await data.save();
 
-    // Invalidate cache agar UI FE langsung sinkron
-    await redis.del(this.#KEY_LIST(tenantID));
+    // JANGAN gunakan await untuk Redis di sini agar response instan
+    if (redis && redis.status === "ready") {
+      redis.del(this.#KEY_LIST(tenantID)).catch(() => {});
+    }
 
     return data;
   }

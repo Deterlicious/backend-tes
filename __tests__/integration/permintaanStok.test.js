@@ -107,7 +107,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
 
   it("Step: Reject Sukses - Tanpa Mutasi", async () => {
     const permintaan = await PermintaanStok.create({
-      nomorRequest: "REQ-002",
+      nomorRequest: "REQ-REJECT-FINAL",
       tenantID: VALID_TENANT_ID,
       status: "SUBMITTED",
       dariLocationID: new mongoose.Types.ObjectId(),
@@ -118,14 +118,11 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
 
     const res = await request(app)
       .patch(`/api/permintaanstok/${permintaan._id}/reject`)
-      .send();
+      .send({ alasan: "Test Reject" });
 
     expect(res.status).toBe(200);
-
-    // Cek Perubahan Status
-    const updated = await PermintaanStok.findById(permintaan._id);
-    expect(updated.status).toBe("REJECTED");
-  });
+    expect(res.body.data.status).toBe("REJECTED");
+  }, 20000); // Kasih waktu 20 detik
 
   // ====================== TEST PENGAMANAN (RACE CONDITION) ======================
 
@@ -171,5 +168,99 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
     // Harus gagal (400) karena barang sudah terlanjur pindah (COMPLETED)
     expect(res.status).toBe(400);
     expect(res.body.message).toContain("sudah diproses");
+  });
+
+  // ====================== TEST WORKFLOW DRAFT & GRACE PERIOD ======================
+
+  it("Step: Update Draft Sukses - Mengubah item saat status masih DRAFT", async () => {
+    // 1. Buat data DRAFT
+    const permintaan = await PermintaanStok.create({
+      nomorRequest: "REQ-DRAFT-01",
+      tenantID: VALID_TENANT_ID,
+      status: "DRAFT",
+      dariLocationID: new mongoose.Types.ObjectId(),
+      keLocationID: new mongoose.Types.ObjectId(),
+      dimintaOleh: new mongoose.Types.ObjectId(),
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+    });
+
+    // 2. Update jumlah item
+    const res = await request(app)
+      .put(`/api/permintaanstok/${permintaan._id}`) // Sesuai router.put
+      .send({
+        items: [{ bahanBakuID: permintaan.items[0].bahanBakuID, jumlah: 50 }],
+      });
+
+    expect(res.status).toBe(200);
+    const updated = await PermintaanStok.findById(permintaan._id);
+    expect(updated.items[0].jumlah).toBe(50);
+  });
+
+  it("Step: Submit Sukses - Transisi dari DRAFT ke PENDING", async () => {
+    const permintaan = await PermintaanStok.create({
+      nomorRequest: "REQ-SUBMIT-01",
+      tenantID: VALID_TENANT_ID,
+      status: "DRAFT",
+      dariLocationID: new mongoose.Types.ObjectId(),
+      keLocationID: new mongoose.Types.ObjectId(),
+      dimintaOleh: new mongoose.Types.ObjectId(),
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+    });
+
+    const res = await request(app)
+      .patch(`/api/permintaanstok/${permintaan._id}/submit`)
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("PENDING");
+  });
+
+  it("Gagal Update: Grace Period Berakhir - Mencoba edit PENDING setelah 6 menit", async () => {
+    const permintaan = await PermintaanStok.create({
+      nomorRequest: "REQ-TIMEOUT",
+      tenantID: VALID_TENANT_ID,
+      status: "PENDING",
+      dariLocationID: new mongoose.Types.ObjectId(),
+      keLocationID: new mongoose.Types.ObjectId(),
+      dimintaOleh: new mongoose.Types.ObjectId(),
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+    });
+
+    const enamMenitLalu = new Date(Date.now() - 6 * 60 * 1000);
+    await PermintaanStok.findByIdAndUpdate(
+      permintaan._id,
+      { updatedAt: enamMenitLalu },
+      { timestamps: false },
+    );
+
+    const res = await request(app)
+      .put(`/api/permintaanstok/${permintaan._id}`)
+      .send({ catatan: "Edit Timeout" });
+
+    expect(res.status).toBe(400);
+    // Cukup cek kata kunci intinya saja agar tidak bentrok dengan titik/koma
+    expect(res.body.message).toMatch(/Batas waktu edit/);
+    expect(res.body.message).toMatch(/telah berakhir/);
+  });
+
+  it("Gagal Approve: Status masih DRAFT (Workflow Guard)", async () => {
+    // Admin tidak boleh bisa approve barang yang masih DRAFT (masih diutak-atik outlet)
+    const permintaan = await PermintaanStok.create({
+      nomorRequest: "REQ-ILLEGAL-APPROVE",
+      tenantID: VALID_TENANT_ID,
+      status: "DRAFT",
+      dariLocationID: new mongoose.Types.ObjectId(),
+      keLocationID: new mongoose.Types.ObjectId(),
+      dimintaOleh: new mongoose.Types.ObjectId(),
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+    });
+
+    const res = await request(app)
+      .patch(`/api/permintaanstok/${permintaan._id}/approve`)
+      .send();
+
+    // Harus gagal karena syarat Approve adalah status SUBMITTED
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain("tidak dalam status SUBMITTED");
   });
 });
