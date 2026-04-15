@@ -1,6 +1,9 @@
 const PermintaanStok = require("../models/permintaanStokModel");
 const Inventory = require("../models/inventoryModel");
 const JurnalStok = require("../models/jurnalStokModel");
+const TransferStokService = require("./transferStokService");
+// 1. Hapus 'new' karena yang di-export dari transferStokService sudah berupa instance
+const transferService = require("./transferStokService");
 const createError = require("http-errors");
 const redis = require("../config/redis");
 
@@ -92,8 +95,9 @@ class PermintaanStokService {
    * APPROVE REQUEST - Transfer Stok (Atomic tanpa Mongoose Session/Transaction)
    * Menggunakan findOneAndUpdate + $gte + $inc untuk mencegah race condition
    */
+
   async approve(id, tenantID, userID) {
-    // 1. Cari data & pastikan status masih SUBMITTED (Pencegahan Double Approve)
+    // 1. Cari data Permintaan
     const data = await PermintaanStok.findOne({
       _id: id,
       tenantID,
@@ -101,93 +105,51 @@ class PermintaanStokService {
     });
 
     if (!data) {
-      // Cek apakah memang tidak ada atau statusnya sudah berubah
-      const existing = await PermintaanStok.findOne({ _id: id, tenantID });
-      if (!existing) throw createError(404, "Data permintaan tidak ditemukan.");
       throw createError(
         400,
         "Permintaan sudah diproses atau tidak dalam status SUBMITTED.",
       );
     }
 
-    // --- 2. VALIDASI & PENGURANGAN STOK ASAL (Lakukan untuk semua item dulu) ---
-    // Kita simpan hasil pengurangan sementara untuk verifikasi
-    for (const item of data.items) {
-      const sourceResult = await Inventory.findOneAndUpdate(
-        {
-          bahanBakuID: item.bahanBakuID,
-          locationID: data.dariLocationID,
-          tenantID,
-          stok: { $gte: item.jumlah }, // Atomic Check
-        },
-        { $inc: { stok: -item.jumlah } },
-        { new: true },
-      );
-
-      if (!sourceResult) {
-        // Jika satu item saja gagal, alur berhenti.
-        // Catatan: Tanpa 'Session', item yang sudah terlanjur dikurangi di loop sebelumnya
-        // harus dikembalikan secara manual jika ingin benar-benar aman,
-        // tapi cek di awal loop biasanya sudah meminimalisir ini.
-        throw createError(
-          400,
-          `Stok bahan baku ID ${item.bahanBakuID} tidak mencukupi di gudang asal.`,
-        );
-      }
-    }
-
-    // --- 3. PENAMBAHAN STOK TUJUAN + PENCATATAN JURNAL ---
-    for (const item of data.items) {
-      // A. Tambah Stok di Gudang Tujuan (dengan upsert)
-      await Inventory.findOneAndUpdate(
-        {
-          bahanBakuID: item.bahanBakuID,
-          locationID: data.keLocationID,
-          tenantID,
-        },
-        { $inc: { stok: item.jumlah } },
-        { upsert: true },
-      );
-
-      // B. Catat Jurnal Stok (Sekaligus Keluar & Masuk)
-      // Keluar dari Gudang Asal
-      await JurnalStok.create({
+    // 2. Siapkan Payload untuk Surat Jalan (TransferStok)
+    // Kita sesuaikan field 'jumlah' di Permintaan ke 'qtyKirim' di Transfer
+    const payloadTransfer = {
+      nomorTransfer: `SJ-${data.nomorRequest}-${Date.now().toString().slice(-4)}`, // Generate No. Surat Jalan
+      tenantID: tenantID,
+      dariLocationID: data.dariLocationID,
+      keLocationID: data.keLocationID,
+      pengirimID: userID,
+      tanggalKirim: new Date(),
+      permintaanStokID: data._id,
+      items: data.items.map((item) => ({
         bahanBakuID: item.bahanBakuID,
-        locationID: data.dariLocationID,
-        jumlah: item.jumlah,
-        tipeKoreksi: "Keluar",
-        alasan: "Transfer Gudang",
-        keterangan: `Kirim ke Outlet via ${data.nomorRequest}`,
-        dicatatOleh: userID,
-        tenantID,
-        tanggal: new Date(),
-      });
+        qtyKirim: item.jumlah, // Mapping jumlah -> qtyKirim
+        qtyTerima: 0,
+      })),
+      permintaanStokID: data._id, // Simpan referensi balik
+    };
 
-      // Masuk ke Lokasi Tujuan
-      await JurnalStok.create({
-        bahanBakuID: item.bahanBakuID,
-        locationID: data.keLocationID,
-        jumlah: item.jumlah,
-        tipeKoreksi: "Masuk",
-        alasan: "Transfer Gudang",
-        keterangan: `Terima dari Gudang via ${data.nomorRequest}`,
-        dicatatOleh: userID,
-        tenantID,
-        tanggal: new Date(),
-      });
-    }
+    // 3. Buat Dokumen Transfer Stok (Surat Jalan)
+    const newTransfer = await transferService.create(payloadTransfer);
 
-    // 4. Update status permintaan menjadi COMPLETED
-    data.status = "COMPLETED";
-    data.tanggalApprove = new Date(); // Tambahkan info tanggal approve
-    data.disetujuiOleh = userID; // Tambahkan info siapa yang menyetujui
+    // 4. Update Status Permintaan menjadi APPROVED
+    data.status = "APPROVED";
+    data.transferStokID = newTransfer._id; // Link ke Surat Jalan
+    data.disetujuiOleh = userID;
+    data.tanggalApprove = new Date();
     await data.save();
 
-    // 5. Invalidate cache (Gunakan pipeline jika redis mendukung untuk efisiensi)
-    await redis.del(`inventory:list:${tenantID}`);
-    await redis.del(this.#KEY_LIST(tenantID));
+    // 5. Invalidate Cache Permintaan
+    if (redis && redis.status === "ready") {
+      await redis.del(this.#KEY_LIST(tenantID));
+    }
 
-    return data;
+    return {
+      message:
+        "Permintaan disetujui. Surat Jalan (Transfer Stok) telah diterbitkan.",
+      transferID: newTransfer._id,
+      nomorSuratJalan: newTransfer.nomorTransfer,
+    };
   }
 
   async submit(id, tenantID) {

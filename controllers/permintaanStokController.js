@@ -67,17 +67,15 @@ class PermintaanStokController {
 
   async approveRequest(req, res, next) {
     try {
-      const data = await permintaanStokService.approve(
-        req.params.id,
+      const { id } = req.params;
+      const result = await permintaanStokService.approve(
+        id,
         req.pengguna.tenantID,
         req.pengguna._id,
       );
 
-      res.status(200).json({
-        success: true,
-        message: "Status: COMPLETED & STOK BERPINDAH",
-        data,
-      });
+      // Pastikan result (yang berisi transferID) dikirim langsung di root body
+      return res.status(200).json(result);
     } catch (err) {
       next(err);
     }

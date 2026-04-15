@@ -224,6 +224,13 @@ class TransferStokService {
         transfer.status = "DITERIMA";
         transfer.tanggalTerima = updates.tanggalTerima || Date.now();
         transfer.penerimaID = updates.penerimaID || transfer.penerimaID;
+      }
+      if (transfer.permintaanStokID) {
+        const PermintaanStok = require("../models/permintaanStokModel");
+        await PermintaanStok.findOneAndUpdate(
+          { _id: transfer.permintaanStokID, tenantID },
+          { status: "COMPLETED" },
+        );
       } else if (newStatus === "BATAL") {
         // C. TRANSAKSI DIBATALKAN
         if (oldStatus === "DIKIRIM") {
