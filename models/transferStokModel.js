@@ -11,7 +11,7 @@ const TransferStokSchema = new mongoose.Schema(
     permintaanStokID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PermintaanStok",
-      required: true, // Tambahkan required agar jika kosong langsung error di awal
+      default: null,
     },
     // RELASI: DARI MANA? (Biasanya Gudang)
     dariLocationID: {

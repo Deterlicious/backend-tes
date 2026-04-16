@@ -35,13 +35,37 @@ class TransferStokService {
     return createError(500, error.message || defaultMessage);
   } // --- CREATE (Hanya Membuat Draft Transfer - Status PENDING) ---
 
+  // --- CREATE (Membuat Draft Transfer - Status PENDING) ---
   async create(payload) {
+    // 1. AUTO-GENERATE NOMOR TRANSFER (Khusus untuk transfer manual antar outlet)
+    if (!payload.nomorTransfer) {
+      const uniqueString = Date.now().toString().slice(-4);
+      payload.nomorTransfer = `TRF-OUT-${uniqueString}`;
+    }
+
     const validation = validateTransferPayload(payload, false);
     if (!validation.valid)
       throw createError(400, {
         message: "Validasi gagal.",
         errors: validation.errors,
       });
+
+    // 2. EARLY STOCK VALIDATION (Cek stok di awal agar tidak membuat draft kosong)
+    for (const item of payload.items) {
+      const cekStok = await Inventory.findOne({
+        bahanBakuID: item.bahanBakuID,
+        locationID: payload.dariLocationID,
+        tenantID: payload.tenantID,
+      });
+
+      // Jika stok fisik tidak ada atau kurang dari yang mau dikirim
+      if (!cekStok || cekStok.stok < item.qtyKirim) {
+        throw createError(
+          400,
+          `Pembuatan Draft Gagal: Stok untuk salah satu bahan baku tidak mencukupi di lokasi asal.`,
+        );
+      }
+    }
 
     try {
       const transfer = await TransferStok.create(payload);
@@ -207,7 +231,7 @@ class TransferStokService {
             { upsert: true },
           );
 
-          // --- TAMBAHAN: Jurnal Stok Masuk ---
+          // Jurnal Stok Masuk
           const JurnalStok = require("../models/jurnalStokModel");
           await JurnalStok.create({
             bahanBakuID: item.bahanBakuID,
@@ -221,20 +245,24 @@ class TransferStokService {
             tanggal: new Date(),
           });
         }
+
         transfer.status = "DITERIMA";
         transfer.tanggalTerima = updates.tanggalTerima || Date.now();
         transfer.penerimaID = updates.penerimaID || transfer.penerimaID;
-      }
-      if (transfer.permintaanStokID) {
-        const PermintaanStok = require("../models/permintaanStokModel");
-        await PermintaanStok.findOneAndUpdate(
-          { _id: transfer.permintaanStokID, tenantID },
-          { status: "COMPLETED" },
-        );
+
+        // 🎯 LOGIKA JEMBATAN (Hanya dieksekusi jika ini berasal dari Permintaan Pusat)
+        if (transfer.permintaanStokID) {
+          const PermintaanStok = require("../models/permintaanStokModel");
+          await PermintaanStok.findOneAndUpdate(
+            { _id: transfer.permintaanStokID, tenantID },
+            { status: "COMPLETED" },
+          );
+        }
       } else if (newStatus === "BATAL") {
         // C. TRANSAKSI DIBATALKAN
         if (oldStatus === "DIKIRIM") {
           for (const item of transfer.items) {
+            // Kembalikan stok ke lokasi asal
             await Inventory.updateOne(
               {
                 bahanBakuID: item.bahanBakuID,
@@ -244,7 +272,7 @@ class TransferStokService {
               { $inc: { stok: item.qtyKirim } },
             );
 
-            // --- TAMBAHAN: Jurnal Stok Pembatalan (Masuk Kembali) ---
+            // Jurnal Stok Pembatalan (Masuk Kembali)
             const JurnalStok = require("../models/jurnalStokModel");
             await JurnalStok.create({
               bahanBakuID: item.bahanBakuID,
