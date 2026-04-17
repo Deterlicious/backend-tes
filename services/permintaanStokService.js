@@ -21,8 +21,8 @@ class PermintaanStokService {
     if (status) filter.status = status;
 
     const data = await PermintaanStok.find(filter)
-      .populate("dariLocationID", "nama")
-      .populate("keLocationID", "nama")
+      .populate("dariLocationID", "nama tipe")
+      .populate("keLocationID", "nama tipe")
       .populate("dimintaOleh", "nama")
       .sort({ createdAt: -1 });
 
