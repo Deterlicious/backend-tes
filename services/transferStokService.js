@@ -81,8 +81,8 @@ class TransferStokService {
 
     try {
       const transfer = await TransferStok.find({ tenantID })
-        .populate("dariLocationID", "namaLokasi")
-        .populate("keLocationID", "namaLokasi")
+        .populate("dariLocationID", "nama tipe")
+        .populate("keLocationID", "nama tipe")
         .populate("pengirimID", "nama")
         .populate("penerimaID", "nama")
         .sort({ tanggalKirim: -1, createdAt: -1 });
@@ -108,8 +108,8 @@ class TransferStokService {
 
     try {
       const transfer = await TransferStok.findOne({ _id: id, tenantID })
-        .populate("dariLocationID", "namaLokasi")
-        .populate("keLocationID", "namaLokasi")
+        .populate("dariLocationID", "nama tipe")
+        .populate("keLocationID", "nama tipe")
         .populate("pengirimID", "nama")
         .populate("penerimaID", "nama")
         .populate("items.bahanBakuID", "namaBahan satuan");
