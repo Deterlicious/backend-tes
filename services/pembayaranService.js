@@ -85,11 +85,14 @@ class PembayaranService {
 
     if (!penjualan) return;
 
-    const pembayaranSukses = await Pembayaran.find({
+    const semuaPembayaran = await Pembayaran.find({
       penjualanID,
       tenantID,
-      status: "PAID",
     });
+
+    const pembayaranSukses = semuaPembayaran.filter(
+      (item) => item.status === "PAID"
+    );
 
     const totalUangMasuk = pembayaranSukses.reduce(
       (acc, curr) => acc + (curr.jumlahBayar || 0),
@@ -97,6 +100,13 @@ class PembayaranService {
     );
 
     penjualan.totalDibayar = totalUangMasuk;
+
+    const adaVoid = semuaPembayaran.some((item) => item.status === "VOID");
+
+    if (adaVoid && penjualan.statusPenjualan === "FINAL") {
+      penjualan.statusPenjualan = "DRAFT";
+    }
+
     await penjualan.save();
 
     await redis.del(`penjualan:detail:${penjualanID}`);
@@ -104,35 +114,14 @@ class PembayaranService {
   }
 
   _applyTanggalBayarRules({ payload, penjualanDoc }) {
-    const jenis = String(penjualanDoc.jenisTransaksi || "").toUpperCase();
-
     if (payload.status !== "PAID") {
-      return { ok: true };
-    }
-
-    if (jenis === "POS") {
-      if (!payload.tanggalBayar) {
-        payload.tanggalBayar = new Date();
-      }
-
-      return { ok: true };
-    }
-
-    if (jenis === "INVOICE") {
-      if (!payload.tanggalBayar) {
-        return {
-          ok: false,
-          error: ["tanggalBayar wajib diisi manual untuk pembayaran INVOICE."],
-        };
-      }
-
       return { ok: true };
     }
 
     if (!payload.tanggalBayar) {
       return {
         ok: false,
-        error: ["tanggalBayar wajib diisi (jenisTransaksi tidak dikenali)."],
+        error: ["tanggalBayar wajib diisi jika status pembayaran PAID."],
       };
     }
 
@@ -255,6 +244,12 @@ class PembayaranService {
       return { error: ["ID Penjualan tidak ditemukan."] };
     }
 
+    if (penjualanValid.statusPenjualan === "VOID") {
+      return {
+        error: ["Penjualan dengan status VOID tidak dapat menerima pembayaran."],
+      };
+    }
+
     if (!metodeValid) {
       return {
         error: ["Metode Pembayaran tidak valid atau sedang tidak aktif."],
@@ -265,6 +260,12 @@ class PembayaranService {
       payload.status = payload.status || "PENDING";
     } else {
       payload.status = "PAID";
+    }
+
+    if (payload.status === "VOID") {
+      return {
+        error: ["Pembayaran baru tidak boleh langsung dibuat dengan status VOID."],
+      };
     }
 
     if (payload.status === "PAID" && !payload.akunKasID) {
@@ -391,6 +392,10 @@ class PembayaranService {
       return { error: ["Pembayaran tidak ditemukan."] };
     }
 
+    if (pembayaranLama.status === "VOID") {
+      return { error: ["Pembayaran yang sudah VOID tidak dapat diubah lagi."] };
+    }
+
     const penjualanValid = await Penjualan.findOne({
       _id: pembayaranLama.penjualanID,
       tenantID: requesterTenantID,
@@ -444,7 +449,11 @@ class PembayaranService {
 
     const statusSetelah = payload.status || pembayaranLama.status;
 
-    if (statusSetelah === "PAID" && !payload.akunKasID && !pembayaranLama.akunKasID) {
+    if (
+      statusSetelah === "PAID" &&
+      !payload.akunKasID &&
+      !pembayaranLama.akunKasID
+    ) {
       return {
         error: ["akunKasID wajib diisi jika status pembayaran PAID"],
       };
@@ -538,6 +547,10 @@ class PembayaranService {
 
     if (!target) {
       return null;
+    }
+
+    if (target.status === "VOID") {
+      return { error: ["Pembayaran dengan status VOID tidak dapat dihapus."] };
     }
 
     const penjualanID = target.penjualanID;

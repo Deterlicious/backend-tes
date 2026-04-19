@@ -10,11 +10,26 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await mongoose.disconnect();
-  await mongod.stop();
+  // Tutup koneksi MongoDB
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect();
+  }
 
-  const redis = require("./config/redis"); // sesuaikan path
-  await redis.quit();
+  // Stop Mongo Memory Server
+  if (mongod) {
+    await mongod.stop();
+  }
+
+  // Tutup koneksi Redis jika masih aktif
+  try {
+    const redis = require("./config/redis");
+
+    if (redis && redis.status !== "end") {
+      redis.disconnect();
+    }
+  } catch (err) {
+    // abaikan error shutdown redis saat testing
+  }
 });
 
 // ← tidak ada afterEach, data bertahan selama satu test suite berjalan

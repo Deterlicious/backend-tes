@@ -2,9 +2,12 @@ const express = require("express");
 const router = express.Router();
 
 const tipeAsetController = require("../controllers/tipeAsetController");
+const authPengguna = require("../middleware/authPengguna"); // 1. Import middleware
 
 const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn.call(tipeAsetController, req, res, next)).catch(next);
+
+router.use(authPengguna); // 2. Pasang middleware agar token dibaca
 
 router
   .route("/")

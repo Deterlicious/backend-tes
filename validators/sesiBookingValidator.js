@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const VALID_STATUS = ["Aktif", "Selesai", "Batal"];
+const VALID_STATUS = ["Aktif", "Selesai", "Batal", "VOID"];
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -97,7 +97,7 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     }
 
     if (data.status !== undefined && !VALID_STATUS.includes(data.status)) {
-      errors.push("status tidak valid (Aktif/Selesai/Batal)");
+      errors.push("status tidak valid (Aktif/Selesai/Batal/VOID)");
     }
 
     if (
@@ -134,7 +134,7 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     }
 
     if (data.status !== undefined && !VALID_STATUS.includes(data.status)) {
-      errors.push("status tidak valid (Aktif/Selesai/Batal)");
+      errors.push("status tidak valid (Aktif/Selesai/Batal/VOID)");
     }
   }
 

@@ -1,63 +1,59 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
-const penggunaSchema = new mongoose.Schema({
-  nama: {
-    type: String,
-    required: true,
-    trim: true,
+const penggunaSchema = new mongoose.Schema(
+  {
+    nama: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    pin: {
+      type: String,
+      required: true, 
+    },
+    roleID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role",
+      required: true,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ["aktif", "non-aktif"],
+      default: "aktif",
+      index: true,
+    },
+    nomorHp: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true, 
+    },
+    fotoKaryawan: {
+      type: String,
+      default: null,
+    },
+    tokenVersion: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
   },
-  pin: {
-    type: String,
-    required: true,
-    // Note: 'unique' pada PIN dihilangkan karena PIN '123456' bisa dipakai
-    // oleh user berbeda di tenant berbeda. Kombinasi unik harusnya (tenantID + pin)
-    // Tapi karena PIN rahasia, validasi unik manual di service lebih aman daripada index DB.
+  {
+    timestamps: true, 
   },
-  roleID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Role",
-    required: true,
-    index: true,
-  },
-  status: {
-    type: String,
-    enum: ["aktif", "non-aktif"],
-    default: "aktif",
-    index: true,
-  },
-  nomorHp: {
-    type: String,
-    default: null,
-    trim: true,
-  },
-  posisiID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Posisi",
-    default: null,
-    index: true,
-  },
-  tenantID: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Tenant",
-    required: true,
-    index: true,
-  },
-  fotoKaryawan: {
-    type: String,
-    default: null,
-  },
-  tokenVersion: {
-    type: Number,
-    required: true,
-    default: 0,
-  },
-});
+);
 
 // Compound Index: Optimasi login screen (Tampilkan karyawan aktif di tenant X)
 penggunaSchema.index({ tenantID: 1, status: 1 });
 
-// Pre-save hook untuk Hashing PIN
+// Middleware untuk Hashing PIN sebelum disimpan
 penggunaSchema.pre("save", async function (next) {
   if (!this.isModified("pin")) return next();
   try {
@@ -69,7 +65,8 @@ penggunaSchema.pre("save", async function (next) {
   }
 });
 
-// Method Compare PIN
+penggunaSchema.index({ tenantID: 1, nama: 1 }, { unique: true });
+// Method untuk membandingkan PIN saat login
 penggunaSchema.methods.comparePin = async function (candidatePin) {
   return await bcrypt.compare(candidatePin, this.pin);
 };

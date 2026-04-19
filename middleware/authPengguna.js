@@ -11,20 +11,20 @@ module.exports = async (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      throw createError(401, "Token Pengguna tidak ditemukan.");
+      throw createError(
+        401,
+        "Akses ditolak. Token pengguna tidak ditemukan."
+      );
     }
 
     const token = authHeader.split(" ")[1];
-
     let decoded;
+
     try {
       decoded = jwt.verify(token, PENGGUNA_JWT_SECRET);
     } catch (err) {
       if (err.name === "TokenExpiredError") {
-        throw createError(
-          401,
-          "Sesi pengguna berakhir. Silakan login kembali."
-        );
+        throw createError(401, "Sesi telah berakhir. Silakan login kembali.");
       }
       throw createError(403, "Token pengguna tidak valid.");
     }
@@ -33,30 +33,35 @@ module.exports = async (req, res, next) => {
       .select("tokenVersion roleID nama tenantID")
       .populate({
         path: "roleID",
-        select: "permissions namaRole",
+        select: "namaRole permissions",
+        populate: {
+          path: "permissions",
+          select: "nama grup",
+        },
       })
       .lean();
-
-    if (!pengguna.roleID) {
-      throw createError(403, "Role tidak valid");
-    }
-
-    pengguna.permissions = pengguna.roleID.permissions || [];
 
     if (!pengguna) {
       throw createError(401, "Data pengguna tidak ditemukan.");
     }
 
-    // Validasi token version (logout paksa / reuse protection)
+    if (!pengguna.roleID) {
+      throw createError(
+        403,
+        "Role pengguna tidak valid atau telah dihapus."
+      );
+    }
+
     if (pengguna.tokenVersion !== decoded.version) {
       throw createError(401, "Sesi tidak valid. Silakan login kembali.");
     }
 
-    req.pengguna = pengguna;
-    req.userDecoded = decoded; // opsional, tapi berguna untuk audit/log
+    // FIX: ambil field permission yang benar (nama)
+    const permissionList = pengguna.roleID.permissions || [];
+    pengguna.permissions = permissionList.map((p) => p.nama);
 
-    console.log("ROLE:", pengguna.roleID.namaRole);
-    console.log("PERMISSIONS:", pengguna.permissions);
+    req.pengguna = pengguna;
+    req.userDecoded = decoded;
 
     next();
   } catch (err) {

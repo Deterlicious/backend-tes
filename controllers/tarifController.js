@@ -2,10 +2,20 @@ const tarifService = require("../services/tarifService");
 const createError = require("http-errors");
 
 class TarifController {
+  // Fungsi internal untuk mengambil tenantID dari token
+  _getRequesterTenantID(req) {
+    return req.pengguna?.tenantID || null;
+  }
+
   async getAll(req, res, next) {
     try {
-      const { tenantID } = req.query;
-      const result = await tarifService.getAll(tenantID);
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) {
+        throw createError(403, "Tenant tidak valid.");
+      }
+
+      // Pastikan query filter tetap dikirim ke service
+      const result = await tarifService.getAll(tenantID, req.query);
 
       res.json({ data: result });
     } catch (err) {
@@ -15,10 +25,9 @@ class TarifController {
 
   async getById(req, res, next) {
     try {
-      const { tenantID } = req.query;
-
+      const tenantID = this._getRequesterTenantID(req);
       if (!tenantID) {
-        return res.status(400).json({ message: "tenantID required" });
+        throw createError(403, "Tenant tidak valid.");
       }
 
       const result = await tarifService.getById(req.params.id, tenantID);
@@ -35,7 +44,18 @@ class TarifController {
 
   async create(req, res, next) {
     try {
-      const result = await tarifService.create(req.body);
+      const tenantID = this._getRequesterTenantID(req);
+      if (!tenantID) {
+        throw createError(403, "Tenant tidak valid.");
+      }
+
+      // Inject tenantID dari token ke dalam payload body
+      const payload = {
+        ...req.body,
+        tenantID,
+      };
+
+      const result = await tarifService.create(payload);
 
       if (result?.error) {
         return res.status(400).json({ errors: result.error });
@@ -49,10 +69,9 @@ class TarifController {
 
   async update(req, res, next) {
     try {
-      const { tenantID } = req.query;
-
+      const tenantID = this._getRequesterTenantID(req);
       if (!tenantID) {
-        return res.status(400).json({ message: "tenantID required" });
+        throw createError(403, "Tenant tidak valid.");
       }
 
       const result = await tarifService.update(
@@ -77,10 +96,9 @@ class TarifController {
 
   async delete(req, res, next) {
     try {
-      const { tenantID } = req.query;
-
+      const tenantID = this._getRequesterTenantID(req);
       if (!tenantID) {
-        return res.status(400).json({ message: "tenantID required" });
+        throw createError(403, "Tenant tidak valid.");
       }
 
       const result = await tarifService.delete(req.params.id, tenantID);

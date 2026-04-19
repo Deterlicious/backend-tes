@@ -137,6 +137,10 @@ class PembayaranController {
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembayaranService.delete(req.params.id, tenantID);
 
+      if (result?.error) {
+        return res.status(400).json({ errors: result.error });
+      }
+
       if (!result) {
         throw createError(404, "Pembayaran tidak ditemukan");
       }

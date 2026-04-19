@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const VALID_STATUS_PENJUALAN = ["DRAFT", "FINAL"];
+const VALID_STATUS_PENJUALAN = ["DRAFT", "FINAL", "VOID"];
 const VALID_JENIS_TRANSAKSI = ["POS", "INVOICE"];
 const VALID_JENIS_PENJUALAN = ["dine-in", "takeaway", "booking"];
 
@@ -51,7 +51,7 @@ function validatePenjualanPayload(data, isUpdate = false) {
     data.statusPenjualan !== undefined &&
     !VALID_STATUS_PENJUALAN.includes(data.statusPenjualan)
   ) {
-    errors.push("statusPenjualan tidak valid (DRAFT/FINAL)");
+    errors.push("statusPenjualan tidak valid (DRAFT/FINAL/VOID)");
   }
 
   if (!isUpdate) {
@@ -91,8 +91,8 @@ function validatePenjualanPayload(data, isUpdate = false) {
       errors.push("jatuhTempo tidak valid");
     }
 
-    validateIdOrArray(data.pajakTransaksi, "pajakTransaksi", errors);
-    validateIdOrArray(data.diskonGlobal, "diskonGlobal", errors);
+    validateIdOrArray(data.pajakTransaksiIDs, "pajakTransaksiIDs", errors);
+    validateIdOrArray(data.diskonGlobalIDs, "diskonGlobalIDs", errors);
 
     if (
       data.jumlahDiskonTransaksi !== undefined &&
@@ -100,7 +100,7 @@ function validatePenjualanPayload(data, isUpdate = false) {
         data.jumlahDiskonTransaksi < 0)
     ) {
       errors.push(
-        "jumlahDiskonTransaksi manual harus berupa angka dan tidak boleh negatif"
+        "jumlahDiskonTransaksi manual harus berupa angka dan tidak boleh negatif",
       );
     }
 
@@ -129,14 +129,14 @@ function validatePenjualanPayload(data, isUpdate = false) {
           (typeof item.jumlahDiskon !== "number" || item.jumlahDiskon < 0)
         ) {
           errors.push(
-            `Item #${index + 1}: jumlahDiskon manual harus berupa angka dan tidak boleh negatif`
+            `Item #${index + 1}: jumlahDiskon manual harus berupa angka dan tidak boleh negatif`,
           );
         }
 
         validateIdOrArray(
-          item.diskonItem,
-          `Item #${index + 1}: diskonItem`,
-          errors
+          item.diskonItemIDs,
+          `Item #${index + 1}: diskonItemIDs`,
+          errors,
         );
       });
     }
@@ -152,12 +152,12 @@ function validatePenjualanPayload(data, isUpdate = false) {
       errors.push("tanggalTransaksi tidak valid");
     }
 
-    if (data.pajakTransaksi !== undefined) {
-      validateIdOrArray(data.pajakTransaksi, "pajakTransaksi", errors);
+    if (data.pajakTransaksiIDs !== undefined) {
+      validateIdOrArray(data.pajakTransaksiIDs, "pajakTransaksiIDs", errors);
     }
 
-    if (data.diskonGlobal !== undefined) {
-      validateIdOrArray(data.diskonGlobal, "diskonGlobal", errors);
+    if (data.diskonGlobalIDs !== undefined) {
+      validateIdOrArray(data.diskonGlobalIDs, "diskonGlobalIDs", errors);
     }
 
     if (
@@ -166,12 +166,15 @@ function validatePenjualanPayload(data, isUpdate = false) {
         data.jumlahDiskonTransaksi < 0)
     ) {
       errors.push(
-        "jumlahDiskonTransaksi manual harus berupa angka dan tidak boleh negatif"
+        "jumlahDiskonTransaksi manual harus berupa angka dan tidak boleh negatif",
       );
     }
 
     if (data.itemPenjualan !== undefined) {
-      if (!Array.isArray(data.itemPenjualan) || data.itemPenjualan.length === 0) {
+      if (
+        !Array.isArray(data.itemPenjualan) ||
+        data.itemPenjualan.length === 0
+      ) {
         errors.push("itemPenjualan tidak boleh kosong jika dikirim");
       } else {
         data.itemPenjualan.forEach((item, index) => {
@@ -184,15 +187,15 @@ function validatePenjualanPayload(data, isUpdate = false) {
             (typeof item.jumlahDiskon !== "number" || item.jumlahDiskon < 0)
           ) {
             errors.push(
-              `Item #${index + 1}: jumlahDiskon manual harus berupa angka dan tidak boleh negatif`
+              `Item #${index + 1}: jumlahDiskon manual harus berupa angka dan tidak boleh negatif`,
             );
           }
 
-          if (item.diskonItem !== undefined) {
+          if (item.diskonItemIDs !== undefined) {
             validateIdOrArray(
-              item.diskonItem,
-              `Item #${index + 1}: diskonItem`,
-              errors
+              item.diskonItemIDs,
+              `Item #${index + 1}: diskonItemIDs`,
+              errors,
             );
           }
         });

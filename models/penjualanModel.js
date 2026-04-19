@@ -65,7 +65,7 @@ const ItemPenjualanSchema = new mongoose.Schema(
   },
   {
     _id: false,
-  }
+  },
 );
 
 const PenjualanSchema = new mongoose.Schema(
@@ -120,7 +120,7 @@ const PenjualanSchema = new mongoose.Schema(
     },
     statusPenjualan: {
       type: String,
-      enum: ["DRAFT", "FINAL"],
+      enum: ["DRAFT", "FINAL", "VOID"],
       default: "DRAFT",
       index: true,
     },
@@ -181,7 +181,7 @@ const PenjualanSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 PenjualanSchema.index({ tenantID: 1, noReferensi: 1 }, { unique: true });
@@ -229,5 +229,4 @@ PenjualanSchema.pre("validate", function (next) {
   next();
 });
 
-module.exports =
-  mongoose.models.Penjualan || mongoose.model("Penjualan", PenjualanSchema);
+module.exports = mongoose.models.Penjualan || mongoose.model("Penjualan", PenjualanSchema);

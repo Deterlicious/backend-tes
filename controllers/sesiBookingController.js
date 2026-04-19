@@ -1,18 +1,7 @@
 const sesiBookingService = require("../services/sesiBookingService");
 const createError = require("http-errors");
-const Permission = require("../models/permissionModel");
 
 class SesiBookingController {
-  async _checkPermission(userPermissionIDs, permissionName) {
-    const permissionDoc = await Permission.findOne({ nama: permissionName });
-
-    if (!permissionDoc) return false;
-
-    return userPermissionIDs
-      .map((id) => id.toString())
-      .includes(permissionDoc._id.toString());
-  }
-
   _getRequesterTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
@@ -23,15 +12,6 @@ class SesiBookingController {
 
   async getAll(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-booking"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       if (!tenantID) {
@@ -49,15 +29,6 @@ class SesiBookingController {
 
   async getById(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-booking"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       if (!tenantID) {
@@ -78,15 +49,6 @@ class SesiBookingController {
 
   async create(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-booking"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const userID = this._getRequesterUserID(req);
 
@@ -117,15 +79,6 @@ class SesiBookingController {
 
   async update(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-booking"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       if (!tenantID) {
@@ -135,7 +88,7 @@ class SesiBookingController {
       const result = await sesiBookingService.update(
         req.params.id,
         req.body,
-        tenantID
+        tenantID,
       );
 
       if (result?.error) {
@@ -154,15 +107,6 @@ class SesiBookingController {
 
   async delete(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-booking"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola booking");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       if (!tenantID) {
@@ -170,6 +114,10 @@ class SesiBookingController {
       }
 
       const result = await sesiBookingService.delete(req.params.id, tenantID);
+
+      if (result?.error) {
+        return res.status(400).json({ errors: result.error });
+      }
 
       if (!result) {
         throw createError(404, "Booking tidak ditemukan");

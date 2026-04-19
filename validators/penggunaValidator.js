@@ -4,38 +4,68 @@ const validator = require("validator");
 function validatePenggunaPayload(data, isUpdate = false) {
   const errors = [];
 
-  // Mandatory Fields (Create)
+  // Proteksi awal jika data tidak dikirim atau kosong
+  if (!data || Object.keys(data).length === 0) {
+    return {
+      valid: false,
+      errors: ["Data pengguna tidak ditemukan atau kosong"],
+    };
+  }
+
+  // --- 1. Mandatory Fields (Hanya saat Create) ---
   if (!isUpdate) {
     if (!data.nama || validator.isEmpty(data.nama + "")) {
       errors.push("nama wajib diisi");
     }
-    if (!data.pin) {
+    if (!data.pin || validator.isEmpty(data.pin + "")) {
       errors.push("pin wajib diisi");
+    }
+    if (!data.tenantID || !mongoose.Types.ObjectId.isValid(data.tenantID)) {
+      errors.push("tenantID wajib diisi dan harus format yang valid");
+    }
+    // roleID wajib diisi saat create
+    if (!data.roleID || !mongoose.Types.ObjectId.isValid(data.roleID)) {
+      errors.push("roleID wajib diisi dan harus format yang valid");
     }
   }
 
-  // PIN Validation
+  // --- 2. Nama Validation ---
+  if (data.nama) {
+    const namaStr = data.nama + "";
+    if (namaStr.length < 3) errors.push("Nama minimal 3 karakter");
+    if (namaStr.length > 50) errors.push("Nama maksimal 50 karakter");
+  }
+
+  // --- 3. PIN Validation ---
   if (data.pin) {
-    if (data.pin.length < 6) {
+    const pinStr = data.pin + ""; 
+    if (pinStr.length < 6) {
       errors.push("PIN minimal 6 karakter");
     }
-    if (!validator.isNumeric(data.pin)) {
+    if (!validator.isNumeric(pinStr)) {
       errors.push("PIN harus berupa angka");
     }
   }
 
-  if (data.nomorHp && !validator.isMobilePhone(data.nomorHp, "id-ID")) {
-    errors.push("Format nomor HP tidak valid");
+  // --- 4. ID Format Validation (Jika dikirim) ---
+  if (data.roleID && !mongoose.Types.ObjectId.isValid(data.roleID)) {
+    errors.push("ID Role tidak valid");
+  }
+
+  // --- 5. Format Pendukung ---
+  if (data.nomorHp) {
+    // Memastikan nomor HP Indonesia yang valid
+    if (!validator.isMobilePhone(data.nomorHp + "", "id-ID")) {
+      errors.push("Format nomor HP tidak valid (Gunakan format Indonesia)");
+    }
   }
 
   if (data.status && !["aktif", "non-aktif"].includes(data.status)) {
-    errors.push("Status harus aktif atau non-aktif");
+    errors.push("Status harus 'aktif' atau 'non-aktif'");
   }
 
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true };
 }
 
-module.exports = {
-  validatePenggunaPayload,
-};
+module.exports = { validatePenggunaPayload };

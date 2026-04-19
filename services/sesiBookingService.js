@@ -11,7 +11,9 @@ const diskonService = require("./diskonService");
 const pajakService = require("./pajakService");
 
 const redis = require("../config/redis");
-const { validateSesiBookingPayload } = require("../validators/sesiBookingValidator");
+const {
+  validateSesiBookingPayload,
+} = require("../validators/sesiBookingValidator");
 
 const CACHE_KEY_LIST = (tenantID, dateStr) =>
   dateStr
@@ -110,7 +112,7 @@ class SesiBookingService {
       tenantID: doc.tenantID,
       noReferensi: doc.noReferensi,
       dataPengguna: doc.penggunaID ?? null,
-      dataPelanggan: doc.dataPelanggan ?? null,
+      dataPelanggan: doc.pelangganID ?? null,
       jenisTransaksi: doc.jenisTransaksi,
       jenisPenjualan: doc.jenisPenjualan,
       tanggalTransaksi: doc.tanggalTransaksi,
@@ -119,6 +121,7 @@ class SesiBookingService {
       totalHargaProduk: doc.totalHargaProduk || 0,
       diskonGlobal,
       jumlahDiskonTransaksi: doc.jumlahDiskonTransaksi || 0,
+      jumlahPajakTransaksi: doc.jumlahPajakTransaksi || 0,
       totalTagihan: doc.totalTagihan || 0,
       totalDibayar: doc.totalDibayar || 0,
       sisaTagihan: doc.sisaTagihan || 0,
@@ -331,7 +334,10 @@ class SesiBookingService {
     let dateStr = null;
 
     if (tanggalDate && typeof tanggalDate === "string") {
-      if (!tanggalDate.includes("T") && /^\d{4}-\d{2}-\d{2}$/.test(tanggalDate)) {
+      if (
+        !tanggalDate.includes("T") &&
+        /^\d{4}-\d{2}-\d{2}$/.test(tanggalDate)
+      ) {
         dateStr = tanggalDate;
       } else {
         dateStr = toYMDLocal(new Date(tanggalDate));
@@ -363,7 +369,7 @@ class SesiBookingService {
         populate: [
           { path: "penggunaID", select: "nama" },
           {
-            path: "dataPelanggan",
+            path: "pelangganID",
             select: "namaPelanggan tipePelanggan nomorHp",
           },
           {
@@ -415,7 +421,7 @@ class SesiBookingService {
         populate: [
           { path: "penggunaID", select: "nama" },
           {
-            path: "dataPelanggan",
+            path: "pelangganID",
             select: "namaPelanggan tipePelanggan nomorHp alamat email",
           },
           {
@@ -505,7 +511,7 @@ class SesiBookingService {
     let totalSetelahDiskonItem = hargaKotor - jumlahDiskonItem;
     if (totalSetelahDiskonItem < 0) totalSetelahDiskonItem = 0;
 
-    const pajakCalc = await pajakService.simulasiHitung(
+    const pajakCalc = await pajakService.hitungPajakProduk(
       payload.dataAset,
       totalSetelahDiskonItem,
       tenantID
@@ -551,7 +557,7 @@ class SesiBookingService {
       _id: newPenjualanId,
       tenantID,
       penggunaID: payload.dataPengguna,
-      dataPelanggan: payload.dataPelanggan,
+      pelangganID: payload.dataPelanggan,
       noReferensi: noRef,
       jenisTransaksi: "POS",
       jenisPenjualan: "booking",
@@ -561,12 +567,13 @@ class SesiBookingService {
       diskonGlobalIDs: diskonGlobalRes.appliedIds,
       jumlahDiskonTransaksi,
       totalHargaProduk: totalhargaItem,
+      jumlahPajakTransaksi: 0,
       totalTagihan,
       totalDibayar: 0,
       sisaTagihan: totalTagihan,
       statusBayar: totalTagihan === 0 ? "PAID" : "UNPAID",
       keterangan: "",
-      statusPenjualan: payload.simpanDraft === true ? "DRAFT" : "FINAL",
+      statusPenjualan: payload.simpanFinal === true ? "FINAL" : "DRAFT",
     });
 
     const newBooking = new SesiBooking({
@@ -601,7 +608,7 @@ class SesiBookingService {
         populate: [
           { path: "penggunaID", select: "nama" },
           {
-            path: "dataPelanggan",
+            path: "pelangganID",
             select: "namaPelanggan tipePelanggan nomorHp",
           },
           {
@@ -637,6 +644,39 @@ class SesiBookingService {
 
     if (!currentBooking) {
       return null;
+    }
+
+    if (currentBooking.status === "VOID") {
+      return { error: ["Sesi booking yang sudah VOID tidak dapat diubah lagi."] };
+    }
+
+    const currentPenjualan = await Penjualan.findOne({
+      _id: currentBooking.dataPenjualan,
+      tenantID: requesterTenantID,
+    });
+
+    if (!currentPenjualan) {
+      return { error: ["Data penjualan booking tidak ditemukan."] };
+    }
+
+    if (currentPenjualan.statusPenjualan === "FINAL") {
+      return {
+        error: ["Booking tidak bisa diubah karena penjualan terkait sudah FINAL."],
+      };
+    }
+
+    if (currentPenjualan.statusPenjualan === "VOID") {
+      return {
+        error: ["Booking tidak bisa diubah karena penjualan terkait sudah VOID."],
+      };
+    }
+
+    if (payload.status === "VOID") {
+      return {
+        error: [
+          "Status VOID untuk sesi booking sebaiknya dilakukan melalui proses void penjualan terkait.",
+        ],
+      };
     }
 
     const oldTanggal = currentBooking.waktuMulai;
@@ -678,7 +718,9 @@ class SesiBookingService {
       payload.durasiMenit = durasiMenit;
 
       const dataTarifToUse =
-        payload.dataTarif !== undefined ? payload.dataTarif : currentBooking.dataTarif;
+        payload.dataTarif !== undefined
+          ? payload.dataTarif
+          : currentBooking.dataTarif;
 
       const calc = await this._calculateCost(
         requesterTenantID,
@@ -689,30 +731,34 @@ class SesiBookingService {
       );
 
       const hargaKotor = calc.harga;
-
       payload.totalBiaya = hargaKotor;
       payload.dataTarif = calc.tarifObj._id;
 
       let diskonItemIds = payload.diskonItem;
       let diskonGlobalIds = payload.diskonGlobal;
 
+      const currentItemIndex = Array.isArray(currentPenjualan.itemPenjualan)
+        ? currentPenjualan.itemPenjualan.findIndex(
+            (item) =>
+              String(item.sesiBookingID || "") === String(currentBooking._id)
+          )
+        : -1;
+
+      if (currentItemIndex < 0) {
+        return {
+          error: ["Item penjualan untuk sesi booking ini tidak ditemukan."],
+        };
+      }
+
+      const currentItem = currentPenjualan.itemPenjualan[currentItemIndex];
+
       if (diskonItemIds === undefined || diskonGlobalIds === undefined) {
-        const penjualan = await Penjualan.findOne({
-          _id: currentBooking.dataPenjualan,
-          tenantID: requesterTenantID,
-        })
-          .select("diskonGlobalIDs itemPenjualan")
-          .lean();
+        if (diskonItemIds === undefined) {
+          diskonItemIds = currentItem?.diskonItemIDs || [];
+        }
 
-        if (penjualan) {
-          if (diskonItemIds === undefined) {
-            const firstItem = penjualan.itemPenjualan?.[0];
-            diskonItemIds = firstItem?.diskonItemIDs || [];
-          }
-
-          if (diskonGlobalIds === undefined) {
-            diskonGlobalIds = penjualan.diskonGlobalIDs || [];
-          }
+        if (diskonGlobalIds === undefined) {
+          diskonGlobalIds = currentPenjualan.diskonGlobalIDs || [];
         }
       }
 
@@ -732,7 +778,7 @@ class SesiBookingService {
       let totalSetelahDiskonItem = hargaKotor - jumlahDiskonItem;
       if (totalSetelahDiskonItem < 0) totalSetelahDiskonItem = 0;
 
-      const pajakCalc = await pajakService.simulasiHitung(
+      const pajakCalc = await pajakService.hitungPajakProduk(
         asetToUse,
         totalSetelahDiskonItem,
         requesterTenantID
@@ -751,35 +797,58 @@ class SesiBookingService {
         return { error: diskonGlobalRes.error };
       }
 
-      const jumlahDiskonTransaksi = diskonGlobalRes.totalDiskon;
-      const totalTagihan = Math.max(totalhargaItem - jumlahDiskonTransaksi, 0);
+      currentItem.hargaJual = hargaKotor;
+      currentItem.subTotal = hargaKotor;
+      currentItem.diskonItemIDs = diskonItemRes.appliedIds;
+      currentItem.jumlahDiskon = jumlahDiskonItem;
+      currentItem.total = totalSetelahDiskonItem;
+      currentItem.rincianPajak = pajakCalc.rincian;
+      currentItem.jumlahPajak = pajakCalc.totalPajak;
+      currentItem.totalharga = totalhargaItem;
 
-      if (currentBooking.dataPenjualan) {
-        await Penjualan.findOneAndUpdate(
-          { _id: currentBooking.dataPenjualan, tenantID: requesterTenantID },
-          {
-            $set: {
-              "itemPenjualan.0.hargaJual": hargaKotor,
-              "itemPenjualan.0.subTotal": hargaKotor,
-              "itemPenjualan.0.diskonItemIDs": diskonItemRes.appliedIds,
-              "itemPenjualan.0.jumlahDiskon": jumlahDiskonItem,
-              "itemPenjualan.0.total": totalSetelahDiskonItem,
-              "itemPenjualan.0.rincianPajak": pajakCalc.rincian,
-              "itemPenjualan.0.jumlahPajak": pajakCalc.totalPajak,
-              "itemPenjualan.0.totalharga": totalhargaItem,
-              diskonGlobalIDs: diskonGlobalRes.appliedIds,
-              jumlahDiskonTransaksi,
-              totalHargaProduk: totalhargaItem,
-              totalTagihan,
-              sisaTagihan: totalTagihan,
-              statusBayar: totalTagihan === 0 ? "PAID" : "UNPAID",
-            },
-          }
-        );
+      currentPenjualan.diskonGlobalIDs = diskonGlobalRes.appliedIds;
+      currentPenjualan.jumlahDiskonTransaksi = diskonGlobalRes.totalDiskon;
 
-        await redis.del(`penjualan:detail:${currentBooking.dataPenjualan}`);
-        await redis.del(`penjualan:tenant:${requesterTenantID}`);
+      let totalHargaProduk = 0;
+      for (const item of currentPenjualan.itemPenjualan) {
+        totalHargaProduk += Number(item.totalharga) || 0;
       }
+
+      currentPenjualan.totalHargaProduk = totalHargaProduk;
+
+      let totalTagihan =
+        totalHargaProduk -
+        (Number(currentPenjualan.jumlahDiskonTransaksi) || 0) +
+        (Number(currentPenjualan.jumlahPajakTransaksi) || 0);
+
+      if (totalTagihan < 0) {
+        totalTagihan = 0;
+      }
+
+      currentPenjualan.totalTagihan = totalTagihan;
+
+      const totalDibayar = Number(currentPenjualan.totalDibayar) || 0;
+      let sisaTagihan = totalTagihan - totalDibayar;
+
+      if (sisaTagihan < 0) {
+        sisaTagihan = 0;
+      }
+
+      currentPenjualan.sisaTagihan = sisaTagihan;
+
+      let statusBayar = "UNPAID";
+      if (totalTagihan === 0 || sisaTagihan === 0) {
+        statusBayar = "PAID";
+      } else if (totalDibayar > 0 && sisaTagihan > 0) {
+        statusBayar = "PARTIAL";
+      }
+
+      currentPenjualan.statusBayar = statusBayar;
+
+      await currentPenjualan.save();
+
+      await redis.del(`penjualan:detail:${currentBooking.dataPenjualan}`);
+      await redis.del(`penjualan:tenant:${requesterTenantID}`);
 
       delete payload.diskonItem;
       delete payload.diskonGlobal;
@@ -799,7 +868,7 @@ class SesiBookingService {
         populate: [
           { path: "penggunaID", select: "nama" },
           {
-            path: "dataPelanggan",
+            path: "pelangganID",
             select: "namaPelanggan tipePelanggan nomorHp",
           },
           {
@@ -830,6 +899,45 @@ class SesiBookingService {
       return null;
     }
 
+    if (booking.status === "VOID") {
+      return { error: ["Sesi booking dengan status VOID tidak dapat dihapus."] };
+    }
+
+    const penjualan = await Penjualan.findOne({
+      _id: booking.dataPenjualan,
+      tenantID: requesterTenantID,
+    });
+
+    if (!penjualan) {
+      return { error: ["Data penjualan booking tidak ditemukan."] };
+    }
+
+    if (penjualan.statusPenjualan === "FINAL") {
+      return {
+        error: ["Booking tidak bisa dihapus karena penjualan terkait sudah FINAL."],
+      };
+    }
+
+    if (penjualan.statusPenjualan === "VOID") {
+      return {
+        error: ["Booking tidak bisa dihapus karena penjualan terkait sudah VOID."],
+      };
+    }
+
+    const items = Array.isArray(penjualan.itemPenjualan)
+      ? penjualan.itemPenjualan
+      : [];
+
+    const filteredItems = items.filter(
+      (item) => String(item.sesiBookingID) !== String(booking._id)
+    );
+
+    if (filteredItems.length === items.length) {
+      return {
+        error: ["Item booking tidak ditemukan pada data penjualan terkait."],
+      };
+    }
+
     const result = await SesiBooking.deleteOne({
       _id: id,
       tenantID: requesterTenantID,
@@ -839,6 +947,59 @@ class SesiBookingService {
       return null;
     }
 
+    if (filteredItems.length === 0) {
+      await Penjualan.deleteOne({
+        _id: penjualan._id,
+        tenantID: requesterTenantID,
+      });
+
+      await redis.del(`penjualan:detail:${penjualan._id}`);
+      await redis.del(`penjualan:tenant:${requesterTenantID}`);
+    } else {
+      penjualan.itemPenjualan = filteredItems;
+
+      let totalHargaProduk = 0;
+      filteredItems.forEach((item) => {
+        totalHargaProduk += Number(item.totalharga) || 0;
+      });
+
+      penjualan.totalHargaProduk = totalHargaProduk;
+
+      const jumlahDiskonTransaksi = Number(penjualan.jumlahDiskonTransaksi) || 0;
+      const jumlahPajakTransaksi = Number(penjualan.jumlahPajakTransaksi) || 0;
+
+      let totalTagihan =
+        totalHargaProduk - jumlahDiskonTransaksi + jumlahPajakTransaksi;
+
+      if (totalTagihan < 0) {
+        totalTagihan = 0;
+      }
+
+      penjualan.totalTagihan = totalTagihan;
+
+      const totalDibayar = Number(penjualan.totalDibayar) || 0;
+      let sisaTagihan = totalTagihan - totalDibayar;
+
+      if (sisaTagihan < 0) {
+        sisaTagihan = 0;
+      }
+
+      penjualan.sisaTagihan = sisaTagihan;
+
+      if (totalTagihan === 0 || sisaTagihan === 0) {
+        penjualan.statusBayar = "PAID";
+      } else if (totalDibayar > 0 && sisaTagihan > 0) {
+        penjualan.statusBayar = "PARTIAL";
+      } else {
+        penjualan.statusBayar = "UNPAID";
+      }
+
+      await penjualan.save();
+
+      await redis.del(`penjualan:detail:${penjualan._id}`);
+      await redis.del(`penjualan:tenant:${requesterTenantID}`);
+    }
+
     await invalidateTenantCache(requesterTenantID, [booking.waktuMulai]);
     await redis.del(CACHE_KEY_DETAIL(id));
 
@@ -846,7 +1007,11 @@ class SesiBookingService {
   }
 
   async createBatch(payload) {
-    if (!payload.items || !Array.isArray(payload.items) || payload.items.length === 0) {
+    if (
+      !payload.items ||
+      !Array.isArray(payload.items) ||
+      payload.items.length === 0
+    ) {
       return { error: ["Daftar item booking (items) wajib diisi."] };
     }
 
@@ -920,7 +1085,7 @@ class SesiBookingService {
         let totalSetelahDiskonItem = hargaKotor - jumlahDiskonItem;
         if (totalSetelahDiskonItem < 0) totalSetelahDiskonItem = 0;
 
-        const pajakCalc = await pajakService.simulasiHitung(
+        const pajakCalc = await pajakService.hitungPajakProduk(
           item.dataAset,
           totalSetelahDiskonItem,
           tenantID
@@ -983,7 +1148,7 @@ class SesiBookingService {
         _id: newPenjualanId,
         tenantID,
         penggunaID: payload.dataPengguna,
-        dataPelanggan: payload.dataPelanggan,
+        pelangganID: payload.dataPelanggan,
         noReferensi: noRef,
         jenisTransaksi: "POS",
         jenisPenjualan: "booking",
@@ -993,12 +1158,13 @@ class SesiBookingService {
         diskonGlobalIDs: diskonGlobalRes.appliedIds,
         jumlahDiskonTransaksi,
         totalHargaProduk: grandTotalItem,
+        jumlahPajakTransaksi: 0,
         totalTagihan,
         totalDibayar: 0,
         sisaTagihan: totalTagihan,
         statusBayar: totalTagihan === 0 ? "PAID" : "UNPAID",
         keterangan: "",
-        statusPenjualan: payload.simpanDraft === true ? "DRAFT" : "FINAL",
+        statusPenjualan: payload.simpanFinal === true ? "FINAL" : "DRAFT",
       });
 
       await newPenjualan.save();

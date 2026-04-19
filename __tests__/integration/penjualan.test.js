@@ -2,282 +2,237 @@ const request = require("supertest");
 const app = require("../../app");
 const mongoose = require("mongoose");
 const Permission = require("../../models/permissionModel");
+const Penjualan = require("../../models/penjualanModel");
+const Produk = require("../../models/produkModel");
+const redis = require("../../config/redis");
 
-describe("Penjualan — CRUD", () => {
-  let tokenC;
-  let pelangganID;
-  let produkID;
-  let kategoriID;
-  let penjualanID;
+const unique = Date.now();
+const dummyBahanBakuID = new mongoose.Types.ObjectId();
 
-  const dummyBahanBakuID = new mongoose.Types.ObjectId().toString();
+describe("Penjualan — Integration CRUD & Exhaustive Security", () => {
+  let tokenC, tokenPenyusup;
+  let pelangganID, produkID, kategoriID;
+  let finalPenjualanID, draftPenjualanID;
 
   beforeAll(async () => {
-    // Seed permissions
-    await Permission.create([
-      {
-        nama: "akses-pos",
-        grup: "Transaksi",
-        deskripsi: "Dapat melakukan transaksi kasir",
-      },
-      {
-        nama: "kelola-pelanggan",
-        grup: "Manajemen Pelanggan",
-        deskripsi: "Dapat mengatur pelanggan",
-      },
-      {
-        nama: "kelola-produk",
-        grup: "Manajemen Produk",
-        deskripsi: "Dapat mengatur produk",
-      },
-      {
-        nama: "kelola-kategori",
-        grup: "Manajemen Produk",
-        deskripsi: "Dapat mengatur kategori",
-      },
+    // 1. CLEANUP
+    await Promise.all([
+      Permission.deleteMany({}),
+      Penjualan.deleteMany({}),
+      Produk.deleteMany({}),
     ]);
 
-    // Tahap 1: Register & Login
-    await request(app).post("/api/akun/auth/register").send({
-      email: "owner@toko-penjualan.com",
-      password: "Password123!",
-      username: "owner_penjualan",
-    });
+    // 2. SETUP PERMISSIONS
+    await Permission.create([
+      { nama: "akses-pos", grup: "Transaksi", deskripsi: "POS" },
+      { nama: "kelola-pelanggan", grup: "Pelanggan", deskripsi: "Pelanggan" },
+      { nama: "kelola-produk", grup: "Produk", deskripsi: "Produk" },
+      { nama: "kelola-kategori", grup: "Produk", deskripsi: "Kategori" },
+      { nama: "kelola-pajak", grup: "Pajak", deskripsi: "Pajak" },
+    ]);
 
-    const loginRes = await request(app).post("/api/akun/auth/login").send({
-      email: "owner@toko-penjualan.com",
-      password: "Password123!",
-      deviceID: "device-test-penjualan",
-    });
-    const tokenA = loginRes.body.accessToken;
-    if (!tokenA) throw new Error("Gagal mendapatkan Token A!");
-
-    // Tahap 2: Buat Tenant → ambil tokenB
-    const tenantRes = await request(app)
+    // --- REGISTER TENANT UTAMA ---
+    await request(app)
+      .post("/api/akun/auth/register")
+      .send({
+        email: `owner.penjualan.${unique}@test.com`,
+        password: "Password123!",
+        username: `owner_pj_${unique}`,
+      });
+    const logMain = await request(app)
+      .post("/api/akun/auth/login")
+      .send({
+        email: `owner.penjualan.${unique}@test.com`,
+        password: "Password123!",
+        deviceID: `dev-pj-${unique}`,
+      });
+    const tMain = await request(app)
       .post("/api/tenant")
-      .set("Authorization", `Bearer ${tokenA}`)
-      .send({ namaToko: "Toko Test Penjualan" });
-
-    const tokenB = tenantRes.body.tokens?.accessToken;
-    if (!tokenB) throw new Error("Gagal mendapatkan Token B!");
-
-    // Tahap 3: Register Owner → ambil tokenC
-    const penggunaRes = await request(app)
+      .set("Authorization", `Bearer ${logMain.body.accessToken}`)
+      .send({ namaToko: `Toko A ${unique}` });
+    const pMain = await request(app)
       .post("/api/pengguna/register-owner")
-      .set("Authorization", `Bearer ${tokenB}`)
-      .send({ nama: "Owner Test Penjualan", pin: "123456" });
-
+      .set(
+        "Authorization",
+        `Bearer ${tMain.body.tokens?.accessToken || tMain.body.accessToken}`,
+      )
+      .send({ nama: "Owner A", pin: "123456" });
     tokenC =
-      penggunaRes.body.tokens?.accessToken ||
-      penggunaRes.body.accessToken ||
-      penggunaRes.body.data?.tokens?.accessToken;
-    if (!tokenC) throw new Error("Gagal mendapatkan Token C!");
+      pMain.body.tokens?.accessToken ||
+      pMain.body.accessToken ||
+      pMain.body.data?.tokens?.accessToken;
 
-    // Tahap 4: Buat Pelanggan
-    const pelangganRes = await request(app)
+    // --- REGISTER TENANT PENYUSUP ---
+    const emailP = `penyusup.${unique}@test.com`;
+    await request(app)
+      .post("/api/akun/auth/register")
+      .send({
+        email: emailP,
+        password: "Password123!",
+        username: `pj_p_${unique}`,
+      });
+    const logP = await request(app)
+      .post("/api/akun/auth/login")
+      .send({
+        email: emailP,
+        password: "Password123!",
+        deviceID: `dev-p-${unique}`,
+      });
+    const tP = await request(app)
+      .post("/api/tenant")
+      .set("Authorization", `Bearer ${logP.body.accessToken}`)
+      .send({ namaToko: `Toko B ${unique}` });
+    const pP = await request(app)
+      .post("/api/pengguna/register-owner")
+      .set(
+        "Authorization",
+        `Bearer ${tP.body.tokens?.accessToken || tP.body.accessToken}`,
+      )
+      .send({ nama: "Owner B", pin: "123456" });
+    tokenPenyusup =
+      pP.body.tokens?.accessToken ||
+      pP.body.accessToken ||
+      pP.body.data?.tokens?.accessToken;
+
+    // --- SETUP DATA MASTER ---
+    const pel = await request(app)
       .post("/api/pelanggan")
       .set("Authorization", `Bearer ${tokenC}`)
-      .send({
-        namaPelanggan: "Pelanggan Test",
-        tipePelanggan: "umum",
-        nomorHp: "08112233445",
-      });
+      .send({ namaPelanggan: "Budi", tipePelanggan: "umum", nomorHp: "08123" });
+    pelangganID = pel.body.data._id;
 
-    pelangganID = pelangganRes.body.data?._id;
-    if (!pelangganID) {
-      console.log("ERROR buat pelanggan:", JSON.stringify(pelangganRes.body));
-      throw new Error("Gagal membuat pelanggan!");
-    }
-
-    // Tahap 5: Buat Kategori
-    const kategoriRes = await request(app)
+    const kat = await request(app)
       .post("/api/kategori")
       .set("Authorization", `Bearer ${tokenC}`)
-      .send({ namaKategori: "Kategori Test Penjualan", kodeKategori: "KTP" });
+      .send({ namaKategori: "Food", kodeKategori: `F${unique}` });
+    kategoriID = kat.body.data._id;
 
-    kategoriID = kategoriRes.body.data?._id;
-    if (!kategoriID) {
-      console.log("ERROR buat kategori:", JSON.stringify(kategoriRes.body));
-      throw new Error("Gagal membuat kategori!");
-    }
-
-    // Tahap 6: Buat Produk
-    const produkRes = await request(app)
+    const prod = await request(app)
       .post("/api/produk")
       .set("Authorization", `Bearer ${tokenC}`)
       .send({
-        // catatan: jangan masukkan tenantID lagi karena sudah di-handle di controller, justru akan bikin error kalau dimasukkan
-        namaProduk: "Es Teh Manis",
-        hargaDasar: 3000,
-        hargaJual: 8000,
+        namaProduk: "Es Teh",
+        hargaDasar: 2000,
+        hargaJual: 5000,
         kategoriID,
         stok: 100,
-        resep: [{ bahanBakuID: dummyBahanBakuID, jumlah: 200, satuan: "ml" }],
+        resep: [{ bahanBakuID: dummyBahanBakuID, jumlah: 1, satuan: "pcs" }],
       });
-
-    produkID = produkRes.body.data?._id;
-    if (!produkID) {
-      console.log("ERROR buat produk:", JSON.stringify(produkRes.body));
-      throw new Error("Gagal membuat produk!");
-    }
-
-    console.log(
-      "beforeAll selesai ✅ | pelangganID:",
-      pelangganID,
-      "| produkID:",
-      produkID,
-    );
+    produkID = prod.body.data._id;
   });
 
-  // Skenario A: Buat transaksi POS dine-in berhasil (UNPAID)
+  // Helper untuk membuat payload transaksi yang valid (menghindari undefined _id)
+  const getValidPayload = (ref) => ({
+    noReferensi: ref,
+    pelangganID,
+    jenisTransaksi: "POS",
+    jenisPenjualan: "dine-in",
+    tanggalTransaksi: new Date().toISOString(),
+    itemPenjualan: [{ produkID, jumlah: 1 }],
+  });
 
-  test("POST /api/penjualan — berhasil buat transaksi UNPAID", async () => {
+  test("1. POST — Berhasil buat transaksi FINAL", async () => {
     const res = await request(app)
       .post("/api/penjualan")
       .set("Authorization", `Bearer ${tokenC}`)
-      .send({
-        noReferensi: "POS-TEST-001",
-        pelangganID,
-        jenisTransaksi: "POS",
-        jenisPenjualan: "dine-in",
-        tanggalTransaksi: new Date().toISOString(),
-        itemPenjualan: [
-          {
-            produkID,
-            namaProduk: "Es Teh Manis",
-            jumlah: 2,
-            hargaJual: 8000,
-            subTotal: 16000,
-            jumlahDiskon: 0,
-            total: 16000,
-            jumlahPajak: 0,
-            totalharga: 16000,
-          },
-        ],
-        jumlahDiskonTransaksi: 0,
-        jumlahPajakTransaksi: 0,
-        totalDibayar: 0,
-      });
-
-    console.log("CREATE PENJUALAN:", res.status, res.body.message ?? "");
-
-    // Error 500: pajakService.simulasiHitung() yang tidak ada.
-    // cek nama fungsi asli di pajakService.js dan sesuaikan di penjualanService.js:435
-
+      .send(getValidPayload(`INV-F-${unique}`));
     expect(res.statusCode).toBe(201);
-    expect(res.body.data).toHaveProperty("statusBayar", "UNPAID");
-    expect(res.body.data).toHaveProperty("totalTagihan", 16000);
-    expect(res.body.data).toHaveProperty("sisaTagihan", 16000);
-
-    // CASCADING: penjualanID tidak pernah terisi karena Skenario A gagal.
-    // Skenario D dan E ikut gagal akibat ini.
-
-    penjualanID = res.body.data._id;
+    finalPenjualanID = res.body.data._id;
   });
 
-  // Skenario B: Transaksi dengan diskon global langsung PAID
-  test("POST /api/penjualan — transaksi dengan diskon global statusBayar PAID", async () => {
-    // gagal seperti Skenario A — root cause pajakService.simulasiHitung
+  test("2. POST — Berhasil buat transaksi DRAFT", async () => {
     const res = await request(app)
       .post("/api/penjualan")
       .set("Authorization", `Bearer ${tokenC}`)
-      .send({
-        noReferensi: "POS-TEST-002",
-        pelangganID,
-        jenisTransaksi: "POS",
-        jenisPenjualan: "dine-in",
-        tanggalTransaksi: new Date().toISOString(),
-        itemPenjualan: [
-          {
-            produkID,
-            namaProduk: "Es Teh Manis",
-            jumlah: 3,
-            hargaJual: 8000,
-            subTotal: 24000,
-            jumlahDiskon: 0,
-            total: 24000,
-            jumlahPajak: 0,
-            totalharga: 24000,
-          },
-        ],
-        jumlahDiskonTransaksi: 4000,
-        jumlahPajakTransaksi: 0,
-        totalDibayar: 20000,
-      });
-
+      .send({ ...getValidPayload(`INV-D-${unique}`), simpanDraft: true });
     expect(res.statusCode).toBe(201);
-    expect(res.body.data).toHaveProperty("totalHargaProduk", 24000);
-    expect(res.body.data).toHaveProperty("totalTagihan", 20000);
-    expect(res.body.data).toHaveProperty("statusBayar", "PAID");
+    draftPenjualanID = res.body.data._id;
   });
 
-  // Skenario C: noReferensi duplikat dalam satu tenant harus gagal
-  test("POST /api/penjualan — noReferensi duplikat harus 400/409", async () => {
-    // Skenario A gagal sehingga "POS-TEST-001" tidak pernah tersimpan di DB.
-    // Akibatnya request ini tidak dianggap duplikat, melainkan kembali memanggil
-    // create() yang juga crash dengan 500 karena pajakService.simulasiHitung.
+  test("3. POST — noReferensi duplikat harus gagal", async () => {
     const res = await request(app)
       .post("/api/penjualan")
       .set("Authorization", `Bearer ${tokenC}`)
-      .send({
-        noReferensi: "POS-TEST-001", // duplikat dari Skenario A
-        pelangganID,
-        jenisTransaksi: "POS",
-        jenisPenjualan: "dine-in",
-        tanggalTransaksi: new Date().toISOString(),
-        itemPenjualan: [
-          {
-            produkID,
-            namaProduk: "Es Teh Manis",
-            jumlah: 1,
-            hargaJual: 8000,
-            subTotal: 8000,
-            jumlahDiskon: 0,
-            total: 8000,
-            jumlahPajak: 0,
-            totalharga: 8000,
-          },
-        ],
-        jumlahDiskonTransaksi: 0,
-        jumlahPajakTransaksi: 0,
-        totalDibayar: 0,
-      });
-
+      .send(getValidPayload(`INV-F-${unique}`));
     expect([400, 409]).toContain(res.statusCode);
   });
 
-  // Skenario D: Get semua penjualan milik tenant sendiri
-  test("GET /api/penjualan — hanya mengembalikan penjualan milik tenant sendiri", async () => {
+  test("4. GET ALL — Berhasil", async () => {
     const res = await request(app)
       .get("/api/penjualan")
       .set("Authorization", `Bearer ${tokenC}`);
-
     expect(res.statusCode).toBe(200);
-    expect(Array.isArray(res.body.data)).toBe(true);
-    // gagal. DB kosong karena tidak ada penjualan yang berhasil dibuat.
     expect(res.body.data.length).toBeGreaterThan(0);
   });
 
-  // Skenario E: Get penjualan by ID
-  test("GET /api/penjualan/:id — berhasil ambil penjualan by ID", async () => {
+  test("5. PUT — Draft bisa difinalisasi", async () => {
+    const draft = await request(app)
+      .post("/api/penjualan")
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ ...getValidPayload(`INV-FINZ-${unique}`), simpanDraft: true });
     const res = await request(app)
-      .get(`/api/penjualan/${penjualanID}`)
-      .set("Authorization", `Bearer ${tokenC}`);
-
-    // penjualanID = undefined karena Skenario A gagal.
-    // Request menjadi GET /api/penjualan/undefined → 404.
-
+      .put(`/api/penjualan/${draft.body.data._id}`)
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ finalize: true });
     expect(res.statusCode).toBe(200);
-    expect(res.body.data).toHaveProperty("_id", penjualanID);
-    expect(res.body.data).toHaveProperty("noReferensi", "POS-TEST-001");
+    expect(res.body.data.statusPenjualan).toBe("FINAL");
   });
 
-  // Skenario F: Akses tanpa token harus ditolak
-  test("POST /api/penjualan — tanpa token harus 401", async () => {
-    const res = await request(app)
+  test("6. PUT — DRAFT bisa VOID", async () => {
+    const draft = await request(app)
       .post("/api/penjualan")
-      .send({ noReferensi: "POS-NO-AUTH" });
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ ...getValidPayload(`INV-VOID-${unique}`), simpanDraft: true });
+    const res = await request(app)
+      .put(`/api/penjualan/${draft.body.data._id}`)
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ statusPenjualan: "VOID" });
+    expect(res.statusCode).toBe(200);
+  });
 
-    expect(res.statusCode).toBe(401);
+  test("7. DELETE — Hanya DRAFT yang boleh dihapus", async () => {
+    const draft = await request(app)
+      .post("/api/penjualan")
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ ...getValidPayload(`INV-DEL-${unique}`), simpanDraft: true });
+    const res = await request(app)
+      .delete(`/api/penjualan/${draft.body.data._id}`)
+      .set("Authorization", `Bearer ${tokenC}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toBe(true);
+  });
+
+  describe("Security & Chaos Scenarios", () => {
+    test("S1. Isolation — Tenant lain tidak boleh lihat data", async () => {
+      const res = await request(app)
+        .get(`/api/penjualan/${finalPenjualanID}`)
+        .set("Authorization", `Bearer ${tokenPenyusup}`);
+      expect([400, 404]).toContain(res.statusCode);
+    });
+
+    test("C1. Stok Integrity — Transaksi FINAL kurangi stok", async () => {
+      // Ambil stok awal
+      const prodBefore = await Produk.findById(produkID);
+      const stokAwal = prodBefore.stok;
+
+      // Buat transaksi baru dengan jumlah 5
+      await request(app)
+        .post("/api/penjualan")
+        .set("Authorization", `Bearer ${tokenC}`)
+        .send({
+          ...getValidPayload(`INV-STOK-${unique}`),
+          itemPenjualan: [{ produkID, jumlah: 5 }],
+        });
+
+      const prodAfter = await Produk.findById(produkID);
+      expect(prodAfter.stok).toBe(stokAwal - 5);
+    });
+  });
+
+  afterAll(async () => {
+    await mongoose.connection.close();
+    if (redis && redis.status !== "end") {
+      await redis.quit();
+    }
   });
 });

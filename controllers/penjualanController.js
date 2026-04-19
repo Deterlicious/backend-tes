@@ -100,7 +100,7 @@ class PenjualanController {
       const result = await penjualanService.update(
         req.params.id,
         req.body,
-        tenantID
+        tenantID,
       );
 
       if (result?.error) {

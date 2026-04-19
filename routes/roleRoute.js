@@ -1,31 +1,59 @@
 const express = require("express");
 const router = express.Router();
 const roleController = require("../controllers/roleController");
+
 const authPengguna = require("../middleware/authPengguna");
 const { checkPermission } = require("../middleware/authorizePermission");
 
-// Wrapper utility
+/**
+ * Wrapper async handler
+ */
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(roleController, req, res, next)).catch(next);
 };
 
-router.use(authPengguna); // Proteksi global: semua route butuh token akun
+// ==========================================
+// PROTEKSI GLOBAL
+// ==========================================
+router.use(authPengguna);
 
-router.get("/", wrap(roleController.getAll));
 
-router.get("/:id", wrap(roleController.getById));
+// ==========================================
+// ROLE ROUTES (DENGAN PERMISSION)
+// ==========================================
 
-router.post("/", checkPermission("kelola-staff"), wrap(roleController.create));
+// 1. GET ALL ROLE
+router.get(
+  "/",
+  checkPermission("read-role"),
+  wrap(roleController.getAll)
+);
 
+// 2. GET BY ID
+router.get(
+  "/:id",
+  checkPermission("read-role"),
+  wrap(roleController.getById)
+);
+
+// 3. CREATE ROLE
+router.post(
+  "/",
+  checkPermission("create-role"),
+  wrap(roleController.create)
+);
+
+// 4. UPDATE ROLE
 router.put(
   "/:id",
-  checkPermission("kelola-staff"),
+  checkPermission("update-role"),
   wrap(roleController.update)
 );
 
+// 5. DELETE ROLE
 router.delete(
   "/:id",
-  checkPermission("kelola-staff"),
+  checkPermission("delete-role"),
   wrap(roleController.delete)
 );
 

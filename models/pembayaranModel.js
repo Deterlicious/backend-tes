@@ -55,7 +55,7 @@ const PembayaranSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["PAID", "PENDING", "EXPIRED", "FAILED"],
+      enum: ["PAID", "PENDING", "EXPIRED", "FAILED", "VOID"],
       default: "PENDING",
       required: true,
       index: true,

@@ -1,50 +1,92 @@
 const express = require("express");
 const router = express.Router();
 const penggunaController = require("../controllers/penggunaController");
-const authAkun = require("../middleware/authAkun");
+
+const authAkun = require("../middleware/authAkun"); 
+const authPengguna = require("../middleware/authPengguna"); 
 const { checkPermission } = require("../middleware/authorizePermission");
 
-// Wrapper utility
+/**
+ * Wrapper utility untuk menangani error async
+ */
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(penggunaController, req, res, next)).catch(next);
 };
+
+// ==========================================
+// 1. PUBLIC / SEMI PUBLIC
+// ==========================================
 router.post("/pin-refresh", wrap(penggunaController.refreshToken));
 
-router.use(authAkun);
-router.post("/pin-login", wrap(penggunaController.loginPin));
-router.post("/register-owner", wrap(penggunaController.create));
-router.get("/login-list/:tenantID", wrap(penggunaController.getForLoginScreen));
+
+// ==========================================
+// 2. LEVEL AKUN (SETUP & LOGIN SCREEN)
+// ==========================================
+router.post(
+  "/register-owner",
+  authAkun,
+  wrap(penggunaController.registerOwner),
+);
+
+router.get(
+  "/login-list/:tenantID",
+  authAkun,
+  wrap(penggunaController.getForLoginScreen),
+);
+
+router.post(
+  "/pin-login",
+  authAkun,
+  wrap(penggunaController.loginPin),
+);
+
+
+// ==========================================
+// 3. LEVEL PENGGUNA (SETELAH LOGIN PIN)
+// ==========================================
+router.use(authPengguna);
+
+// Logout
 router.post("/pin-logout", wrap(penggunaController.logout));
 
-// CRUD Staff (Butuh Permission 'kelola-staff')
+
+// ==========================================
+// CRUD PENGGUNA (DENGAN PERMISSION)
+// ==========================================
+
+// CREATE
 router.post(
-  "/register-staff",
-  checkPermission("kelola-staff"),
-  wrap(penggunaController.create)
+  "/register-pengguna",
+  checkPermission("create-pengguna"),
+  wrap(penggunaController.create),
 );
 
+// READ ALL
 router.get(
-  "/staff",
-  checkPermission("kelola-staff"),
-  wrap(penggunaController.getAll)
+  "/",
+  checkPermission("read-pengguna"),
+  wrap(penggunaController.getAll),
 );
 
+// READ BY ID
 router.get(
-  "/staff/:id",
-  checkPermission("kelola-staff"),
-  wrap(penggunaController.getById)
+  "/:id",
+  checkPermission("read-pengguna"),
+  wrap(penggunaController.getById),
 );
 
+// UPDATE
 router.put(
-  "/staff/:id",
-  checkPermission("kelola-staff"),
-  wrap(penggunaController.update)
+  "/:id",
+  checkPermission("update-pengguna"),
+  wrap(penggunaController.update),
 );
 
+// DELETE
 router.delete(
-  "/staff/:id",
-  checkPermission("kelola-staff"),
-  wrap(penggunaController.delete)
+  "/:id",
+  checkPermission("delete-pengguna"),
+  wrap(penggunaController.delete),
 );
 
 module.exports = router;

@@ -46,7 +46,7 @@ const sesiBookingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Aktif", "Selesai", "Batal"],
+      enum: ["Aktif", "Selesai", "Batal", "VOID"],
       default: "Aktif",
       index: true,
     },

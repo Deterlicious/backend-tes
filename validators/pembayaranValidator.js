@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const VALID_STATUS = ["PAID", "PENDING", "EXPIRED", "FAILED"];
+const VALID_STATUS = ["PAID", "PENDING", "EXPIRED", "FAILED", "VOID"];
 const INDONESIA_OFFSET_MINUTES = 7 * 60;
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);

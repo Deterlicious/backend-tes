@@ -6,7 +6,9 @@ const SesiBooking = require("../models/sesiBookingModel");
 const pajakService = require("./pajakService");
 const diskonService = require("./diskonService");
 const redis = require("../config/redis");
-const { validatePenjualanPayload } = require("../validators/penjualanValidator");
+const {
+  validatePenjualanPayload,
+} = require("../validators/penjualanValidator");
 const createError = require("http-errors");
 
 const CACHE_KEY_LIST = (tenantID) => `penjualan:tenant:${tenantID}`;
@@ -178,7 +180,9 @@ class PenjualanService {
     if (noReferensi) {
       const q = String(noReferensi).toLowerCase();
       out = out.filter((x) =>
-        String(x.noReferensi || "").toLowerCase().includes(q)
+        String(x.noReferensi || "")
+          .toLowerCase()
+          .includes(q),
       );
     }
 
@@ -189,7 +193,8 @@ class PenjualanService {
         const v = x.dataPelanggan;
         if (!v) return false;
 
-        const actual = typeof v === "object" && v._id ? String(v._id) : String(v);
+        const actual =
+          typeof v === "object" && v._id ? String(v._id) : String(v);
 
         return actual === pid;
       });
@@ -213,12 +218,39 @@ class PenjualanService {
     return out;
   }
 
+  async voidPenjualan(id) {
+    const penjualan = await Penjualan.findById(id);
+
+    if (!penjualan) {
+      throw new Error("Penjualan tidak ditemukan");
+    }
+
+    // 1. VOID PENJUALAN
+    penjualan.statusPenjualan = "VOID";
+    await penjualan.save();
+
+    // 2. UPDATE SESI BOOKING TERKAIT
+    await SesiBooking.updateMany({ dataPenjualan: id }, { status: "BATAL" });
+
+    // (opsional nanti)
+    // 3. update aset juga kalau kamu mau
+    await Aset.updateMany(
+      { _id: { $in: [] } }, // kalau kamu punya relasi aset detail
+      { status: "tersedia" },
+    );
+
+    return true;
+  }
+
   async _applyDiskonBerurutan({ baseAmount, diskonIds, tenantID, cakupan }) {
     if (!diskonIds || diskonIds.length === 0) {
       return { totalDiskon: 0, appliedIds: [] };
     }
 
-    const check = await diskonService.validateKombinasiDiskon(diskonIds, tenantID);
+    const check = await diskonService.validateKombinasiDiskon(
+      diskonIds,
+      tenantID,
+    );
 
     if (!check.valid) {
       return { error: check.errors };
@@ -288,7 +320,7 @@ class PenjualanService {
     const pajakDocs = await Pajak.find({
       _id: { $in: pajakIds },
       tenantID,
-      tipePajak: "Per Transaksi",
+      tipePajak: false,
       statusPajak: true,
     }).lean();
 
@@ -301,9 +333,11 @@ class PenjualanService {
     }
 
     const byId = new Map(pajakDocs.map((d) => [d._id.toString(), d]));
-    const ordered = pajakIds.map((id) => byId.get(id.toString())).filter(Boolean);
+    const ordered = pajakIds
+      .map((id) => byId.get(id.toString()))
+      .filter(Boolean);
     const sorted = [...ordered].sort(
-      (a, b) => (a.prioritas || 0) - (b.prioritas || 0)
+      (a, b) => (a.prioritas || 0) - (b.prioritas || 0),
     );
 
     let totalPajak = 0;
@@ -351,11 +385,11 @@ class PenjualanService {
   async _getActivePajakTransaksi(tenantID) {
     const pajakTransaksi = await Pajak.find({
       tenantID,
-      tipePajak: "Per Transaksi",
+      tipePajak: "false",
       statusPajak: true,
     })
       .select(
-        "_id namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak"
+        "_id namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak",
       )
       .sort({ prioritas: 1, createdAt: 1 })
       .lean();
@@ -375,7 +409,9 @@ class PenjualanService {
 
         if (!produkData) {
           return {
-            error: [`Produk ID ${item.produkID} tidak ditemukan atau akses ditolak.`],
+            error: [
+              `Produk ID ${item.produkID} tidak ditemukan atau akses ditolak.`,
+            ],
           };
         }
 
@@ -432,10 +468,10 @@ class PenjualanService {
           item.total = 0;
         }
 
-        const pajakCalc = await pajakService.simulasiHitung(
+        const pajakCalc = await pajakService.hitungPajakProduk(
           item.produkID,
           item.total,
-          tenantID
+          tenantID,
         );
 
         item.rincianPajak = pajakCalc.rincian;
@@ -481,7 +517,7 @@ class PenjualanService {
 
     const dasarSetelahDiskon = Math.max(
       0,
-      grandTotalItem - (payload.jumlahDiskonTransaksi || 0)
+      grandTotalItem - (payload.jumlahDiskonTransaksi || 0),
     );
 
     const pajakTransaksiIds = await this._getActivePajakTransaksi(tenantID);
@@ -518,12 +554,15 @@ class PenjualanService {
         .populate("pelangganID", "namaPelanggan tipePelanggan nomorHp")
         .populate(
           "pajakTransaksiIDs",
-          "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak"
+          "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak",
         )
-        .populate("diskonGlobalIDs", "namaDiskon tipe nilai cakupan bisaDigabung")
+        .populate(
+          "diskonGlobalIDs",
+          "namaDiskon tipe nilai cakupan bisaDigabung",
+        )
         .populate(
           "itemPenjualan.diskonItemIDs",
-          "namaDiskon tipe nilai cakupan bisaDigabung"
+          "namaDiskon tipe nilai cakupan bisaDigabung",
         )
         .sort({ createdAt: -1 })
         .lean();
@@ -557,12 +596,12 @@ class PenjualanService {
       .populate("pelangganID", "namaPelanggan tipePelanggan alamat email")
       .populate(
         "pajakTransaksiIDs",
-        "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak"
+        "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak",
       )
       .populate("diskonGlobalIDs", "namaDiskon tipe nilai cakupan bisaDigabung")
       .populate(
         "itemPenjualan.diskonItemIDs",
-        "namaDiskon tipe nilai cakupan bisaDigabung"
+        "namaDiskon tipe nilai cakupan bisaDigabung",
       )
       .lean();
 
@@ -595,6 +634,14 @@ class PenjualanService {
       statusPenjualan = "DRAFT";
     }
 
+    if (payload.statusPenjualan === "VOID") {
+      return {
+        error: [
+          "Penjualan baru tidak boleh langsung dibuat dengan status VOID.",
+        ],
+      };
+    }
+
     delete payload.simpanDraft;
     payload.statusPenjualan = statusPenjualan;
 
@@ -612,6 +659,17 @@ class PenjualanService {
 
     const created = await Penjualan.create(payload);
 
+    // --- TAMBAHKAN LOGIKA STOK DI SINI ---
+    if (created.statusPenjualan === "FINAL") {
+      for (const item of created.itemPenjualan) {
+        await Produk.findOneAndUpdate(
+          { _id: item.produkID, tenantID },
+          { $inc: { stok: -item.jumlah } },
+        );
+      }
+    }
+    // -------------------------------------
+
     await redis.del(CACHE_KEY_LIST(tenantID));
 
     const result = await Penjualan.findById(created._id)
@@ -619,12 +677,12 @@ class PenjualanService {
       .populate("pelangganID", "namaPelanggan tipePelanggan")
       .populate(
         "pajakTransaksiIDs",
-        "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak"
+        "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak",
       )
       .populate("diskonGlobalIDs", "namaDiskon tipe nilai cakupan bisaDigabung")
       .populate(
         "itemPenjualan.diskonItemIDs",
-        "namaDiskon tipe nilai cakupan bisaDigabung"
+        "namaDiskon tipe nilai cakupan bisaDigabung",
       )
       .lean();
 
@@ -646,6 +704,25 @@ class PenjualanService {
       return null;
     }
 
+    if (current.statusPenjualan === "VOID") {
+      throw createError(400, "Penjualan VOID tidak bisa diubah lagi.");
+    }
+
+    // 1. Simpan status lama sebelum diubah untuk pengecekan stok nantinya
+    const statusLama = current.statusPenjualan;
+
+    const targetStatusPenjualan = payload.statusPenjualan;
+
+    if (
+      current.statusPenjualan === "FINAL" &&
+      targetStatusPenjualan === "VOID"
+    ) {
+      throw createError(
+        400,
+        "Penjualan FINAL tidak bisa langsung diubah ke VOID. Void pembayaran terlebih dahulu agar penjualan berubah menjadi DRAFT.",
+      );
+    }
+
     if (current.statusPenjualan === "FINAL") {
       throw createError(400, "Penjualan sudah FINAL dan tidak bisa diubah.");
     }
@@ -654,9 +731,41 @@ class PenjualanService {
 
     const willFinalize =
       payload.finalize === true || payload.statusPenjualan === "FINAL";
+    const willVoid = payload.statusPenjualan === "VOID";
 
     delete payload.finalize;
 
+    // Logika Khusus VOID
+    if (willVoid) {
+      Object.assign(current, payload);
+      current.statusPenjualan = "VOID";
+
+      await current.save();
+
+      await redis.del(CACHE_KEY_LIST(tenantID));
+      await redis.del(CACHE_KEY_DETAIL(id));
+
+      const result = await Penjualan.findById(id)
+        .populate("penggunaID", "nama")
+        .populate("pelangganID", "namaPelanggan tipePelanggan")
+        .populate(
+          "pajakTransaksiIDs",
+          "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak",
+        )
+        .populate(
+          "diskonGlobalIDs",
+          "namaDiskon tipe nilai cakupan bisaDigabung",
+        )
+        .populate(
+          "itemPenjualan.diskonItemIDs",
+          "namaDiskon tipe nilai cakupan bisaDigabung",
+        )
+        .lean();
+
+      return this._formatOutput(result);
+    }
+
+    // Logika Update Biasa atau Finalisasi
     const merged = current.toObject();
     Object.assign(merged, payload);
 
@@ -691,11 +800,23 @@ class PenjualanService {
       return { error: recalc.error };
     }
 
+    // Update data dokumen
     Object.assign(current, recalc.payload);
     current.statusPenjualan = willFinalize ? "FINAL" : "DRAFT";
 
     await current.save();
 
+    // 2. LOGIKA STOK: Jika berubah dari DRAFT ke FINAL, kurangi stok produk
+    if (statusLama === "DRAFT" && current.statusPenjualan === "FINAL") {
+      for (const item of current.itemPenjualan) {
+        await Produk.findOneAndUpdate(
+          { _id: item.produkID, tenantID },
+          { $inc: { stok: -item.jumlah } },
+        );
+      }
+    }
+
+    // Update Sesi Booking jika ada
     if (current.jenisPenjualan === "booking" && current.itemPenjualan) {
       for (const item of current.itemPenjualan) {
         if (item.sesiBookingID) {
@@ -710,6 +831,7 @@ class PenjualanService {
       await redis.del(CACHE_KEY_BOOKING_LIST(current.tenantID));
     }
 
+    // Bersihkan Cache
     await redis.del(CACHE_KEY_LIST(tenantID));
     await redis.del(CACHE_KEY_DETAIL(id));
 
@@ -718,12 +840,12 @@ class PenjualanService {
       .populate("pelangganID", "namaPelanggan tipePelanggan")
       .populate(
         "pajakTransaksiIDs",
-        "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak"
+        "namaPajak tarifPajak tipePajak modelPerhitungan prioritas statusPajak",
       )
       .populate("diskonGlobalIDs", "namaDiskon tipe nilai cakupan bisaDigabung")
       .populate(
         "itemPenjualan.diskonItemIDs",
-        "namaDiskon tipe nilai cakupan bisaDigabung"
+        "namaDiskon tipe nilai cakupan bisaDigabung",
       )
       .lean();
 
@@ -741,6 +863,10 @@ class PenjualanService {
 
     if (current.statusPenjualan === "FINAL") {
       throw createError(400, "Penjualan FINAL tidak bisa dihapus.");
+    }
+
+    if (current.statusPenjualan === "VOID") {
+      throw createError(400, "Penjualan VOID tidak bisa dihapus.");
     }
 
     const result = await Penjualan.deleteOne({ _id: id, tenantID });

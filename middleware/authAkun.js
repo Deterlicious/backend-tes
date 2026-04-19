@@ -28,9 +28,9 @@ async function authAkun(req, res, next) {
       throw createError(403, "Token tidak valid.");
     }
 
-    // Ambil data akun
+    // Ambil data akun (roleID sudah dihapus dari select)
     const akun = await Akun.findById(decoded.id)
-      .select("device role tenantID roleID")
+      .select("device role tenantID")
       .lean();
 
     if (!akun) {
@@ -62,11 +62,11 @@ async function authAkun(req, res, next) {
       }
     }
 
+    // Context Akun (roleID sudah dihapus)
     req.akunContext = {
       akunID: akun._id,
       roleAkun: akun.role,
       tenantID: decoded.tenantID || null,
-      roleID: decoded.roleID || null,
     };
 
     req.userDecoded = decoded;
@@ -77,16 +77,10 @@ async function authAkun(req, res, next) {
   }
 }
 
+// Middleware untuk memastikan akun sudah punya toko
 authAkun.requireTenant = function (req, res, next) {
   if (!req.akunContext?.tenantID) {
     return next(createError(403, "Akun belum terikat tenant."));
-  }
-  next();
-};
-
-authAkun.requireRole = function (req, res, next) {
-  if (!req.akunContext?.roleID) {
-    return next(createError(403, "Role tidak ditemukan."));
   }
   next();
 };
