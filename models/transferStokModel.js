@@ -8,6 +8,11 @@ const TransferStokSchema = new mongoose.Schema(
       unique: true, // e.g., "TRF/GDG/001"
     },
 
+    permintaanStokID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PermintaanStok",
+      default: null,
+    },
     // RELASI: DARI MANA? (Biasanya Gudang)
     dariLocationID: {
       type: mongoose.Schema.Types.ObjectId,
@@ -90,7 +95,15 @@ const TransferStokSchema = new mongoose.Schema(
       required: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
+// Ini mempercepat pencarian "Tampilkan semua draft (PENDING) milik perusahaan X"
+TransferStokSchema.index({ tenantID: 1, status: 1 });
+// Mempercepat outlet saat ingin melihat "Barang apa saja yang sedang dikirim ke toko saya?"
+TransferStokSchema.index({ keLocationID: 1, status: 1 });
+// Mempercepat gudang pusat melihat riwayat pengiriman keluar
+TransferStokSchema.index({ dariLocationID: 1 });
+// Mempercepat pembuatan laporan bulanan atau pencarian berdasarkan rentang waktu
+TransferStokSchema.index({ tanggalKirim: -1 });
 
 module.exports = mongoose.model("TransferStok", TransferStokSchema);

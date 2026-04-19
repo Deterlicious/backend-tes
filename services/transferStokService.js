@@ -35,13 +35,37 @@ class TransferStokService {
     return createError(500, error.message || defaultMessage);
   } // --- CREATE (Hanya Membuat Draft Transfer - Status PENDING) ---
 
+  // --- CREATE (Membuat Draft Transfer - Status PENDING) ---
   async create(payload) {
+    // 1. AUTO-GENERATE NOMOR TRANSFER (Khusus untuk transfer manual antar outlet)
+    if (!payload.nomorTransfer) {
+      const uniqueString = Date.now().toString().slice(-4);
+      payload.nomorTransfer = `TRF-OUT-${uniqueString}`;
+    }
+
     const validation = validateTransferPayload(payload, false);
     if (!validation.valid)
       throw createError(400, {
         message: "Validasi gagal.",
         errors: validation.errors,
       });
+
+    // 2. EARLY STOCK VALIDATION (Cek stok di awal agar tidak membuat draft kosong)
+    for (const item of payload.items) {
+      const cekStok = await Inventory.findOne({
+        bahanBakuID: item.bahanBakuID,
+        locationID: payload.dariLocationID,
+        tenantID: payload.tenantID,
+      });
+
+      // Jika stok fisik tidak ada atau kurang dari yang mau dikirim
+      if (!cekStok || cekStok.stok < item.qtyKirim) {
+        throw createError(
+          400,
+          `Pembuatan Draft Gagal: Stok untuk salah satu bahan baku tidak mencukupi di lokasi asal.`,
+        );
+      }
+    }
 
     try {
       const transfer = await TransferStok.create(payload);
@@ -66,7 +90,7 @@ class TransferStokService {
       if (transfer.length === 0)
         throw createError(
           404,
-          "Tidak ada data Transfer Stok untuk tenant ini."
+          "Tidak ada data Transfer Stok untuk tenant ini.",
         );
 
       return transfer;
@@ -79,7 +103,7 @@ class TransferStokService {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
         400,
-        "ID Transfer dan Tenant ID wajib disertakan dan harus valid."
+        "ID Transfer dan Tenant ID wajib disertakan dan harus valid.",
       );
 
     try {
@@ -93,7 +117,7 @@ class TransferStokService {
       if (!transfer)
         throw createError(
           404,
-          "Transfer Stok tidak ditemukan atau Anda tidak memiliki akses."
+          "Transfer Stok tidak ditemukan atau Anda tidak memiliki akses.",
         );
 
       return transfer;
@@ -106,7 +130,7 @@ class TransferStokService {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
         400,
-        "ID Transfer dan Tenant ID wajib disertakan dan harus valid."
+        "ID Transfer dan Tenant ID wajib disertakan dan harus valid.",
       );
     if (!VALID_STATUS.includes(newStatus))
       throw createError(400, `Status baru '${newStatus}' tidak valid.`);
@@ -117,60 +141,79 @@ class TransferStokService {
       if (!transfer)
         throw createError(
           404,
-          "Transfer Stok tidak ditemukan atau Anda tidak memiliki akses."
+          "Transfer Stok tidak ditemukan atau Anda tidak memiliki akses.",
         );
 
-      const oldStatus = transfer.status; // Logika Bisnis Kritis: Cek Transisi Status
+      const oldStatus = transfer.status;
 
       if (oldStatus === "DITERIMA" || oldStatus === "BATAL") {
         throw createError(
           400,
-          `Tidak dapat mengubah status dari '${oldStatus}'.`
+          `Tidak dapat mengubah status dari '${oldStatus}'.`,
         );
       }
       if (newStatus === "DIKIRIM" && oldStatus !== "PENDING") {
         throw createError(
           400,
-          "Hanya Transfer PENDING yang bisa diubah menjadi DIKIRIM."
+          "Hanya Transfer PENDING yang bisa diubah menjadi DIKIRIM.",
         );
       }
       if (newStatus === "DITERIMA" && oldStatus !== "DIKIRIM") {
         throw createError(
           400,
-          "Hanya Transfer DIKIRIM yang bisa diubah menjadi DITERIMA."
+          "Hanya Transfer DIKIRIM yang bisa diubah menjadi DITERIMA.",
         );
-      } // --- Implementasi Logika Stok Berdasarkan Transisi ---
+      }
+
+      // --- Implementasi Logika Stok Berdasarkan Transisi ---
       if (newStatus === "DIKIRIM") {
         // A. BARANG KELUAR DARI GUDANG (STOK ASAL BERKURANG)
-        // Peringatan: Tidak ada cek stok minimum di sini, harusnya ada di Validasi/Middleware
-
         for (const item of transfer.items) {
-          // Mengurangi stok di Lokasi Asal (dariLocationID)
-          await Inventory.updateOne(
+          // --- TAMBAHAN: Atomic Guard & FindOneAndUpdate ---
+          const invAsal = await Inventory.findOneAndUpdate(
             {
               bahanBakuID: item.bahanBakuID,
               locationID: transfer.dariLocationID,
               tenantID,
+              stok: { $gte: item.qtyKirim }, // Memastikan stok cukup
             },
-            { $inc: { stok: -item.qtyKirim } }
+            { $inc: { stok: -item.qtyKirim } },
+            { new: true },
           );
+
+          if (!invAsal) {
+            throw createError(
+              400,
+              `Stok bahan baku ID ${item.bahanBakuID} tidak mencukupi di lokasi asal.`,
+            );
+          }
+
+          // --- TAMBAHAN: Jurnal Stok Keluar ---
+          const JurnalStok = require("../models/jurnalStokModel"); // Pastikan path benar
+          await JurnalStok.create({
+            bahanBakuID: item.bahanBakuID,
+            locationID: transfer.dariLocationID,
+            jumlah: item.qtyKirim,
+            tipeKoreksi: "Keluar",
+            alasan: "Transfer Gudang",
+            keterangan: `Kirim Transfer: ${transfer.nomorTransfer}`,
+            dicatatOleh: updates.pengirimID || transfer.pengirimID,
+            tenantID,
+            tanggal: new Date(),
+          });
         }
         transfer.status = "DIKIRIM";
         transfer.tanggalKirim = updates.tanggalKirim || Date.now();
         transfer.pengirimID = updates.pengirimID || transfer.pengirimID;
       } else if (newStatus === "DITERIMA") {
         // B. BARANG MASUK KE TOKO (STOK TUJUAN BERTAMBAH)
-
-        // Perbarui items dengan qtyTerima jika dikirim di payload
         if (updates.items) {
           transfer.items = updates.items;
         }
 
         for (const item of transfer.items) {
-          // Jika tidak ada qtyTerima dari payload, asumsikan diterima penuh (qtyKirim)
-          const receivedQty = item.qtyTerima || item.qtyKirim; // Menambah stok di Lokasi Tujuan (keLocationID)
+          const receivedQty = item.qtyTerima || item.qtyKirim;
 
-          // Menggunakan upsert: true untuk membuat entri stok jika belum ada di lokasi tujuan
           await Inventory.updateOne(
             {
               bahanBakuID: item.bahanBakuID,
@@ -180,45 +223,87 @@ class TransferStokService {
             {
               $inc: { stok: receivedQty },
               $set: {
-                bahanBakuID: item.bahanBakuID, // Ensure ID is set if creating
+                bahanBakuID: item.bahanBakuID,
                 locationID: transfer.keLocationID,
                 tenantID: tenantID,
               },
             },
-            { upsert: true } // Penting: Buat dokumen jika belum ada
+            { upsert: true },
           );
+
+          // Jurnal Stok Masuk
+          const JurnalStok = require("../models/jurnalStokModel");
+          await JurnalStok.create({
+            bahanBakuID: item.bahanBakuID,
+            locationID: transfer.keLocationID,
+            jumlah: receivedQty,
+            tipeKoreksi: "Masuk",
+            alasan: "Transfer Gudang",
+            keterangan: `Terima Transfer: ${transfer.nomorTransfer}`,
+            dicatatOleh: updates.penerimaID || transfer.penerimaID,
+            tenantID,
+            tanggal: new Date(),
+          });
         }
+
         transfer.status = "DITERIMA";
         transfer.tanggalTerima = updates.tanggalTerima || Date.now();
-        transfer.penerimaID = updates.penerimaID || transfer.penerimaID; // transfer.items sudah diperbarui di atas jika ada updates.items
+        transfer.penerimaID = updates.penerimaID || transfer.penerimaID;
+
+        // 🎯 LOGIKA JEMBATAN (Hanya dieksekusi jika ini berasal dari Permintaan Pusat)
+        if (transfer.permintaanStokID) {
+          const PermintaanStok = require("../models/permintaanStokModel");
+          await PermintaanStok.findOneAndUpdate(
+            { _id: transfer.permintaanStokID, tenantID },
+            { status: "COMPLETED" },
+          );
+        }
       } else if (newStatus === "BATAL") {
         // C. TRANSAKSI DIBATALKAN
-
-        // Jika status lama adalah DIKIRIM, stok harus dikembalikan ke Gudang Asal
         if (oldStatus === "DIKIRIM") {
           for (const item of transfer.items) {
-            // Kembalikan stok di Lokasi Asal (dariLocationID)
+            // Kembalikan stok ke lokasi asal
             await Inventory.updateOne(
               {
                 bahanBakuID: item.bahanBakuID,
                 locationID: transfer.dariLocationID,
                 tenantID,
               },
-              { $inc: { stok: item.qtyKirim } } // Kembalikan stok yang sebelumnya keluar (+)
+              { $inc: { stok: item.qtyKirim } },
             );
+
+            // Jurnal Stok Pembatalan (Masuk Kembali)
+            const JurnalStok = require("../models/jurnalStokModel");
+            await JurnalStok.create({
+              bahanBakuID: item.bahanBakuID,
+              locationID: transfer.dariLocationID,
+              jumlah: item.qtyKirim,
+              tipeKoreksi: "Masuk",
+              alasan: "Lainnya",
+              keterangan: `Pembatalan Transfer: ${transfer.nomorTransfer}`,
+              dicatatOleh: updates.pengirimID || transfer.pengirimID,
+              tenantID,
+              tanggal: new Date(),
+            });
           }
         }
         transfer.status = "BATAL";
-      } // 3. Simpan perubahan status TransferStok
+      }
 
       await transfer.save();
+
+      // --- TAMBAHAN: Invalidate Redis Cache ---
+      const redis = require("../config/redis");
+      if (redis.del) {
+        await redis.del(`inventory:list:${tenantID}`);
+      }
 
       return transfer;
     } catch (error) {
       if (createError.isHttpError(error)) throw error;
       throw this.handleDbError(
         error,
-        "Gagal memperbarui status Transfer Stok."
+        "Gagal memperbarui status Transfer Stok.",
       );
     }
   } // --- UPDATE DRAFT (Hanya Boleh Saat Status PENDING) ---
@@ -227,7 +312,7 @@ class TransferStokService {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
         400,
-        "ID Transfer dan Tenant ID wajib disertakan dan harus valid."
+        "ID Transfer dan Tenant ID wajib disertakan dan harus valid.",
       );
 
     const validation = validateTransferPayload(payload, true);
@@ -242,13 +327,13 @@ class TransferStokService {
       const transfer = await TransferStok.findOneAndUpdate(
         { _id: id, tenantID: tenantID, status: "PENDING" },
         validation.updates,
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       );
 
       if (!transfer)
         throw createError(
           404,
-          "Transfer Stok tidak ditemukan, Anda tidak memiliki akses, atau statusnya sudah bukan PENDING."
+          "Transfer Stok tidak ditemukan, Anda tidak memiliki akses, atau statusnya sudah bukan PENDING.",
         );
 
       return transfer;
@@ -261,7 +346,7 @@ class TransferStokService {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
         400,
-        "ID Transfer dan Tenant ID wajib disertakan dan harus valid."
+        "ID Transfer dan Tenant ID wajib disertakan dan harus valid.",
       );
 
     try {
@@ -275,7 +360,7 @@ class TransferStokService {
       if (!deletedTransfer)
         throw createError(
           404,
-          "Transfer Stok tidak ditemukan, Anda tidak memiliki akses, atau statusnya sudah bukan PENDING."
+          "Transfer Stok tidak ditemukan, Anda tidak memiliki akses, atau statusnya sudah bukan PENDING.",
         );
 
       return { message: "Draft Transfer Stok berhasil dihapus" };
