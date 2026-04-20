@@ -11,10 +11,12 @@ const PermissionSchema = new mongoose.Schema({
 });
 
 const Permission =
-  mongoose.models.Permission || mongoose.model("Permission", PermissionSchema);
+  mongoose.models.Permission ||
+  mongoose.model("Permission", PermissionSchema);
 
 // =======================
 // DATA PERMISSION SEED
+// =======================
 const permissionsList = [
   // =====================
   // AKUN
@@ -78,7 +80,11 @@ const permissionsList = [
     grup: "Inventory",
     deskripsi: "Edit minimum stok",
   },
-  { nama: "opname-inventory", grup: "Inventory", deskripsi: "Koreksi stok" },
+  {
+    nama: "opname-inventory",
+    grup: "Inventory",
+    deskripsi: "Koreksi stok",
+  },
 
   // =====================
   // PERMINTAAN STOK
@@ -132,6 +138,71 @@ const permissionsList = [
     grup: "Transfer Stok",
     deskripsi: "Batalkan transfer",
   },
+
+  // =====================
+  // MANEJEMEN PELANGGAN
+  // =====================
+  {
+    nama: "kelola-pelanggan",
+    grup: "Manajemen Pelanggan",
+    deskripsi: "Dapat menambah, edit, hapus pelanggan",
+  },
+
+  // =====================
+  // MANEJEMEN PRODUK
+  // =====================
+  {
+    nama: "kelola-produk",
+    grup: "Manajemen Produk",
+    deskripsi: "Dapat mengatur menu dan harga",
+  },
+  {
+    nama: "kelola-kategori",
+    grup: "Manajemen Produk",
+    deskripsi: "Dapat mengatur kategori menu",
+  },
+  {
+    nama: "kelola-bahan",
+    grup: "Manajemen Produk",
+    deskripsi: "Dapat mengatur stok bahan baku",
+  },
+
+  // =====================
+  // PENGATURAN TOKO
+  // =====================
+  {
+    nama: "kelola-akunkas",
+    grup: "Pengaturan Toko",
+    deskripsi: "Dapat menambah, edit, hapus akun kasir",
+  },
+  {
+    nama: "kelola-metode-pembayaran",
+    grup: "Pengaturan Toko",
+    deskripsi: "Dapat menambah, edit, hapus metode pembayaran",
+  },
+  {
+    nama: "kelola-pembayaran",
+    grup: "Pengaturan Toko",
+    deskripsi: "Dapat menambah, edit, hapus pembayaran",
+  },
+
+  // =====================
+  // LAPORAN
+  // =====================
+  {
+    nama: "laporan-penjualan",
+    grup: "Laporan",
+    deskripsi: "Dapat melihat omzet dan laporan",
+  },
+
+  // =====================
+  // POS
+  // =====================
+  {
+    nama: "akses-pos",
+    grup: "Transaksi",
+    deskripsi: "Dapat melakukan transaksi kasir",
+  },
 ];
 
 // =======================
@@ -151,7 +222,9 @@ const seedDB = async () => {
 
     // Insert data baru
     await Permission.insertMany(permissionsList);
-    console.log(`✅ Berhasil seed ${permissionsList.length} permissions`);
+    console.log(
+      `✅ Berhasil seed ${permissionsList.length} permissions`
+    );
 
     process.exit();
   } catch (err) {
