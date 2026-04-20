@@ -14,12 +14,26 @@ class PermintaanStokService {
 
   // 1. GET ALL - Untuk daftar di tabel FE
   async getAll(query, user) {
-    const { tenantID } = user;
+    const { tenantID, permissions } = user;
     const { status } = query;
 
+    // 1. Tentukan Filter Dasar
     let filter = { tenantID };
+
+    // 2. LOGIKA WORKFLOW (The "Security Guard")
+    const canApprove = permissions.includes("approve-permintaan-stok");
+    const canCreateTransfer = permissions.includes("create-transfer-stok");
+
+    // Jika user HANYA punya izin buat transfer (Staf Gudang) dan BUKAN manager
+    if (!canApprove && canCreateTransfer) {
+      // Staf Gudang hanya boleh melihat permintaan yang sudah APPROVED atau COMPLETED
+      filter.status = { $in: ["APPROVED", "COMPLETED"] };
+    }
+
+    // Jika user memfilter status secara manual dari UI (misal klik tab "REJECTED")
     if (status) filter.status = status;
 
+    // 3. Eksekusi Kueri dengan Standarisasi Field ("nama tipe")
     const data = await PermintaanStok.find(filter)
       .populate("dariLocationID", "nama tipe")
       .populate("keLocationID", "nama tipe")
@@ -89,6 +103,32 @@ class PermintaanStokService {
 
     await redis.del(`permintaanStok:list:${tenantID}`);
     return updated;
+  }
+
+  async updateStatus(id, tenantID, userID, newStatus, catatanPenolakan = "") {
+    // 1. Cari data permintaan
+    const permintaan = await PermintaanStok.findOne({ _id: id, tenantID });
+    if (!permintaan) throw createError(404, "Permintaan tidak ditemukan.");
+
+    // 2. Validasi Transisi Status (State Machine)
+    // Hanya status SUBMITTED yang bisa di-Approve atau Reject
+    if (permintaan.status !== "SUBMITTED") {
+      throw createError(
+        400,
+        "Hanya permintaan dengan status 'SUBMITTED' yang bisa diproses.",
+      );
+    }
+
+    // 3. Update Data
+    permintaan.status = newStatus; // "APPROVED" atau "REJECTED"
+    permintaan.disetujuiOleh = userID; // Catat ID Manajer yang eksekusi
+
+    if (newStatus === "REJECTED") {
+      permintaan.catatanPenolakan = catatanPenolakan;
+    }
+
+    await permintaan.save();
+    return permintaan;
   }
 
   /**

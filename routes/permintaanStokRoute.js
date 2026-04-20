@@ -3,21 +3,58 @@ const router = express.Router();
 const permintaanStokController = require("../controllers/permintaanStokController");
 const authPengguna = require("../middleware/authPengguna");
 
+// 1. Import middleware authorizePermission
+// Sesuaikan path jika letaknya berbeda, dan pastikan destructuring { checkPermission } benar
+const { checkPermission } = require("../middleware/authorizePermission");
+
 const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
+// Middleware authPengguna tetap di atas karena checkPermission butuh req.pengguna
 router.use(authPengguna);
 
-// Membuat draft permintaan baru
-router.get("/", wrap(permintaanStokController.getAllPermintaanStok));
-// Membuat draft baru
-router.post("/", wrap(permintaanStokController.createPermintaanStok));
-// Update isi barang (Hanya jika DRAFT atau PENDING < 5 menit)
-router.put("/:id", wrap(permintaanStokController.updatePermintaanStok));
+// --- ROUTES DENGAN PROTEKSI ---
 
-// Menggunakan PATCH untuk perubahan status (Workflow)
-router.patch("/:id/submit", wrap(permintaanStokController.submitRequest));
-router.patch("/:id/approve", wrap(permintaanStokController.approveRequest));
-router.patch("/:id/reject", wrap(permintaanStokController.rejectRequest));
+// Melihat daftar permintaan (Staff, Manager, Gudang biasanya boleh)
+router.get(
+  "/",
+  checkPermission("read-permintaan-stok"),
+  wrap(permintaanStokController.getAllPermintaanStok),
+);
+
+// Membuat draft (Biasanya hanya Staff Outlet)
+router.post(
+  "/",
+  checkPermission("create-permintaan-stok"),
+  wrap(permintaanStokController.createPermintaanStok),
+);
+
+// Update isi barang
+router.put(
+  "/:id",
+  checkPermission("update-permintaan-stok"),
+  wrap(permintaanStokController.updatePermintaanStok),
+);
+
+// Mengajukan permintaan (Submit)
+router.patch(
+  "/:id/submit",
+  checkPermission("update-permintaan-stok"),
+  wrap(permintaanStokController.submitRequest),
+);
+
+// MENYETUJUI (Khusus Manager)
+router.patch(
+  "/:id/approve",
+  checkPermission("approve-permintaan-stok"),
+  wrap(permintaanStokController.approveRequest),
+);
+
+// MENOLAK (Khusus Manager)
+router.patch(
+  "/:id/reject",
+  checkPermission("reject-permintaan-stok"),
+  wrap(permintaanStokController.rejectRequest),
+);
 
 module.exports = router;
