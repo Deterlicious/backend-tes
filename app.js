@@ -8,11 +8,21 @@ const errorHandler = require("./middleware/errorHandler"); // error handler
 
 const app = express();
 
-// Security headers
-app.use(helmet());
-
 // CORS (tune origin in production)
-app.use(cors({ origin: true }));
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  }),
+);
+
+// Handle preflight untuk semua route
+app.options("/{*path}", cors());
+
+// Security headers
+app.use(helmet({ crossOriginResourcePolicy: false }));
 
 // Parsers
 app.use(express.json()); // pakai built-in parser

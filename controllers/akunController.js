@@ -64,6 +64,7 @@ class AkunController {
           currentDevice: result.currentDevice,
         },
         accessToken: result.tokens.accessToken,
+        data: userData
         refreshToken: result.tokens.refreshToken,
       });
     } catch (err) {
