@@ -8,6 +8,11 @@ jest.mock("../../middleware/authPengguna", () => {
       _id: "66164670c0c0c0c0c0c0c0c1",
       tenantID: "66164670c0c0c0c0c0c0c0c0",
       role: "admin",
+      permissions: [
+        "approve-permintaan-stok",
+        "read-permintaan-stok",
+        "create-transfer-stok",
+      ],
     };
     next();
   };

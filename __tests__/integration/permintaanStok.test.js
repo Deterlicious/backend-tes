@@ -10,6 +10,13 @@ jest.mock("../../middleware/authPengguna", () => {
       _id: "66164670c0c0c0c0c0c0c0c0",
       tenantID: "66164670c0c0c0c0c0c0c0c0",
       role: "admin",
+      permissions: [
+        "read-permintaan-stok",
+        "create-permintaan-stok",
+        "update-permintaan-stok",
+        "approve-permintaan-stok",
+        "reject-permintaan-stok",
+      ],
     };
     next();
   };
@@ -20,6 +27,7 @@ const app = require("../../app");
 const PermintaanStok = require("../../models/permintaanStokModel");
 const Inventory = require("../../models/inventoryModel");
 const JurnalStok = require("../../models/jurnalStokModel");
+const TransferStok = require("../../models/transferStokModel");
 
 // Gunakan ID yang sama dengan di dalam Mock Auth
 const VALID_TENANT_ID = "66164670c0c0c0c0c0c0c0c0";
@@ -46,12 +54,13 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       PermintaanStok.deleteMany({}),
       Inventory.deleteMany({}),
       JurnalStok.deleteMany({}),
+      TransferStok.deleteMany({}),
     ]);
   });
 
   // --- TEST CASES ---
 
-  it("Step: Approve Sukses - Mutasi Stok & Jurnal", async () => {
+  it("Step: Approve Sukses - Membuat Draft Surat Jalan", async () => {
     const bahanBakuID = new mongoose.Types.ObjectId();
     const dariLocationID = new mongoose.Types.ObjectId();
     const keLocationID = new mongoose.Types.ObjectId();
@@ -72,7 +81,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       dariLocationID,
       keLocationID,
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID, jumlah: 30 }],
+      items: [{ bahanBakuID, jumlah: 30, satuan: "kg" }],
     });
 
     // Jalankan Request Approve
@@ -97,12 +106,20 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
 
     expect(res.status).toBe(200);
 
-    // Cek Stok Berkurang (100 - 30 = 70)
+    const updatedPermintaan = await PermintaanStok.findById(permintaan._id);
+    expect(updatedPermintaan.status).toBe("APPROVED");
+
+    const transfer = await TransferStok.findById(res.body.transferID);
+    expect(transfer.status).toBe("PENDING");
+    expect(String(transfer.permintaanStokID)).toBe(String(permintaan._id));
+    expect(transfer.items[0].qtyKirim).toBe(30);
+
+    // Approval hanya menerbitkan draft Surat Jalan; stok berkurang saat transfer dikirim.
     const stokAsal = await Inventory.findOne({
       locationID: dariLocationID,
       bahanBakuID,
     });
-    expect(stokAsal.stok).toBe(70);
+    expect(stokAsal.stok).toBe(100);
   });
 
   it("Step: Reject Sukses - Tanpa Mutasi", async () => {
@@ -113,7 +130,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       dariLocationID: new mongoose.Types.ObjectId(),
       keLocationID: new mongoose.Types.ObjectId(),
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10, satuan: "kg" }],
     });
 
     const res = await request(app)
@@ -135,7 +152,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       dariLocationID: new mongoose.Types.ObjectId(),
       keLocationID: new mongoose.Types.ObjectId(),
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10, satuan: "kg" }],
     });
 
     // 2. Coba approve lagi
@@ -157,7 +174,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       dariLocationID: new mongoose.Types.ObjectId(),
       keLocationID: new mongoose.Types.ObjectId(),
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 5 }],
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 5, satuan: "kg" }],
     });
 
     // 2. Coba reject
@@ -181,14 +198,20 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       dariLocationID: new mongoose.Types.ObjectId(),
       keLocationID: new mongoose.Types.ObjectId(),
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10, satuan: "kg" }],
     });
 
     // 2. Update jumlah item
     const res = await request(app)
       .put(`/api/permintaanstok/${permintaan._id}`) // Sesuai router.put
       .send({
-        items: [{ bahanBakuID: permintaan.items[0].bahanBakuID, jumlah: 50 }],
+        items: [
+          {
+            bahanBakuID: permintaan.items[0].bahanBakuID,
+            jumlah: 50,
+            satuan: "kg",
+          },
+        ],
       });
 
     expect(res.status).toBe(200);
@@ -196,7 +219,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
     expect(updated.items[0].jumlah).toBe(50);
   });
 
-  it("Step: Submit Sukses - Transisi dari DRAFT ke PENDING", async () => {
+  it("Step: Submit Sukses - Transisi dari DRAFT ke SUBMITTED", async () => {
     const permintaan = await PermintaanStok.create({
       nomorRequest: "REQ-SUBMIT-01",
       tenantID: VALID_TENANT_ID,
@@ -204,7 +227,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       dariLocationID: new mongoose.Types.ObjectId(),
       keLocationID: new mongoose.Types.ObjectId(),
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10, satuan: "kg" }],
     });
 
     const res = await request(app)
@@ -212,35 +235,26 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       .send();
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe("PENDING");
+    expect(res.body.data.status).toBe("SUBMITTED");
   });
 
-  it("Gagal Update: Grace Period Berakhir - Mencoba edit PENDING setelah 6 menit", async () => {
+  it("Gagal Update: Mencoba edit setelah SUBMITTED", async () => {
     const permintaan = await PermintaanStok.create({
       nomorRequest: "REQ-TIMEOUT",
       tenantID: VALID_TENANT_ID,
-      status: "PENDING",
+      status: "SUBMITTED",
       dariLocationID: new mongoose.Types.ObjectId(),
       keLocationID: new mongoose.Types.ObjectId(),
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10, satuan: "kg" }],
     });
-
-    const enamMenitLalu = new Date(Date.now() - 6 * 60 * 1000);
-    await PermintaanStok.findByIdAndUpdate(
-      permintaan._id,
-      { updatedAt: enamMenitLalu },
-      { timestamps: false },
-    );
 
     const res = await request(app)
       .put(`/api/permintaanstok/${permintaan._id}`)
       .send({ catatan: "Edit Timeout" });
 
     expect(res.status).toBe(400);
-    // Cukup cek kata kunci intinya saja agar tidak bentrok dengan titik/koma
-    expect(res.body.message).toMatch(/Batas waktu edit/);
-    expect(res.body.message).toMatch(/telah berakhir/);
+    expect(res.body.message).toContain("sudah diproses");
   });
 
   it("Gagal Approve: Status masih DRAFT (Workflow Guard)", async () => {
@@ -252,7 +266,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
       dariLocationID: new mongoose.Types.ObjectId(),
       keLocationID: new mongoose.Types.ObjectId(),
       dimintaOleh: new mongoose.Types.ObjectId(),
-      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10 }],
+      items: [{ bahanBakuID: new mongoose.Types.ObjectId(), jumlah: 10, satuan: "kg" }],
     });
 
     const res = await request(app)

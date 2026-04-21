@@ -17,7 +17,7 @@ class PermintaanStokController {
         ...req.body,
         tenantID: req.pengguna.tenantID,
         dimintaOleh: req.pengguna._id,
-        status: "SUBMITTED", // Default saat pertama kali buat
+        status: "DRAFT",
       };
 
       const data = await permintaanStokService.create(payload);

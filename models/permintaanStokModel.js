@@ -20,10 +20,10 @@ const PermintaanStokSchema = new mongoose.Schema(
     },
     dimintaOleh: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: "Pengguna",
       required: true,
     },
-    disetujuiOleh: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    disetujuiOleh: { type: mongoose.Schema.Types.ObjectId, ref: "Pengguna" },
 
     // Menghubungkan ke tabel Surat Jalan (TransferStok)
     transferStokID: {

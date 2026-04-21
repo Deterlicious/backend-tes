@@ -14,7 +14,7 @@ class PermintaanStokService {
 
   // 1. GET ALL - Untuk daftar di tabel FE
   async getAll(query, user) {
-    const { tenantID, permissions } = user;
+    const { tenantID, permissions = [] } = user;
     const { status } = query;
 
     // 1. Tentukan Filter Dasar
@@ -80,21 +80,7 @@ class PermintaanStokService {
       throw createError(400, "Data sudah diproses dan tidak dapat diubah.");
     }
 
-    // 2. Logika Grace Period untuk status PENDING
-    if (data.status === "PENDING") {
-      const waktuSekarang = new Date();
-      const waktuUpdateTerakhir = new Date(data.updatedAt); // Gunakan waktu saat status berubah jadi PENDING
-      const selisihMenit = (waktuSekarang - waktuUpdateTerakhir) / (1000 * 60);
-
-      if (selisihMenit > 5) {
-        throw createError(
-          400,
-          "Batas waktu edit (5 menit) untuk status PENDING telah berakhir.",
-        );
-      }
-    }
-
-    // 3. Jika status DRAFT, bebas edit (tidak kena limit 5 menit)
+    // 2. Jika status DRAFT, bebas edit
     const updated = await PermintaanStok.findByIdAndUpdate(
       id,
       { $set: payload },
@@ -197,16 +183,14 @@ class PermintaanStokService {
     const request = await PermintaanStok.findOne({ _id: id, tenantID });
     if (!request) throw createError(404, "Data tidak ditemukan");
 
-    let nextStatus;
-    if (request.status === "DRAFT") nextStatus = "PENDING";
-    else if (request.status === "PENDING") nextStatus = "SUBMITTED";
-    else
+    if (request.status !== "DRAFT") {
       throw createError(
         400,
         `Tidak bisa submit data dengan status ${request.status}`,
       );
+    }
 
-    request.status = nextStatus;
+    request.status = "SUBMITTED";
     await request.save();
 
     await redis.del(this.#KEY_LIST(tenantID));
@@ -215,13 +199,13 @@ class PermintaanStokService {
 
   /**
    * REJECT REQUEST
-   * Boleh reject jika status PENDING atau SUBMITTED
+   * Boleh reject jika status SUBMITTED
    */
   async reject(id, tenantID, userID, alasan) {
     const data = await PermintaanStok.findOne({
       _id: id,
       tenantID,
-      status: { $in: ["PENDING", "SUBMITTED"] },
+      status: "SUBMITTED",
     });
 
     if (!data) {
