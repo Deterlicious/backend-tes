@@ -10,50 +10,77 @@ const KEY_LIST = (tenantID) => `role:list:${tenantID}`;
 const KEY_DETAIL = (id) => `role:detail:${id}`;
 
 class RoleService {
-
-  /**
-   * 🔥 SMART FUNCTION:
-   * Mengubah array permission (slug / ObjectId) menjadi ObjectId valid
-   */
+  // ==========================================
+  // 🔥 STRICT PERMISSION PROCESSOR
+  // ==========================================
   async _processPermissions(permissionsArray) {
-    if (!permissionsArray || !Array.isArray(permissionsArray)) return permissionsArray;
+    if (!Array.isArray(permissionsArray)) {
+      throw createError(400, "Field 'permissions' harus berupa array");
+    }
+
+    if (permissionsArray.length === 0) {
+      throw createError(400, "Field 'permissions' tidak boleh kosong");
+    }
 
     const objectIds = [];
     const slugs = [];
 
-    // Pisahkan ID & slug
     for (const item of permissionsArray) {
+      // ==========================================
+      // OBJECT ID VALIDATION + EXISTENCE CHECK (FIX)
+      // ==========================================
       if (mongoose.Types.ObjectId.isValid(item)) {
+        const exists = await Permission.findById(item).lean();
+
+        if (!exists) {
+          throw createError(400, `Permission ID tidak ditemukan: ${item}`);
+        }
+
         objectIds.push(item.toString());
-      } else if (typeof item === "string") {
+      }
+
+      // ==========================================
+      // SLUG / NAME VALIDATION
+      // ==========================================
+      else if (typeof item === "string" && item.trim() !== "") {
         slugs.push(item.trim());
+      } else {
+        throw createError(400, "Format permission tidak valid");
       }
     }
 
     let foundIds = [];
 
-    // Ambil ID dari slug
+    // ==========================================
+    // LOOKUP BY NAME (SLUG)
+    // ==========================================
     if (slugs.length > 0) {
       const foundPermissions = await Permission.find(
         { nama: { $in: slugs } },
-        "_id"
+        "_id nama",
       ).lean();
 
-      if (foundPermissions.length !== slugs.length) {
-        throw createError(400, "Satu atau lebih nama Permission tidak dikenali.");
+      const foundNames = foundPermissions.map((p) => p.nama);
+      const missing = slugs.filter((s) => !foundNames.includes(s));
+
+      if (missing.length > 0) {
+        throw createError(
+          400,
+          `Permission tidak ditemukan: ${missing.join(", ")}`,
+        );
       }
 
       foundIds = foundPermissions.map((p) => p._id.toString());
     }
 
-    // Remove duplicate
-    const finalPermissions = [...new Set([...objectIds, ...foundIds])];
-
-    return finalPermissions;
+    // ==========================================
+    // FINAL UNIQUE RESULT
+    // ==========================================
+    return [...new Set([...objectIds, ...foundIds])];
   }
 
   // ==========================================
-  // GET ALL ROLES
+  // GET ALL
   // ==========================================
   async getAll(tenantID) {
     if (!tenantID) throw createError(400, "tenantID required");
@@ -72,7 +99,7 @@ class RoleService {
   }
 
   // ==========================================
-  // GET ROLE BY ID
+  // GET BY ID
   // ==========================================
   async getById(id, tenantID) {
     const cached = await redis.get(KEY_DETAIL(id));
@@ -99,47 +126,46 @@ class RoleService {
   }
 
   // ==========================================
-  // CREATE ROLE
+  // CREATE ROLE (STRICT)
   // ==========================================
   async create(payload, tenantID) {
     payload.tenantID = tenantID;
 
     const validation = validateRolePayload(payload);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
-
-    if (payload.permissions) {
-      payload.permissions = await this._processPermissions(payload.permissions);
+    if (!validation.valid) {
+      throw createError(400, validation.errors[0]);
     }
 
-    try {
-      const role = await Role.create(payload);
-
-      await redis.del(KEY_LIST(tenantID));
-
-      return role;
-    } catch (err) {
-      if (err.code === 11000) {
-        throw createError(409, "Nama role sudah digunakan di tenant ini.");
-      }
-      throw err;
+    // 🔥 STRICT CHECK
+    if (!Array.isArray(payload.permissions) || payload.permissions.length < 1) {
+      throw createError(400, "Field 'permissions' wajib diisi minimal 1");
     }
+
+    payload.permissions = await this._processPermissions(payload.permissions);
+
+    const role = await Role.create(payload);
+
+    await redis.del(KEY_LIST(tenantID));
+
+    return role;
   }
 
   // ==========================================
-  // CREATE OWNER ROLE (SYSTEM)
+  // OWNER ROLE
   // ==========================================
   async createOwnerRole(tenantID) {
     const allPermissions = await Permission.find().select("_id").lean();
-    const permissionIds = allPermissions.map((p) => p._id);
 
-    const payload = {
+    if (!allPermissions.length) {
+      throw createError(500, "System permission kosong");
+    }
+
+    const role = await Role.create({
       tenantID,
       namaRole: "Owner",
       deskripsi: "Role sistem dengan akses penuh",
-      permissions: permissionIds,
-    };
-
-    const role = await Role.create(payload);
+      permissions: allPermissions.map((p) => p._id),
+    });
 
     await redis.del(KEY_LIST(tenantID));
 
@@ -153,46 +179,40 @@ class RoleService {
     delete payload.tenantID;
 
     const validation = validateRolePayload(payload, true);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
+    if (!validation.valid) {
+      throw createError(400, validation.errors[0]);
+    }
 
     const currentRole = await Role.findOne({ _id: id, tenantID });
-    if (!currentRole) throw createError(404, "Role tidak ditemukan");
+    if (!currentRole) {
+      throw createError(404, "Role tidak ditemukan");
+    }
 
-    // 🔥 PROTEKSI OWNER (NAMA)
     if (
       currentRole.namaRole === "Owner" &&
       payload.namaRole &&
       payload.namaRole !== "Owner"
     ) {
-      throw createError(403, "Nama Role Owner tidak boleh diubah");
+      throw createError(403, "Owner tidak boleh diubah");
     }
 
-    // 🔥 PROTEKSI OWNER (PERMISSION)
     if (currentRole.namaRole === "Owner" && payload.permissions) {
-      throw createError(403, "Permission Role Owner tidak boleh diubah");
+      throw createError(403, "Owner permissions tidak boleh diubah");
     }
 
-    // Proses permission jika ada
     if (payload.permissions) {
       payload.permissions = await this._processPermissions(payload.permissions);
     }
 
     Object.assign(currentRole, payload);
 
-    try {
-      const updated = await currentRole.save();
-      await updated.populate("permissions", "nama grup");
+    const updated = await currentRole.save();
+    await updated.populate("permissions", "nama grup");
 
-      await redis.del(KEY_LIST(tenantID));
-      await redis.del(KEY_DETAIL(id));
+    await redis.del(KEY_LIST(tenantID));
+    await redis.del(KEY_DETAIL(id));
 
-      return updated;
-    } catch (err) {
-      if (err.code === 11000) {
-        throw createError(409, "Nama role sudah digunakan di tenant ini.");
-      }
-      throw err;
-    }
+    return updated;
   }
 
   // ==========================================
@@ -203,9 +223,8 @@ class RoleService {
 
     if (!role) throw createError(404, "Role tidak ditemukan");
 
-    // 🔥 PROTEKSI OWNER
     if (role.namaRole === "Owner") {
-      throw createError(403, "Role Owner tidak dapat dihapus");
+      throw createError(403, "Owner tidak dapat dihapus");
     }
 
     await role.deleteOne();
