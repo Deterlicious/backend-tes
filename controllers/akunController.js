@@ -64,7 +64,6 @@ class AkunController {
           currentDevice: result.currentDevice,
         },
         accessToken: result.tokens.accessToken,
-        data: userData
         refreshToken: result.tokens.refreshToken,
       });
     } catch (err) {
@@ -251,10 +250,7 @@ class AkunController {
   // ==========================================
   async deleteUserByAdmin(req, res, next) {
     try {
-      await akunService.deleteUserByAdmin(
-        req.params.id,
-        req.userDecoded.id
-      );
+      await akunService.deleteUserByAdmin(req.params.id, req.userDecoded.id);
 
       res.json({
         message: "Akun berhasil dihapus oleh admin.",
@@ -271,7 +267,7 @@ class AkunController {
     try {
       const result = await deviceService.addDevice(
         req.userDecoded.id,
-        req.body
+        req.body,
       );
 
       res.status(201).json({
@@ -287,7 +283,7 @@ class AkunController {
     try {
       const result = await deviceService.promoteDevice(
         req.userDecoded.id,
-        req.body.deviceID
+        req.body.deviceID,
       );
 
       res.json({
@@ -303,7 +299,7 @@ class AkunController {
     try {
       const result = await deviceService.demoteDevice(
         req.userDecoded.id,
-        req.body.deviceID
+        req.body.deviceID,
       );
 
       res.json({
@@ -317,10 +313,7 @@ class AkunController {
 
   async removeDevice(req, res, next) {
     try {
-      await deviceService.removeDevice(
-        req.userDecoded.id,
-        req.body.deviceID
-      );
+      await deviceService.removeDevice(req.userDecoded.id, req.body.deviceID);
 
       res.json({
         message: "Perangkat berhasil dihapus.",
