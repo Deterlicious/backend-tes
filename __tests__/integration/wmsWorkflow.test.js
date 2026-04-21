@@ -64,7 +64,7 @@ describe("Integration Test - Alur Lengkap WMS Permintaan Stok", () => {
     ]);
   });
 
-  it("Staff Outlet membuat DRAFT, submit ke SUBMITTED, Manager approve, Staff Gudang memverifikasi draft Surat Jalan tanpa data hilang", async () => {
+  it("Staff Outlet membuat DRAFT, Manager approve, Staff Gudang membuat Surat Jalan dari permintaan APPROVED", async () => {
     const bahanBakuID = new mongoose.Types.ObjectId();
     const gudangID = new mongoose.Types.ObjectId();
     const outletID = new mongoose.Types.ObjectId();
@@ -115,14 +115,12 @@ describe("Integration Test - Alur Lengkap WMS Permintaan Stok", () => {
       .send();
 
     expect(approveRes.status).toBe(200);
-    expect(approveRes.body.transferID).toBeDefined();
+    expect(approveRes.body.data.status).toBe("APPROVED");
 
     const approvedRequest = await PermintaanStok.findById(requestID).lean();
     expect(approvedRequest.status).toBe("APPROVED");
     expect(String(approvedRequest.disetujuiOleh)).toBe(MANAGER_ID);
-    expect(String(approvedRequest.transferStokID)).toBe(
-      String(approveRes.body.transferID),
-    );
+    expect(approvedRequest.transferStokID).toBeNull();
 
     loginAsStaffGudang();
     const listRes = await request(app)
@@ -133,17 +131,29 @@ describe("Integration Test - Alur Lengkap WMS Permintaan Stok", () => {
     expect(listRes.body.data).toHaveLength(1);
     expect(listRes.body.data[0]._id).toBe(requestID);
 
+    const transferRes = await request(app).post("/api/transferstok").send({
+      permintaanStokID: requestID,
+      tanggalKirim: "2026-04-21T00:00:00.000Z",
+      items: [{ bahanBakuID, qtyKirim: 12 }],
+    });
+
+    expect(transferRes.status).toBe(201);
+
+    const updatedRequest = await PermintaanStok.findById(requestID).lean();
+    expect(String(updatedRequest.transferStokID)).toBe(
+      transferRes.body.data._id,
+    );
+
     const transfer = await TransferStok.findById(
-      approveRes.body.transferID,
+      transferRes.body.data._id,
     ).lean();
     expect(transfer).toMatchObject({
       status: "PENDING",
-      nomorTransfer: approveRes.body.nomorSuratJalan,
     });
     expect(String(transfer.permintaanStokID)).toBe(requestID);
     expect(String(transfer.dariLocationID)).toBe(String(gudangID));
     expect(String(transfer.keLocationID)).toBe(String(outletID));
-    expect(String(transfer.pengirimID)).toBe(MANAGER_ID);
+    expect(String(transfer.pengirimID)).toBe(STAFF_GUDANG_ID);
     expect(transfer.items).toHaveLength(1);
     expect(String(transfer.items[0].bahanBakuID)).toBe(String(bahanBakuID));
     expect(transfer.items[0].qtyKirim).toBe(12);

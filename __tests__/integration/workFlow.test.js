@@ -28,6 +28,7 @@ const MOCK_USER_ID = "66164670c0c0c0c0c0c0c0c1";
 
 describe("Workflow Integration: Permintaan -> Transfer -> Selesai", () => {
   let bahanBakuID, gudangID, outletID;
+  let createdPermintaanID;
   let createdTransferID;
 
   beforeAll(async () => {
@@ -44,7 +45,7 @@ describe("Workflow Integration: Permintaan -> Transfer -> Selesai", () => {
   });
 
   // --- STEP 1: APPROVE ---
-  it("Step 1: Approve Permintaan harus otomatis membuat TransferStok (Surat Jalan)", async () => {
+  it("Step 1: Approve Permintaan hanya mengubah status menjadi APPROVED", async () => {
     const permintaan = await PermintaanStok.create({
       nomorRequest: "REQ-FINAL-WORKFLOW",
       tenantID: VALID_TENANT_ID,
@@ -61,14 +62,25 @@ describe("Workflow Integration: Permintaan -> Transfer -> Selesai", () => {
 
     expect(res.status).toBe(200);
 
-    // Simpan ID untuk Step 2
-    createdTransferID =
-      res.body.transferID || (res.body.data && res.body.data.transferID);
-    expect(createdTransferID).toBeDefined();
+    createdPermintaanID = String(permintaan._id);
+
+    const updatedPermintaan = await PermintaanStok.findById(permintaan._id);
+    expect(updatedPermintaan.status).toBe("APPROVED");
+    expect(updatedPermintaan.transferStokID).toBeNull();
   });
 
-  // --- STEP 2: TERIMA & AUTO-COMPLETE ---
-  it("Step 2: Saat TransferStok DITERIMA, PermintaanStok harus otomatis COMPLETED", async () => {
+  // --- STEP 2: BUAT SURAT JALAN MANUAL, TERIMA & AUTO-COMPLETE ---
+  it("Step 2: Surat Jalan dibuat dari Permintaan APPROVED, lalu saat DITERIMA PermintaanStok otomatis COMPLETED", async () => {
+    expect(createdPermintaanID).toBeDefined();
+
+    const createTransferRes = await request(app).post("/api/transferstok").send({
+      permintaanStokID: createdPermintaanID,
+      tanggalKirim: new Date(),
+      items: [{ bahanBakuID, qtyKirim: 20 }],
+    });
+
+    expect(createTransferRes.status).toBe(201);
+    createdTransferID = createTransferRes.body.data._id;
     expect(createdTransferID).toBeDefined();
 
     const transfer = await TransferStok.findById(createdTransferID);

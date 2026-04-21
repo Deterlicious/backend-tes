@@ -1,9 +1,4 @@
 const PermintaanStok = require("../models/permintaanStokModel");
-const Inventory = require("../models/inventoryModel");
-const JurnalStok = require("../models/jurnalStokModel");
-const TransferStokService = require("./transferStokService");
-// 1. Hapus 'new' karena yang di-export dari transferStokService sudah berupa instance
-const transferService = require("./transferStokService");
 const createError = require("http-errors");
 const redis = require("../config/redis");
 
@@ -23,15 +18,22 @@ class PermintaanStokService {
     // 2. LOGIKA WORKFLOW (The "Security Guard")
     const canApprove = permissions.includes("approve-permintaan-stok");
     const canCreateTransfer = permissions.includes("create-transfer-stok");
+    const allowedStatuses =
+      !canApprove && canCreateTransfer
+        ? ["SUBMITTED", "APPROVED", "COMPLETED"]
+        : null;
 
     // Jika user HANYA punya izin buat transfer (Staf Gudang) dan BUKAN manager
-    if (!canApprove && canCreateTransfer) {
-      // Staf Gudang hanya boleh melihat permintaan yang sudah APPROVED atau COMPLETED
-      filter.status = { $in: ["APPROVED", "COMPLETED"] };
+    if (allowedStatuses) {
+      // Staf gudang/outlet tujuan boleh melihat request masuk, tapi tidak semua status.
+      filter.status = { $in: allowedStatuses };
     }
 
     // Jika user memfilter status secara manual dari UI (misal klik tab "REJECTED")
-    if (status) filter.status = status;
+    if (status) {
+      if (allowedStatuses && !allowedStatuses.includes(status)) return [];
+      filter.status = status;
+    }
 
     // 3. Eksekusi Kueri dengan Standarisasi Field ("nama tipe")
     const data = await PermintaanStok.find(filter)
@@ -117,11 +119,6 @@ class PermintaanStokService {
     return permintaan;
   }
 
-  /**
-   * APPROVE REQUEST - Transfer Stok (Atomic tanpa Mongoose Session/Transaction)
-   * Menggunakan findOneAndUpdate + $gte + $inc untuk mencegah race condition
-   */
-
   async approve(id, tenantID, userID) {
     // 1. Cari data Permintaan
     const data = await PermintaanStok.findOne({
@@ -137,44 +134,21 @@ class PermintaanStokService {
       );
     }
 
-    // 2. Siapkan Payload untuk Surat Jalan (TransferStok)
-    // Kita sesuaikan field 'jumlah' di Permintaan ke 'qtyKirim' di Transfer
-    const payloadTransfer = {
-      nomorTransfer: `SJ-${data.nomorRequest}-${Date.now().toString().slice(-4)}`, // Generate No. Surat Jalan
-      tenantID: tenantID,
-      dariLocationID: data.dariLocationID,
-      keLocationID: data.keLocationID,
-      pengirimID: userID,
-      tanggalKirim: new Date(),
-      permintaanStokID: data._id,
-      items: data.items.map((item) => ({
-        bahanBakuID: item.bahanBakuID,
-        qtyKirim: item.jumlah, // Mapping jumlah -> qtyKirim
-        qtyTerima: 0,
-      })),
-      permintaanStokID: data._id, // Simpan referensi balik
-    };
-
-    // 3. Buat Dokumen Transfer Stok (Surat Jalan)
-    const newTransfer = await transferService.create(payloadTransfer);
-
-    // 4. Update Status Permintaan menjadi APPROVED
+    // 2. Approve hanya menyetujui permintaan. Surat jalan dibuat manual
+    // dari permintaan APPROVED melalui endpoint TransferStok.
     data.status = "APPROVED";
-    data.transferStokID = newTransfer._id; // Link ke Surat Jalan
     data.disetujuiOleh = userID;
     data.tanggalApprove = new Date();
     await data.save();
 
-    // 5. Invalidate Cache Permintaan
+    // 3. Invalidate Cache Permintaan
     if (redis && redis.status === "ready") {
       await redis.del(this.#KEY_LIST(tenantID));
     }
 
     return {
-      message:
-        "Permintaan disetujui. Surat Jalan (Transfer Stok) telah diterbitkan.",
-      transferID: newTransfer._id,
-      nomorSuratJalan: newTransfer.nomorTransfer,
+      message: "Permintaan disetujui. Surat jalan siap dibuat.",
+      data,
     };
   }
 

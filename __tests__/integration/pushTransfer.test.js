@@ -8,6 +8,7 @@ jest.mock("../../middleware/authPengguna", () => {
       _id: "66164670c0c0c0c0c0c0c0A1", // ID User Outlet A
       tenantID: "66164670c0c0c0c0c0c0c0c0",
       role: "outlet",
+      permissions: ["create-transfer-stok"],
     };
     next();
   };
@@ -15,12 +16,14 @@ jest.mock("../../middleware/authPengguna", () => {
 
 const app = require("../../app");
 const TransferStok = require("../../models/transferStokModel");
+const PermintaanStok = require("../../models/permintaanStokModel");
 const Inventory = require("../../models/inventoryModel");
 
 const VALID_TENANT_ID = "66164670c0c0c0c0c0c0c0c0";
 
 describe("Workflow Inter-Store: Push Transfer (Outlet A ke Outlet B)", () => {
   let bahanBakuID, outletA, outletB;
+  let overstockPermintaanID, validPermintaanID;
   let createdTransferID;
 
   beforeAll(async () => {
@@ -35,6 +38,29 @@ describe("Workflow Inter-Store: Push Transfer (Outlet A ke Outlet B)", () => {
       tenantID: VALID_TENANT_ID,
       stok: 50,
     });
+
+    const overstockPermintaan = await PermintaanStok.create({
+      nomorRequest: "REQ-PUSH-OVERSTOCK",
+      tenantID: VALID_TENANT_ID,
+      dariLocationID: outletA,
+      keLocationID: outletB,
+      status: "APPROVED",
+      dimintaOleh: "66164670c0c0c0c0c0c0c0A1",
+      items: [{ bahanBakuID, jumlah: 100, satuan: "kg" }],
+    });
+
+    const validPermintaan = await PermintaanStok.create({
+      nomorRequest: "REQ-PUSH-VALID",
+      tenantID: VALID_TENANT_ID,
+      dariLocationID: outletA,
+      keLocationID: outletB,
+      status: "APPROVED",
+      dimintaOleh: "66164670c0c0c0c0c0c0c0A1",
+      items: [{ bahanBakuID, jumlah: 20, satuan: "kg" }],
+    });
+
+    overstockPermintaanID = overstockPermintaan._id;
+    validPermintaanID = validPermintaan._id;
   });
 
   // --- TEST 1: EARLY VALIDATION (Pencegahan Stok Minus) ---
@@ -42,6 +68,7 @@ describe("Workflow Inter-Store: Push Transfer (Outlet A ke Outlet B)", () => {
     const res = await request(app)
       .post("/api/transferstok")
       .send({
+        permintaanStokID: overstockPermintaanID,
         dariLocationID: outletA,
         keLocationID: outletB,
         tanggalKirim: new Date(),
@@ -57,6 +84,7 @@ describe("Workflow Inter-Store: Push Transfer (Outlet A ke Outlet B)", () => {
     const res = await request(app)
       .post("/api/transferstok")
       .send({
+        permintaanStokID: validPermintaanID,
         dariLocationID: outletA,
         keLocationID: outletB,
         tanggalKirim: new Date(),
@@ -67,8 +95,8 @@ describe("Workflow Inter-Store: Push Transfer (Outlet A ke Outlet B)", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.data.status).toBe("PENDING");
-    expect(res.body.data.permintaanStokID).toBeNull(); // Pastikan tidak terikat pusat
-    expect(res.body.data.nomorTransfer).toContain("TRF-OUT-");
+    expect(res.body.data.permintaanStokID).toBe(String(validPermintaanID));
+    expect(res.body.data.nomorTransfer).toContain("SJ-REQ-PUSH-VALID-");
 
     createdTransferID = res.body.data._id; // Simpan untuk test selanjutnya
   });

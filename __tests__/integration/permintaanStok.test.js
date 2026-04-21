@@ -60,7 +60,7 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
 
   // --- TEST CASES ---
 
-  it("Step: Approve Sukses - Membuat Draft Surat Jalan", async () => {
+  it("Step: Approve Sukses - Permintaan menjadi APPROVED tanpa membuat Surat Jalan otomatis", async () => {
     const bahanBakuID = new mongoose.Types.ObjectId();
     const dariLocationID = new mongoose.Types.ObjectId();
     const keLocationID = new mongoose.Types.ObjectId();
@@ -108,13 +108,14 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
 
     const updatedPermintaan = await PermintaanStok.findById(permintaan._id);
     expect(updatedPermintaan.status).toBe("APPROVED");
+    expect(updatedPermintaan.transferStokID).toBeNull();
 
-    const transfer = await TransferStok.findById(res.body.transferID);
-    expect(transfer.status).toBe("PENDING");
-    expect(String(transfer.permintaanStokID)).toBe(String(permintaan._id));
-    expect(transfer.items[0].qtyKirim).toBe(30);
+    const transferCount = await TransferStok.countDocuments({
+      permintaanStokID: permintaan._id,
+    });
+    expect(transferCount).toBe(0);
 
-    // Approval hanya menerbitkan draft Surat Jalan; stok berkurang saat transfer dikirim.
+    // Approval hanya menyetujui permintaan; stok berkurang saat Surat Jalan dikirim.
     const stokAsal = await Inventory.findOne({
       locationID: dariLocationID,
       bahanBakuID,

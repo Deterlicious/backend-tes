@@ -1,6 +1,7 @@
 // transferStokService.js
 const TransferStok = require("../models/transferStokModel");
 const Inventory = require("../models/inventoryModel"); // Menggunakan model Inventory/Stok per Lokasi
+const PermintaanStok = require("../models/permintaanStokModel");
 const mongoose = require("mongoose");
 const createError = require("http-errors");
 const {
@@ -37,10 +38,98 @@ class TransferStokService {
 
   // --- CREATE (Membuat Draft Transfer - Status PENDING) ---
   async create(payload) {
-    // 1. AUTO-GENERATE NOMOR TRANSFER (Khusus untuk transfer manual antar outlet)
+    if (
+      !payload.permintaanStokID ||
+      !isValidObjectId(payload.permintaanStokID)
+    ) {
+      throw createError(
+        400,
+        "Surat jalan wajib dibuat dari Permintaan Stok yang sudah disetujui.",
+      );
+    }
+
+    const permintaan = await PermintaanStok.findOne({
+      _id: payload.permintaanStokID,
+      tenantID: payload.tenantID,
+      status: "APPROVED",
+    });
+
+    if (!permintaan) {
+      throw createError(
+        400,
+        "Permintaan Stok tidak ditemukan atau belum berstatus APPROVED.",
+      );
+    }
+
+    if (permintaan.transferStokID) {
+      throw createError(
+        400,
+        "Permintaan Stok ini sudah memiliki Surat Jalan.",
+      );
+    }
+
+    if (
+      payload.dariLocationID &&
+      String(payload.dariLocationID) !== String(permintaan.dariLocationID)
+    ) {
+      throw createError(
+        400,
+        "Lokasi asal Surat Jalan harus sama dengan Permintaan Stok.",
+      );
+    }
+
+    if (
+      payload.keLocationID &&
+      String(payload.keLocationID) !== String(permintaan.keLocationID)
+    ) {
+      throw createError(
+        400,
+        "Lokasi tujuan Surat Jalan harus sama dengan Permintaan Stok.",
+      );
+    }
+
+    const requestedItems = new Map(
+      permintaan.items.map((item) => [String(item.bahanBakuID), item]),
+    );
+
+    const items =
+      Array.isArray(payload.items) && payload.items.length > 0
+        ? payload.items
+        : permintaan.items.map((item) => ({
+            bahanBakuID: item.bahanBakuID,
+            qtyKirim: item.jumlah,
+          }));
+
+    for (const item of items) {
+      const requestedItem = requestedItems.get(String(item.bahanBakuID));
+      if (!requestedItem) {
+        throw createError(
+          400,
+          "Item Surat Jalan harus berasal dari item Permintaan Stok.",
+        );
+      }
+
+      if (item.qtyKirim > requestedItem.jumlah) {
+        throw createError(
+          400,
+          "Jumlah kirim tidak boleh melebihi jumlah yang diminta.",
+        );
+      }
+    }
+
+    payload.dariLocationID = permintaan.dariLocationID;
+    payload.keLocationID = permintaan.keLocationID;
+    payload.items = items.map((item) => ({
+      bahanBakuID: item.bahanBakuID,
+      qtyKirim: item.qtyKirim,
+      qtyTerima: item.qtyTerima || 0,
+      catatanItem: item.catatanItem || null,
+    }));
+
+    // 1. AUTO-GENERATE NOMOR TRANSFER dari nomor permintaan yang sudah approved
     if (!payload.nomorTransfer) {
       const uniqueString = Date.now().toString().slice(-4);
-      payload.nomorTransfer = `TRF-OUT-${uniqueString}`;
+      payload.nomorTransfer = `SJ-${permintaan.nomorRequest}-${uniqueString}`;
     }
 
     const validation = validateTransferPayload(payload, false);
@@ -69,6 +158,9 @@ class TransferStokService {
 
     try {
       const transfer = await TransferStok.create(payload);
+      permintaan.transferStokID = transfer._id;
+      await permintaan.save();
+
       return transfer;
     } catch (error) {
       throw this.handleDbError(error, "Gagal membuat Transfer Stok.");
