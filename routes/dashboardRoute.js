@@ -15,4 +15,10 @@ router.get(
   wrap(dashboardGudangController.getSummary),
 );
 
+router.get(
+  "/outlet",
+  checkPermission("read-dashboard-outlet"),
+  wrap(dashboardGudangController.getOutletSummary),
+);
+
 module.exports = router;

@@ -13,6 +13,19 @@ class DashboardGudangController {
       next(err);
     }
   }
+
+  async getOutletSummary(req, res, next) {
+    try {
+      const data = await dashboardGudangService.getOutletSummary(req.pengguna);
+
+      res.status(200).json({
+        success: true,
+        data,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new DashboardGudangController();

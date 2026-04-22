@@ -108,6 +108,11 @@ const permissionsList = [
     grup: "Dashboard",
     deskripsi: "Lihat ringkasan aktivitas gudang",
   },
+  {
+    nama: "read-dashboard-outlet",
+    grup: "Dashboard",
+    deskripsi: "Lihat ringkasan aktivitas outlet",
+  },
 
   // =====================
   // PERMINTAAN STOK
