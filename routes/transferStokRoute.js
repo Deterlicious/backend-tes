@@ -16,18 +16,42 @@ router
     checkPermission("create-transfer-stok"),
     wrap(transferStokController.createTransferStok),
   )
-  .get(wrap(transferStokController.getAllTransferStok));
+  .get(
+    checkPermission("read-transfer-stok"),
+    wrap(transferStokController.getAllTransferStok),
+  );
 
 // ID Route
 router
   .route("/:id")
-  .get(wrap(transferStokController.getTransferStokById))
-  .put(wrap(transferStokController.updateTransferDraft))
-  .delete(wrap(transferStokController.deleteTransferDraft));
+  .get(
+    checkPermission("read-transfer-stok"),
+    wrap(transferStokController.getTransferStokById),
+  )
+  .put(
+    checkPermission("create-transfer-stok"),
+    wrap(transferStokController.updateTransferDraft),
+  )
+  .delete(
+    checkPermission("cancel-transfer-stok"),
+    wrap(transferStokController.deleteTransferDraft),
+  );
 
 // Workflow Routes (Menggunakan PATCH agar konsisten dengan modul lain)
-router.patch("/:id/kirim", wrap(transferStokController.markAsKirim));
-router.patch("/:id/terima", wrap(transferStokController.markAsTerima));
-router.patch("/:id/batal", wrap(transferStokController.markAsBatal));
+router.patch(
+  "/:id/kirim",
+  checkPermission("approve-transfer-stok"),
+  wrap(transferStokController.markAsKirim),
+);
+router.patch(
+  "/:id/terima",
+  checkPermission("receive-transfer-stok"),
+  wrap(transferStokController.markAsTerima),
+);
+router.patch(
+  "/:id/batal",
+  checkPermission("cancel-transfer-stok"),
+  wrap(transferStokController.markAsBatal),
+);
 
 module.exports = router;

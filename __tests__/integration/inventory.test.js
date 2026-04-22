@@ -17,6 +17,7 @@ jest.mock("../../middleware/authPengguna", () => {
       _id: new mongoose.Types.ObjectId().toString(),
       tenantID: "66164670c0c0c0c0c0c0c0c0",
       role: "admin",
+      permissions: ["read-inventory"],
     };
     next();
   };

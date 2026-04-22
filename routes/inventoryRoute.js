@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const inventoryController = require("../controllers/inventoryController");
 const authPengguna = require("../middleware/authPengguna");
+const { checkPermission } = require("../middleware/authorizePermission");
 
 // Helper untuk menangani error asinkron
 const wrap = (fn) => (req, res, next) =>
@@ -12,8 +13,16 @@ router.use(authPengguna);
 
 // --- CRUD STANDAR ---
 router.post("/", wrap(inventoryController.createInventory));
-router.get("/", wrap(inventoryController.getInventories));
-router.get("/:id", wrap(inventoryController.getInventoryById));
+router.get(
+  "/",
+  checkPermission("read-inventory"),
+  wrap(inventoryController.getInventories),
+);
+router.get(
+  "/:id",
+  checkPermission("read-inventory"),
+  wrap(inventoryController.getInventoryById),
+);
 router.put("/:id", wrap(inventoryController.updateInventory));
 router.delete("/:id", wrap(inventoryController.deleteInventory));
 
@@ -21,11 +30,19 @@ router.delete("/:id", wrap(inventoryController.deleteInventory));
 /** * POST /api/inventory/:id/opname
  * Digunakan untuk penyesuaian stok fisik (mencatat selisih ke JurnalStok)
  */
-router.post("/:id/opname", wrap(inventoryController.submitOpname));
+router.post(
+  "/:id/opname",
+  checkPermission("opname-inventory"),
+  wrap(inventoryController.submitOpname),
+);
 /** * PATCH /api/inventory/:id/minimum-stok
  * Digunakan untuk memperbarui batas stok aman
  */
-router.patch("/:id/minimum-stok", wrap(inventoryController.updateMinimumStok));
+router.patch(
+  "/:id/minimum-stok",
+  checkPermission("update-inventory-minimum"),
+  wrap(inventoryController.updateMinimumStok),
+);
 /** * POST /api/inventory/process-sale
  * Digunakan oleh modul penjualan untuk memotong stok berdasarkan resep produk
  */

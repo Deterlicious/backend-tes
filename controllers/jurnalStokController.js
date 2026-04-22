@@ -4,12 +4,16 @@ const Permission = require("../models/permissionModel");
 
 class JurnalStokController {
   async _checkPermission(userPermissionIDs, permissionName) {
+    const permissions = userPermissionIDs || [];
+
+    if (permissions.includes(permissionName)) return true;
+
     const permissionDoc = await Permission.findOne({
       nama: permissionName,
     });
     if (!permissionDoc) return false;
 
-    const hasAccess = userPermissionIDs
+    const hasAccess = permissions
       .map((id) => id.toString())
       .includes(permissionDoc._id.toString());
 
@@ -28,10 +32,10 @@ class JurnalStokController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-jurnal-stok"
+        "read-jurnal-stok"
       );
       if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola jurnal stok");
+        throw createError(403, "Anda tidak memiliki akses melihat jurnal stok");
       }
 
       const tenantID = this._getRequesterTenantID(req);
@@ -50,10 +54,10 @@ class JurnalStokController {
     try {
       const isAllowed = await this._checkPermission(
         req.pengguna.permissions,
-        "kelola-jurnal-stok"
+        "read-jurnal-stok"
       );
       if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola jurnal stok");
+        throw createError(403, "Anda tidak memiliki akses melihat jurnal stok");
       }
 
       const tenantID = this._getRequesterTenantID(req);

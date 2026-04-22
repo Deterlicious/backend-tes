@@ -12,6 +12,8 @@ jest.mock("../../middleware/authPengguna", () => {
         "approve-permintaan-stok",
         "read-permintaan-stok",
         "create-transfer-stok",
+        "approve-transfer-stok",
+        "receive-transfer-stok",
       ],
     };
     next();

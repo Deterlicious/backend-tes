@@ -87,6 +87,29 @@ const permissionsList = [
   },
 
   // =====================
+  // JURNAL STOK
+  // =====================
+  {
+    nama: "read-jurnal-stok",
+    grup: "Jurnal Stok",
+    deskripsi: "Lihat riwayat pergerakan stok",
+  },
+  {
+    nama: "kelola-jurnal-stok",
+    grup: "Jurnal Stok",
+    deskripsi: "Tambah, edit, dan hapus jurnal stok manual",
+  },
+
+  // =====================
+  // DASHBOARD GUDANG
+  // =====================
+  {
+    nama: "read-dashboard-gudang",
+    grup: "Dashboard",
+    deskripsi: "Lihat ringkasan aktivitas gudang",
+  },
+
+  // =====================
   // PERMINTAAN STOK
   // =====================
   {

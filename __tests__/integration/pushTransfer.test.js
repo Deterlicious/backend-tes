@@ -8,7 +8,11 @@ jest.mock("../../middleware/authPengguna", () => {
       _id: "66164670c0c0c0c0c0c0c0A1", // ID User Outlet A
       tenantID: "66164670c0c0c0c0c0c0c0c0",
       role: "outlet",
-      permissions: ["create-transfer-stok"],
+      permissions: [
+        "create-transfer-stok",
+        "approve-transfer-stok",
+        "receive-transfer-stok",
+      ],
     };
     next();
   };
