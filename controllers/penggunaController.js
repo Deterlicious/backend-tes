@@ -19,13 +19,27 @@ class PenggunaController {
     return null;
   }
 
+  _ensureTenant(context) {
+    if (!context || !context.tenantID) {
+      throw createError(400, "Tenant tidak ditemukan.");
+    }
+    return context.tenantID;
+  }
+
+  // ==========================================
   // 1. REGISTER OWNER
+  // ==========================================
   async registerOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      if (!context || context.source !== "AKUN") throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
-      
-      const result = await penggunaService.registerOwner(req.body, context.tenantID);
+
+      if (!context || context.source !== "AKUN") {
+        throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
+      }
+
+      const tenantID = this._ensureTenant(context);
+
+      const result = await penggunaService.registerOwner(req.body, tenantID);
       setRefreshTokenCookie(res, result.refreshToken);
 
       res.status(201).json({
@@ -33,21 +47,25 @@ class PenggunaController {
         data: {
           _id: result.user._id,
           nama: result.user.nama,
-          role: result.user.role
+          role: result.user.role,
         },
         accessToken: result.token,
-        refreshToken: result.refreshToken
+        refreshToken: result.refreshToken,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // 2. CREATE STAFF (Register Pengguna)
+  // ==========================================
+  // 2. CREATE STAFF
+  // ==========================================
   async create(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      const result = await penggunaService.create(req.body, context.tenantID);
+      const tenantID = this._ensureTenant(context);
+
+      const result = await penggunaService.create(req.body, tenantID);
 
       res.status(201).json({
         message: "Pengguna berhasil dibuat.",
@@ -57,45 +75,53 @@ class PenggunaController {
           nomorHp: result.nomorHp,
           role: result.roleID?.namaRole || "No Role",
           fotoKaryawan: result.fotoKaryawan,
-          status: result.status
-        }
+          status: result.status,
+        },
       });
     } catch (err) {
       next(err);
     }
   }
 
+  // ==========================================
   // 3. GET ALL
+  // ==========================================
   async getAll(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      const result = await penggunaService.getAll(context.tenantID);
-      
-      const formatted = result.map(u => ({
+      const tenantID = this._ensureTenant(context);
+
+      const result = await penggunaService.getAll(tenantID);
+
+      const formatted = result.map((u) => ({
         _id: u._id,
         nama: u.nama,
         nomorHp: u.nomorHp,
         role: u.roleID?.namaRole || "No Role",
-        status: u.status
+        status: u.status,
       }));
 
-      res.json({ 
+      res.json({
         message: "Daftar pengguna berhasil diambil.",
         total: formatted.length,
-        data: formatted 
+        data: formatted,
       });
     } catch (err) {
       next(err);
     }
   }
 
+  // ==========================================
   // 4. GET BY ID
+  // ==========================================
   async getById(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      const u = await penggunaService.getById(req.params.id, context.tenantID);
+      const tenantID = this._ensureTenant(context);
 
-      res.json({ 
+      const u = await penggunaService.getById(req.params.id, tenantID);
+
+      res.json({
         message: "Detail pengguna berhasil diambil.",
         data: {
           _id: u._id,
@@ -103,19 +129,23 @@ class PenggunaController {
           nomorHp: u.nomorHp,
           role: u.roleID?.namaRole || "No Role",
           fotoKaryawan: u.fotoKaryawan,
-          status: u.status
-        }
+          status: u.status,
+        },
       });
     } catch (err) {
       next(err);
     }
   }
 
+  // ==========================================
   // 5. UPDATE
+  // ==========================================
   async update(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      const u = await penggunaService.update(req.params.id, req.body, context.tenantID);
+      const tenantID = this._ensureTenant(context);
+
+      const u = await penggunaService.update(req.params.id, req.body, tenantID);
 
       res.json({
         message: "Data pengguna berhasil diperbarui.",
@@ -125,19 +155,30 @@ class PenggunaController {
           nomorHp: u.nomorHp,
           role: u.roleID?.namaRole || "No Role",
           fotoKaryawan: u.fotoKaryawan,
-          status: u.status
-        }
+          status: u.status,
+        },
       });
     } catch (err) {
       next(err);
     }
   }
 
+  // ==========================================
   // 6. LOGIN PIN
+  // ==========================================
   async loginPin(req, res, next) {
     try {
       const { nama, pin } = req.body;
-      const result = await penggunaService.login({ nama, pin });
+
+      const context = this._getRequesterContext(req);
+      const tenantID = this._ensureTenant(context);
+
+      const result = await penggunaService.login({
+        nama,
+        pin,
+        tenantID,
+      });
+
       setRefreshTokenCookie(res, result.refreshToken);
 
       res.json({
@@ -145,49 +186,34 @@ class PenggunaController {
         data: {
           _id: result.user._id,
           nama: result.user.nama,
-          role: result.user.role
+          role: result.user.role,
         },
         accessToken: result.token,
-        refreshToken: result.refreshToken
+        refreshToken: result.refreshToken,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // 7. GET FOR LOGIN SCREEN
-  async getForLoginScreen(req, res, next) {
-    try {
-      const result = await penggunaService.getForLoginScreen(req.params.tenantID);
-      
-      const formatted = result.map(u => ({
-        _id: u._id,
-        nama: u.nama,
-        role: u.roleID?.namaRole,
-        fotoKaryawan: u.fotoKaryawan
-      }));
-
-      res.json({
-        message: "Daftar pengguna aktif berhasil diambil.",
-        data: formatted
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // --- Fungsi Auth & Maintenance ---
-
+  // ==========================================
+  // 🔄 REFRESH TOKEN
+  // ==========================================
   async refreshToken(req, res, next) {
     try {
       const token = req.cookies.penggunaRefreshToken || req.body.refreshToken;
-      if (!token) throw createError(401, "Refresh Token tidak ditemukan.");
+
+      if (!token) {
+        throw createError(401, "Refresh Token tidak ditemukan.");
+      }
+
       const tokens = await penggunaService.refreshToken(token);
       setRefreshTokenCookie(res, tokens.refreshToken);
+
       res.json({
         message: "Token pengguna diperbarui.",
         accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken
+        refreshToken: tokens.refreshToken,
       });
     } catch (err) {
       res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
@@ -195,19 +221,32 @@ class PenggunaController {
     }
   }
 
+  // ==========================================
+  // 🚪 LOGOUT
+  // ==========================================
   async logout(req, res, next) {
     try {
       res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
       res.json({ message: "Logout berhasil." });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   }
 
+  // ==========================================
+  // 🗑️ DELETE
+  // ==========================================
   async delete(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      await penggunaService.delete(req.params.id, context.tenantID);
+      const tenantID = this._ensureTenant(context);
+
+      await penggunaService.delete(req.params.id, tenantID);
+
       res.json({ message: "Pengguna berhasil dihapus." });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   }
 }
 

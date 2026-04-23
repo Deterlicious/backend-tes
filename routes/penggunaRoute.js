@@ -28,12 +28,6 @@ router.post(
   wrap(penggunaController.registerOwner),
 );
 
-router.get(
-  "/login-list/:tenantID",
-  authAkun,
-  wrap(penggunaController.getForLoginScreen),
-);
-
 router.post(
   "/pin-login",
   authAkun,

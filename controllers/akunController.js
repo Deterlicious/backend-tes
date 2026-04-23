@@ -76,8 +76,7 @@ class AkunController {
   // ==========================================
   async getProfile(req, res, next) {
     try {
-      // 🔥 Ambil akunID dari pengguna (RBAC)
-      const akunID = req.pengguna?.akunID;
+      const akunID = req.userDecoded?.id;
 
       if (!akunID) {
         throw createError(400, "Relasi akun tidak ditemukan pada pengguna.");
@@ -114,7 +113,7 @@ class AkunController {
   // ==========================================
   async updateProfile(req, res, next) {
     try {
-      const akunID = req.pengguna?.akunID;
+      const akunID = req.userDecoded?.id;
 
       if (!akunID) {
         throw createError(400, "Relasi akun tidak ditemukan pada pengguna.");

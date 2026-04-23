@@ -88,14 +88,18 @@ class PenggunaService {
     };
   }
 
-  async login({ nama, pin }) {
-    const pengguna = await Pengguna.findOne({ nama }).populate("roleID", "namaRole");
+  async login({ nama, pin, tenantID }) {
+    // 🔥 WAJIB: filter tenantID
+    const pengguna = await Pengguna.findOne({
+      nama,
+      tenantID,
+    }).populate("roleID", "namaRole");
 
     if (!pengguna) throw createError(404, "Pengguna tidak ditemukan");
 
     const isMatch = await pengguna.comparePin(pin);
     if (!isMatch) throw createError(400, "PIN salah");
-    
+
     pengguna.tokenVersion = Date.now();
     await pengguna.save();
 
@@ -106,7 +110,7 @@ class PenggunaService {
       token: accessToken,
       refreshToken,
       user: {
-        _id: pengguna._id, // 🔥 SEKARANG ID DIKIRIM KE CONTROLLER
+        _id: pengguna._id,
         nama: pengguna.nama,
         role: pengguna.roleID.namaRole,
       },
@@ -192,6 +196,18 @@ class PenggunaService {
     const roleExists = await Role.findOne({ _id: payload.roleID, tenantID: tenantID });
     if (!roleExists) throw createError(404, "Jabatan (Role) tidak ditemukan.");
 
+    // 🔥 PROTEKSI OWNER (HANYA 1)
+    if (roleExists.namaRole === "Owner") {
+      const existingOwner = await Pengguna.findOne({
+        tenantID: tenantID,
+        roleID: roleExists._id,
+      });
+
+      if (existingOwner) {
+        throw createError(400, "Role Owner hanya boleh dimiliki oleh 1 pengguna.");
+      }
+    }
+
     const user = await Pengguna.create(payload);
     await user.populate("roleID", "namaRole");
     await this.clearCache(tenantID);
@@ -208,6 +224,19 @@ class PenggunaService {
     if (payload.roleID) {
       const roleExists = await Role.findOne({ _id: payload.roleID, tenantID: tenantID });
       if (!roleExists) throw createError(404, "Jabatan tidak ditemukan.");
+
+      // 🔥 PROTEKSI OWNER
+      if (roleExists.namaRole === "Owner") {
+        const existingOwner = await Pengguna.findOne({
+          tenantID: tenantID,
+          roleID: roleExists._id,
+          _id: { $ne: id }, // exclude diri sendiri
+        });
+
+        if (existingOwner) {
+          throw createError(400, "Role Owner sudah digunakan oleh pengguna lain.");
+        }
+      }
     }
 
     const user = await Pengguna.findOne({ _id: id, tenantID });
