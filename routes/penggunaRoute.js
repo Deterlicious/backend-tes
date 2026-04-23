@@ -2,8 +2,8 @@ const express = require("express");
 const router = express.Router();
 const penggunaController = require("../controllers/penggunaController");
 
-const authAkun = require("../middleware/authAkun"); 
-const authPengguna = require("../middleware/authPengguna"); 
+const authAkun = require("../middleware/authAkun");
+const authPengguna = require("../middleware/authPengguna");
 const { checkPermission } = require("../middleware/authorizePermission");
 
 /**
@@ -17,7 +17,6 @@ const wrap = (fn) => (req, res, next) => {
 // 1. PUBLIC / SEMI PUBLIC
 // ==========================================
 router.post("/pin-refresh", wrap(penggunaController.refreshToken));
-
 
 // ==========================================
 // 2. LEVEL AKUN (SETUP & LOGIN SCREEN)
@@ -34,12 +33,8 @@ router.get(
   wrap(penggunaController.getForLoginScreen),
 );
 
-router.post(
-  "/pin-login",
-  authAkun,
-  wrap(penggunaController.loginPin),
-);
-
+router.post("/pin-login", authAkun, wrap(penggunaController.loginPin));
+router.get("/check-owner", authAkun, wrap(penggunaController.checkOwner));
 
 // ==========================================
 // 3. LEVEL PENGGUNA (SETELAH LOGIN PIN)
@@ -48,7 +43,6 @@ router.use(authPengguna);
 
 // Logout
 router.post("/pin-logout", wrap(penggunaController.logout));
-
 
 // ==========================================
 // CRUD PENGGUNA (DENGAN PERMISSION)

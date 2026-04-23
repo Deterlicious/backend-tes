@@ -1,5 +1,6 @@
 const penggunaService = require("../services/penggunaService");
 const createError = require("http-errors");
+const Pengguna = require("../models/penggunaModel");
 
 const setRefreshTokenCookie = (res, token) => {
   res.cookie("penggunaRefreshToken", token, {
@@ -13,9 +14,12 @@ const setRefreshTokenCookie = (res, token) => {
 
 class PenggunaController {
   _getRequesterContext(req) {
-    if (req.akun) return { tenantID: req.akun.tenantID || null, source: "AKUN" };
-    if (req.akunContext) return { tenantID: req.akunContext.tenantID ?? null, source: "AKUN" };
-    if (req.pengguna) return { tenantID: req.pengguna.tenantID, source: "PENGGUNA" };
+    if (req.akun)
+      return { tenantID: req.akun.tenantID || null, source: "AKUN" };
+    if (req.akunContext)
+      return { tenantID: req.akunContext.tenantID ?? null, source: "AKUN" };
+    if (req.pengguna)
+      return { tenantID: req.pengguna.tenantID, source: "PENGGUNA" };
     return null;
   }
 
@@ -23,9 +27,13 @@ class PenggunaController {
   async registerOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      if (!context || context.source !== "AKUN") throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
-      
-      const result = await penggunaService.registerOwner(req.body, context.tenantID);
+      if (!context || context.source !== "AKUN")
+        throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
+
+      const result = await penggunaService.registerOwner(
+        req.body,
+        context.tenantID,
+      );
       setRefreshTokenCookie(res, result.refreshToken);
 
       res.status(201).json({
@@ -33,10 +41,10 @@ class PenggunaController {
         data: {
           _id: result.user._id,
           nama: result.user.nama,
-          role: result.user.role
+          role: result.user.role,
         },
         accessToken: result.token,
-        refreshToken: result.refreshToken
+        refreshToken: result.refreshToken,
       });
     } catch (err) {
       next(err);
@@ -57,8 +65,8 @@ class PenggunaController {
           nomorHp: result.nomorHp,
           role: result.roleID?.namaRole || "No Role",
           fotoKaryawan: result.fotoKaryawan,
-          status: result.status
-        }
+          status: result.status,
+        },
       });
     } catch (err) {
       next(err);
@@ -70,19 +78,19 @@ class PenggunaController {
     try {
       const context = this._getRequesterContext(req);
       const result = await penggunaService.getAll(context.tenantID);
-      
-      const formatted = result.map(u => ({
+
+      const formatted = result.map((u) => ({
         _id: u._id,
         nama: u.nama,
         nomorHp: u.nomorHp,
         role: u.roleID?.namaRole || "No Role",
-        status: u.status
+        status: u.status,
       }));
 
-      res.json({ 
+      res.json({
         message: "Daftar pengguna berhasil diambil.",
         total: formatted.length,
-        data: formatted 
+        data: formatted,
       });
     } catch (err) {
       next(err);
@@ -95,7 +103,7 @@ class PenggunaController {
       const context = this._getRequesterContext(req);
       const u = await penggunaService.getById(req.params.id, context.tenantID);
 
-      res.json({ 
+      res.json({
         message: "Detail pengguna berhasil diambil.",
         data: {
           _id: u._id,
@@ -103,8 +111,8 @@ class PenggunaController {
           nomorHp: u.nomorHp,
           role: u.roleID?.namaRole || "No Role",
           fotoKaryawan: u.fotoKaryawan,
-          status: u.status
-        }
+          status: u.status,
+        },
       });
     } catch (err) {
       next(err);
@@ -115,7 +123,11 @@ class PenggunaController {
   async update(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-      const u = await penggunaService.update(req.params.id, req.body, context.tenantID);
+      const u = await penggunaService.update(
+        req.params.id,
+        req.body,
+        context.tenantID,
+      );
 
       res.json({
         message: "Data pengguna berhasil diperbarui.",
@@ -125,8 +137,8 @@ class PenggunaController {
           nomorHp: u.nomorHp,
           role: u.roleID?.namaRole || "No Role",
           fotoKaryawan: u.fotoKaryawan,
-          status: u.status
-        }
+          status: u.status,
+        },
       });
     } catch (err) {
       next(err);
@@ -145,10 +157,10 @@ class PenggunaController {
         data: {
           _id: result.user._id,
           nama: result.user.nama,
-          role: result.user.role
+          role: result.user.role,
         },
         accessToken: result.token,
-        refreshToken: result.refreshToken
+        refreshToken: result.refreshToken,
       });
     } catch (err) {
       next(err);
@@ -158,18 +170,20 @@ class PenggunaController {
   // 7. GET FOR LOGIN SCREEN
   async getForLoginScreen(req, res, next) {
     try {
-      const result = await penggunaService.getForLoginScreen(req.params.tenantID);
-      
-      const formatted = result.map(u => ({
+      const result = await penggunaService.getForLoginScreen(
+        req.params.tenantID,
+      );
+
+      const formatted = result.map((u) => ({
         _id: u._id,
         nama: u.nama,
         role: u.roleID?.namaRole,
-        fotoKaryawan: u.fotoKaryawan
+        fotoKaryawan: u.fotoKaryawan,
       }));
 
       res.json({
         message: "Daftar pengguna aktif berhasil diambil.",
-        data: formatted
+        data: formatted,
       });
     } catch (err) {
       next(err);
@@ -177,6 +191,16 @@ class PenggunaController {
   }
 
   // --- Fungsi Auth & Maintenance ---
+
+  async checkOwner(req, res, next) {
+    try {
+      const tenantID = req.akunContext.tenantID;
+      const count = await Pengguna.countDocuments({ tenantID });
+      res.json({ hasOwner: count > 0 });
+    } catch (err) {
+      next(err);
+    }
+  }
 
   async refreshToken(req, res, next) {
     try {
@@ -187,7 +211,7 @@ class PenggunaController {
       res.json({
         message: "Token pengguna diperbarui.",
         accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken
+        refreshToken: tokens.refreshToken,
       });
     } catch (err) {
       res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
@@ -199,7 +223,9 @@ class PenggunaController {
     try {
       res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
       res.json({ message: "Logout berhasil." });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   }
 
   async delete(req, res, next) {
@@ -207,7 +233,9 @@ class PenggunaController {
       const context = this._getRequesterContext(req);
       await penggunaService.delete(req.params.id, context.tenantID);
       res.json({ message: "Pengguna berhasil dihapus." });
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   }
 }
 

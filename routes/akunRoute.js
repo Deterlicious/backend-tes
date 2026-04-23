@@ -9,14 +9,14 @@ const { adminOnly } = require("../middleware/authorize");
 const { checkPermission } = require("../middleware/authorizePermission");
 
 // rate limiter untuk login, matikan atau jadikan komentar jika ingin test cepat, WAJIB DIKEMBALIKAN SETELAH TEST
-const rateLimit = require("express-rate-limit");
-const limitMinutes = process.env.LOGIN_LIMIT_MINUTES;
-const maxAttempts = process.env.LOGIN_MAX_ATTEMPTS;
-const loginLimiter = rateLimit({
-  windowMs: limitMinutes * 60 * 1000,
-  max: maxAttempts, // max percobaan login
-  message: { message: `Terlalu banyak percobaan login, coba lagi dalam ${limitMinutes} menit` }
-});
+// const rateLimit = require("express-rate-limit");
+// const limitMinutes = process.env.LOGIN_LIMIT_MINUTES;
+// const maxAttempts = process.env.LOGIN_MAX_ATTEMPTS;
+// const loginLimiter = rateLimit({
+//   windowMs: limitMinutes * 60 * 1000,
+//   max: maxAttempts, // max percobaan login
+//   message: { message: `Terlalu banyak percobaan login, coba lagi dalam ${limitMinutes} menit` }
+// });
 
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(akunController, req, res, next)).catch(next);
@@ -26,7 +26,7 @@ const wrap = (fn) => (req, res, next) => {
 // ✅ RUTE PUBLIK (TANPA TOKEN)
 // ==========================================
 router.post("/auth/register", wrap(akunController.register));
-router.post("/auth/login", loginLimiter, wrap(akunController.login)); // login dibatasi dengan rate limiter
+router.post("/auth/login", wrap(akunController.login)); // login dibatasi dengan rate limiter
 router.post("/auth/refreshtoken", wrap(akunController.refreshToken));
 router.post("/auth/logout", wrap(akunController.logout));
 
