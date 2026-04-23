@@ -27,14 +27,14 @@ router.post(
   wrap(penggunaController.registerOwner),
 );
 
-router.get(
-  "/login-list/:tenantID",
-  authAkun,
-  wrap(penggunaController.getForLoginScreen),
-);
-
 router.post("/pin-login", authAkun, wrap(penggunaController.loginPin));
 router.get("/check-owner", authAkun, wrap(penggunaController.checkOwner));
+router.post(
+  "/pin-login",
+  authAkun,
+  wrap(penggunaController.loginPin),
+);
+
 
 // ==========================================
 // 3. LEVEL PENGGUNA (SETELAH LOGIN PIN)

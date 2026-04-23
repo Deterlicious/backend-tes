@@ -1,6 +1,7 @@
 const Tenant = require("../models/tenantModel");
 const Akun = require("../models/akunModel");
 const Role = require("../models/roleModel");
+const Pengguna = require("../models/penggunaModel");
 const Permission = require("../models/permissionModel");
 const redis = require("../config/redis");
 const { validateTenantPayload } = require("../validators/tenantValidator");
@@ -114,7 +115,9 @@ class TenantService {
 
   async forceDelete(tenantID) {
     await Role.deleteMany({ tenantID });
+    await Pengguna.deleteMany({ tenantID });
     await Tenant.findByIdAndDelete(tenantID);
+    
 
     await redis.del(CACHE_KEY_ALL);
     await redis.del(CACHE_KEY_ID(tenantID));

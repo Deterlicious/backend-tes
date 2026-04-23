@@ -207,8 +207,7 @@ class TenantController {
         throw createError(403, "Tidak bisa menghapus tenant lain.");
       }
 
-      const deleted = await tenantService.delete(targetId);
-      if (!deleted) throw createError(404, "Tenant tidak ditemukan.");
+      await tenantService.forceDelete(targetId);
 
       res.json({
         message: "Toko berhasil dihapus.",
