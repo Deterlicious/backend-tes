@@ -240,6 +240,25 @@ class PenggunaController {
     }
   }
 
+  async checkOwner(req, res, next) {
+    try {
+      const context = this._getRequesterContext(req);
+      if (!context || context.source !== "AKUN") {
+        throw createError(403, "Akses ditolak.");
+      }
+      const tenantID = this._ensureTenant(context);
+
+      const hasOwner = await penggunaService.checkOwnerExists(tenantID);
+
+      res.json({
+        message: "Status owner berhasil diperiksa.",
+        data: { hasOwner },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   // ==========================================
   // 🗑️ DELETE
   // ==========================================
@@ -254,9 +273,7 @@ class PenggunaController {
     } catch (err) {
       next(err);
     }
-    } catch (err) {
-      next(err);
-    }
   }
+}
 
 module.exports = new PenggunaController();

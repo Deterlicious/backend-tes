@@ -60,6 +60,40 @@ class RoleController {
     }
   }
 
+  // // 3. CREATE ROLE
+  // async create(req, res, next) {
+  //   try {
+  //     const context = this._getRequesterContext(req);
+  //     if (!context?.tenantID) {
+  //       throw createError(403, "Tenant context tidak ditemukan.");
+  //     }
+
+  //     const result = await roleService.create(req.body, context.tenantID);
+
+  //     // Pengamanan: Hanya jalankan populate JIKA result adalah document Mongoose (bukan lean)
+  //     if (result.populate && typeof result.populate === 'function') {
+  //       await result.populate("permissions", "nama");
+  //     }
+
+  //     // Pengamanan: Mencegah error .map jika permissions kosong/undefined
+  //     const permissionsArray = result.permissions 
+  //       ? result.permissions.map((p) => p.nama || p) 
+  //       : [];
+
+  //     res.status(201).json({
+  //       message: "Role berhasil dibuat.",
+  //       data: {
+  //         _id: result._id,
+  //         namaRole: result.namaRole,
+  //         deskripsi: result.deskripsi,
+  //         permissions: permissionsArray,
+  //       },
+  //     });
+  //   } catch (err) {
+  //     next(err);
+  //   }
+  // }
+
   // 3. CREATE ROLE
   async create(req, res, next) {
     try {
