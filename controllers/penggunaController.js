@@ -52,17 +52,9 @@ class PenggunaController {
           _id: result.user._id,
           nama: result.user.nama,
           role: result.user.role,
-<<<<<<< HEAD
-          role: result.user.role,
         },
         accessToken: result.token,
         refreshToken: result.refreshToken,
-        refreshToken: result.refreshToken,
-=======
-        },
-        accessToken: result.token,
-        refreshToken: result.refreshToken,
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
       });
     } catch (err) {
       next(err);
@@ -89,11 +81,6 @@ class PenggunaController {
           fotoKaryawan: result.fotoKaryawan,
           status: result.status,
         },
-<<<<<<< HEAD
-          status: result.status,
-        },
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
       });
     } catch (err) {
       next(err);
@@ -116,24 +103,14 @@ class PenggunaController {
         nomorHp: u.nomorHp,
         role: u.roleID?.namaRole || "No Role",
         status: u.status,
-<<<<<<< HEAD
         status: u.status,
       }));
 
       res.json({
-      res.json({
         message: "Daftar pengguna berhasil diambil.",
         total: formatted.length,
         data: formatted,
         data: formatted,
-=======
-      }));
-
-      res.json({
-        message: "Daftar pengguna berhasil diambil.",
-        total: formatted.length,
-        data: formatted,
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
       });
     } catch (err) {
       next(err);
@@ -151,10 +128,6 @@ class PenggunaController {
       const u = await penggunaService.getById(req.params.id, tenantID);
 
       res.json({
-<<<<<<< HEAD
-      res.json({
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
         message: "Detail pengguna berhasil diambil.",
         data: {
           _id: u._id,
@@ -164,11 +137,6 @@ class PenggunaController {
           fotoKaryawan: u.fotoKaryawan,
           status: u.status,
         },
-<<<<<<< HEAD
-          status: u.status,
-        },
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
       });
     } catch (err) {
       next(err);
@@ -195,11 +163,6 @@ class PenggunaController {
           fotoKaryawan: u.fotoKaryawan,
           status: u.status,
         },
-<<<<<<< HEAD
-          status: u.status,
-        },
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
       });
     } catch (err) {
       next(err);
@@ -230,17 +193,10 @@ class PenggunaController {
           _id: result.user._id,
           nama: result.user.nama,
           role: result.user.role,
-<<<<<<< HEAD
           role: result.user.role,
         },
         accessToken: result.token,
         refreshToken: result.refreshToken,
-        refreshToken: result.refreshToken,
-=======
-        },
-        accessToken: result.token,
-        refreshToken: result.refreshToken,
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
       });
     } catch (err) {
       next(err);
@@ -265,10 +221,6 @@ class PenggunaController {
         message: "Token pengguna diperbarui.",
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-<<<<<<< HEAD
-        refreshToken: tokens.refreshToken,
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
       });
     } catch (err) {
       res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
@@ -286,12 +238,6 @@ class PenggunaController {
     } catch (err) {
       next(err);
     }
-<<<<<<< HEAD
-    } catch (err) {
-      next(err);
-    }
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
   }
 
   // ==========================================
@@ -308,13 +254,9 @@ class PenggunaController {
     } catch (err) {
       next(err);
     }
-<<<<<<< HEAD
     } catch (err) {
       next(err);
     }
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
   }
-}
 
 module.exports = new PenggunaController();

@@ -27,16 +27,8 @@ router.post(
   wrap(penggunaController.registerOwner),
 );
 
-<<<<<<< HEAD
 router.post("/pin-login", authAkun, wrap(penggunaController.loginPin));
 router.get("/check-owner", authAkun, wrap(penggunaController.checkOwner));
-=======
->>>>>>> 5d07e8fe6007aa59d178e64e25122ff977d108f0
-router.post(
-  "/pin-login",
-  authAkun,
-  wrap(penggunaController.loginPin),
-);
 
 
 // ==========================================
