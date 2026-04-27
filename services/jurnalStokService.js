@@ -33,7 +33,7 @@ class JurnalStokService {
       })
       .populate("bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
-      .populate("locationID", "namaLokasi")
+      .populate("locationID", "nama tipe")
       .sort({
         tanggal: -1,
         createdAt: -1
@@ -63,7 +63,7 @@ class JurnalStokService {
       })
       .populate("bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
-      .populate("locationID", "namaLokasi")
+      .populate("locationID", "nama tipe")
       .lean();
 
     if (!data) return null;

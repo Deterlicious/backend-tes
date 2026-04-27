@@ -21,7 +21,7 @@ const JurnalStokSchema = new mongoose.Schema(
     jumlah: {
       type: Number,
       required: true,
-      min: [1, "Jumlah harus minimal 1"],
+      min: [0, "Jumlah tidak boleh negatif"],
     },
     alasan: {
       type: String,
@@ -54,13 +54,13 @@ const JurnalStokSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 JurnalStokSchema.index({
   tenantID: 1,
   bahanBakuID: 1,
-  tanggal: -1
+  tanggal: -1,
 });
 
 module.exports = mongoose.model("JurnalStok", JurnalStokSchema);
