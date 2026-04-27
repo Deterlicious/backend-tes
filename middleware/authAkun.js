@@ -20,49 +20,26 @@ async function authAkun(req, res, next) {
       decoded = jwt.verify(token, AKUN_JWT_SECRET);
     } catch (err) {
       if (err.name === "TokenExpiredError") {
-        throw createError(
-          401,
-          "Sesi berakhir (Token expired). Silakan login ulang."
-        );
+        throw createError(401, "Sesi berakhir (Token expired). Silakan login ulang.");
       }
       throw createError(403, "Token tidak valid.");
     }
 
-    // Ambil data akun (roleID sudah dihapus dari select)
+    // Ambil data akun — tidak lagi butuh device, cukup tokenVersion di root
     const akun = await Akun.findById(decoded.id)
-      .select("device role tenantID")
+      .select("role tenantID tokenVersion")
       .lean();
 
     if (!akun) {
       throw createError(401, "Akun tidak ditemukan atau telah dihapus.");
     }
 
-    // Validasi device (jika deviceID ada di token)
-    if (decoded.deviceID) {
-      const currentDevice = akun.device?.find(
-        (d) => d.deviceID === decoded.deviceID
-      );
-
-      if (!currentDevice) {
-        throw createError(
-          401,
-          "Perangkat tidak dikenali. Silakan login ulang."
-        );
-      }
-
-      // Validasi token version (logout paksa / revoke)
-      if (
-        decoded.version !== undefined &&
-        currentDevice.tokenVersion !== decoded.version
-      ) {
-        throw createError(
-          401,
-          "Sesi telah berakhir di perangkat ini. Silakan login ulang."
-        );
-      }
+    // Validasi tokenVersion untuk revoke sesi (logout paksa / ganti password)
+    if (decoded.version !== undefined && akun.tokenVersion !== decoded.version) {
+      throw createError(401, "Sesi telah berakhir. Silakan login ulang.");
     }
 
-    // Context Akun (roleID sudah dihapus)
+    // Context Akun
     req.akunContext = {
       akunID: akun._id,
       roleAkun: akun.role,

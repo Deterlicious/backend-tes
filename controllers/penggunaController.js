@@ -1,6 +1,5 @@
 const penggunaService = require("../services/penggunaService");
 const createError = require("http-errors");
-const Pengguna = require("../models/penggunaModel");
 
 const setRefreshTokenCookie = (res, token) => {
   res.cookie("penggunaRefreshToken", token, {
@@ -52,6 +51,7 @@ class PenggunaController {
           _id: result.user._id,
           nama: result.user.nama,
           role: result.user.role,
+          aksesType: result.user.aksesType,
         },
         accessToken: result.token,
         refreshToken: result.refreshToken,
@@ -80,6 +80,7 @@ class PenggunaController {
           role: result.roleID?.namaRole || "No Role",
           fotoKaryawan: result.fotoKaryawan,
           status: result.status,
+          aksesType: result.aksesType,
         },
       });
     } catch (err) {
@@ -97,19 +98,19 @@ class PenggunaController {
 
       const result = await penggunaService.getAll(tenantID);
 
+      // FIX: hapus duplikasi field status dan data
       const formatted = result.map((u) => ({
         _id: u._id,
         nama: u.nama,
         nomorHp: u.nomorHp,
         role: u.roleID?.namaRole || "No Role",
         status: u.status,
-        status: u.status,
+        aksesType: u.aksesType,
       }));
 
       res.json({
         message: "Daftar pengguna berhasil diambil.",
         total: formatted.length,
-        data: formatted,
         data: formatted,
       });
     } catch (err) {
@@ -136,6 +137,7 @@ class PenggunaController {
           role: u.roleID?.namaRole || "No Role",
           fotoKaryawan: u.fotoKaryawan,
           status: u.status,
+          aksesType: u.aksesType,
         },
       });
     } catch (err) {
@@ -162,6 +164,7 @@ class PenggunaController {
           role: u.roleID?.namaRole || "No Role",
           fotoKaryawan: u.fotoKaryawan,
           status: u.status,
+          aksesType: u.aksesType,
         },
       });
     } catch (err) {
@@ -174,7 +177,8 @@ class PenggunaController {
   // ==========================================
   async loginPin(req, res, next) {
     try {
-      const { nama, pin } = req.body;
+      // FIX: tambah deviceID dan deviceType untuk pengguna aksesType "app"
+      const { nama, pin, deviceID, deviceType } = req.body;
 
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
@@ -183,17 +187,20 @@ class PenggunaController {
         nama,
         pin,
         tenantID,
+        deviceID,
+        deviceType,
       });
 
       setRefreshTokenCookie(res, result.refreshToken);
 
+      // FIX: hapus duplikasi field role
       res.json({
         message: "Login pengguna berhasil.",
         data: {
           _id: result.user._id,
           nama: result.user.nama,
           role: result.user.role,
-          role: result.user.role,
+          aksesType: result.user.aksesType,
         },
         accessToken: result.token,
         refreshToken: result.refreshToken,
@@ -240,6 +247,9 @@ class PenggunaController {
     }
   }
 
+  // ==========================================
+  // CHECK OWNER
+  // ==========================================
   async checkOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
@@ -270,6 +280,103 @@ class PenggunaController {
       await penggunaService.delete(req.params.id, tenantID);
 
       res.json({ message: "Pengguna berhasil dihapus." });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ==========================================
+  // 📱 DEVICE MANAGEMENT
+  // ==========================================
+  async addDevice(req, res, next) {
+    try {
+      const context = this._getRequesterContext(req);
+      const tenantID = this._ensureTenant(context);
+      const penggunaID = req.params.id;
+
+      const result = await penggunaService.addDevice(penggunaID, tenantID, req.body);
+
+      res.status(201).json({
+        message: "Perangkat berhasil ditambahkan.",
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async promoteDevice(req, res, next) {
+    try {
+      const context = this._getRequesterContext(req);
+      const tenantID = this._ensureTenant(context);
+      const penggunaID = req.params.id;
+
+      const result = await penggunaService.promoteDevice(
+        penggunaID,
+        tenantID,
+        req.body.deviceID,
+      );
+
+      res.json({
+        message: "Perangkat berhasil dijadikan utama.",
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async demoteDevice(req, res, next) {
+    try {
+      const context = this._getRequesterContext(req);
+      const tenantID = this._ensureTenant(context);
+      const penggunaID = req.params.id;
+
+      const result = await penggunaService.demoteDevice(
+        penggunaID,
+        tenantID,
+        req.body.deviceID,
+      );
+
+      res.json({
+        message: "Perangkat berhasil diturunkan.",
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async removeDevice(req, res, next) {
+    try {
+      const context = this._getRequesterContext(req);
+      const tenantID = this._ensureTenant(context);
+      const penggunaID = req.params.id;
+
+      await penggunaService.removeDevice(
+        penggunaID,
+        tenantID,
+        req.body.deviceID,
+      );
+
+      res.json({ message: "Perangkat berhasil dihapus." });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getDeviceHistory(req, res, next) {
+    try {
+      const context = this._getRequesterContext(req);
+      const tenantID = this._ensureTenant(context);
+      const penggunaID = req.params.id;
+
+      const history = await penggunaService.getDeviceHistory(penggunaID, tenantID);
+
+      res.json({
+        message: "Riwayat perangkat berhasil diambil.",
+        data: history,
+      });
     } catch (err) {
       next(err);
     }

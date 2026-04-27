@@ -1,5 +1,4 @@
 const akunService = require("../services/akunService");
-const deviceService = require("../services/deviceService");
 const createError = require("http-errors");
 
 // Helper cookie refresh token
@@ -14,9 +13,41 @@ const setRefreshTokenCookie = (res, token) => {
 };
 
 class AkunController {
-  // ==========================================
-  // 🔓 REGISTER
-  // ==========================================
+  async refreshToken(req, res, next) {
+    try {
+      // FIX MUTLAK: Ekstraksi aman dengan objek fallback
+      const cookies = req.cookies || {};
+      const body = req.body || {};
+      const token = cookies.refreshToken || body.refreshToken;
+
+      if (!token) {
+        throw createError(
+          401,
+          "Refresh token tidak ditemukan. Silakan login kembali.",
+        );
+      }
+
+      // Memanggil service
+      const tokens = await akunService.refreshToken(token);
+
+      // Memanggil helper function
+      setRefreshTokenCookie(res, tokens.refreshToken);
+
+      res.json({
+        message: "Token berhasil diperbarui.",
+        ...tokens,
+      });
+    } catch (err) {
+      // Jika error, hapus cookie (maxAge: 0) dan teruskan error ke errorHandler
+      res.cookie("refreshToken", "", {
+        maxAge: 0,
+        path: "/api/akun/auth",
+      });
+      next(err);
+    }
+  }
+
+  // register
   async register(req, res, next) {
     try {
       const result = await akunService.register(req.body);
@@ -29,8 +60,6 @@ class AkunController {
           username: result.username,
           email: result.email,
           role: result.role,
-          maxPrimaryDevice: result.maxPrimaryDevice,
-          maxDevice: result.maxDevice,
         },
       });
     } catch (err) {
@@ -38,19 +67,16 @@ class AkunController {
     }
   }
 
-  // ==========================================
-  // 🔐 LOGIN (AKUN)
-  // ==========================================
+  // login (akun)
   async login(req, res, next) {
     try {
-      const { email, password, deviceID } = req.body;
+      const { email, password } = req.body;
 
-      if (!email || !password || !deviceID) {
-        throw createError(400, "Email, password, dan Device ID wajib diisi.");
+      if (!email || !password) {
+        throw createError(400, "Email dan password wajib diisi.");
       }
 
       const result = await akunService.login(req.body);
-
       setRefreshTokenCookie(res, result.tokens.refreshToken);
 
       res.json({
@@ -61,7 +87,6 @@ class AkunController {
           username: result.username,
           email: result.email,
           role: result.role,
-          currentDevice: result.currentDevice,
         },
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
@@ -71,9 +96,7 @@ class AkunController {
     }
   }
 
-  // ==========================================
-  // 🔐 GET PROFILE (BERBASIS PENGGUNA + PERMISSION)
-  // ==========================================
+  // get profile
   async getProfile(req, res, next) {
     try {
       const akunID = req.userDecoded?.id;
@@ -93,14 +116,6 @@ class AkunController {
           username: user.username,
           email: user.email,
           role: user.role,
-          maxPrimaryDevice: user.maxPrimaryDevice,
-          maxDevice: user.maxDevice,
-          device: (user.device || []).map((d) => ({
-            deviceID: d.deviceID,
-            type: d.type,
-            tokenVersion: d.tokenVersion,
-            lastUsed: d.lastUsed,
-          })),
         },
       });
     } catch (err) {
@@ -108,9 +123,7 @@ class AkunController {
     }
   }
 
-  // ==========================================
-  // ✏️ UPDATE PROFILE (BERBASIS PERMISSION)
-  // ==========================================
+  // update profile
   async updateProfile(req, res, next) {
     try {
       const akunID = req.userDecoded?.id;
@@ -129,8 +142,6 @@ class AkunController {
           username: updated.username,
           email: updated.email,
           role: updated.role,
-          maxPrimaryDevice: updated.maxPrimaryDevice,
-          maxDevice: updated.maxDevice,
         },
       });
     } catch (err) {
@@ -138,9 +149,7 @@ class AkunController {
     }
   }
 
-  // ==========================================
-  // 👑 ADMIN GET ALL AKUN
-  // ==========================================
+  // admin get all akun
   async getAllAkun(req, res, next) {
     try {
       const users = await akunService.getAllUsers();
@@ -151,8 +160,6 @@ class AkunController {
         username: user.username,
         email: user.email,
         role: user.role,
-        maxDevice: user.maxDevice,
-        deviceCount: user.device ? user.device.length : 0,
       }));
 
       res.json({
@@ -165,73 +172,40 @@ class AkunController {
     }
   }
 
-  // ==========================================
-  // 📱 DEVICE (PAKAI AKUN TOKEN)
-  // ==========================================
-  async getDevice(req, res, next) {
-    try {
-      const devices = (req.akun?.device || []).map((d) => ({
-        deviceID: d.deviceID,
-        type: d.type,
-        tokenVersion: d.tokenVersion,
-        lastUsed: d.lastUsed,
-      }));
+  // refresh token
+  // async refreshToken(req, res, next) {
+  //   try {
+  //     const token = req.cookies.refreshToken || req.body.refreshToken;
+  //     if (!token) throw createError(401, "Refresh token tidak ditemukan.");
 
-      res.json({
-        message: "Daftar perangkat berhasil diambil.",
-        data: devices,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
+  //     const tokens = await akunService.refreshToken(token);
+  //     setRefreshTokenCookie(res, tokens.refreshToken);
 
-  async getDeviceHistory(req, res, next) {
-    try {
-      const userId = req.userDecoded.id;
-      const history = await deviceService.getHistory(userId);
+  //     res.json({
+  //       message: "Token berhasil diperbarui.",
+  //       ...tokens,
+  //     });
+  //   } catch (err) {
+  //     res.cookie("refreshToken", "", {
+  //       maxAge: 0,
+  //       path: "/api/akun/auth",
+  //     });
+  //     next(err);
+  //   }
+  // }
 
-      res.json({
-        message: "Riwayat perangkat berhasil diambil.",
-        data: history,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // ==========================================
-  // 🔄 REFRESH TOKEN
-  // ==========================================
-  async refreshToken(req, res, next) {
-    try {
-      const token = req.cookies.refreshToken || req.body.refreshToken;
-      if (!token) throw createError(401, "Refresh token tidak ditemukan.");
-
-      const tokens = await akunService.refreshToken(token);
-      setRefreshTokenCookie(res, tokens.refreshToken);
-
-      res.json({
-        message: "Token berhasil diperbarui.",
-        ...tokens,
-      });
-    } catch (err) {
-      res.cookie("refreshToken", "", {
-        maxAge: 0,
-        path: "/api/akun/auth",
-      });
-      next(err);
-    }
-  }
-
-  // ==========================================
-  // 🚪 LOGOUT
-  // ==========================================
+  // logout
   async logout(req, res, next) {
     try {
-      const token = req.cookies.refreshToken || req.body.refreshToken;
+      // FIX MUTLAK: Terapkan pengamanan yang sama persis di logout
+      const cookies = req.cookies || {};
+      const body = req.body || {};
+      const token = cookies.refreshToken || body.refreshToken;
 
-      await akunService.logout(token);
+      // Hanya proses logout di service jika token memang ada
+      if (token) {
+        await akunService.logout(token);
+      }
 
       res.cookie("refreshToken", "", {
         maxAge: 0,
@@ -243,79 +217,14 @@ class AkunController {
       next(err);
     }
   }
-
-  // ==========================================
-  // 🗑️ DELETE USER BY ADMIN
-  // ==========================================
+  
+  // delete user by admin
   async deleteUserByAdmin(req, res, next) {
     try {
       await akunService.deleteUserByAdmin(req.params.id, req.userDecoded.id);
 
       res.json({
         message: "Akun berhasil dihapus oleh admin.",
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // ==========================================
-  // 📱 DEVICE MANAGEMENT
-  // ==========================================
-  async addDevice(req, res, next) {
-    try {
-      const result = await deviceService.addDevice(
-        req.userDecoded.id,
-        req.body,
-      );
-
-      res.status(201).json({
-        message: "Perangkat berhasil ditambahkan.",
-        data: result,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  async promoteDevice(req, res, next) {
-    try {
-      const result = await deviceService.promoteDevice(
-        req.userDecoded.id,
-        req.body.deviceID,
-      );
-
-      res.json({
-        message: "Perangkat berhasil dijadikan utama.",
-        data: result,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  async demoteDevice(req, res, next) {
-    try {
-      const result = await deviceService.demoteDevice(
-        req.userDecoded.id,
-        req.body.deviceID,
-      );
-
-      res.json({
-        message: "Perangkat utama berhasil diturunkan.",
-        data: result,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  async removeDevice(req, res, next) {
-    try {
-      await deviceService.removeDevice(req.userDecoded.id, req.body.deviceID);
-
-      res.json({
-        message: "Perangkat berhasil dihapus.",
       });
     } catch (err) {
       next(err);

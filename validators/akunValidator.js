@@ -44,6 +44,7 @@ function validateRegister(data) {
 }
 
 // Validasi data login akun
+// FIX: deviceID dihapus — login Akun SaaS tidak lagi butuh device binding
 function validateLogin(data) {
   const errors = [];
 
@@ -53,15 +54,12 @@ function validateLogin(data) {
   if (!data.password) {
     errors.push("Password wajib diisi.");
   }
-  if (!data.deviceID) {
-    errors.push("Device ID wajib diisi untuk identifikasi perangkat.");
-  }
 
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true };
 }
 
-// Validasi aksi manajemen perangkat (tambah, hapus, atur utama)
+// Validasi aksi manajemen perangkat (dipakai di penggunaService)
 function validateDeviceAction(data) {
   const errors = [];
 

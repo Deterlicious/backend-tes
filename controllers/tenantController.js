@@ -15,9 +15,7 @@ const setRefreshTokenCookie = (res, token) => {
 
 class TenantController {
 
-  // ==========================================
-  // 👑 ADMIN - GET ALL TENANT
-  // ==========================================
+  // get tenant
   async getAll(req, res, next) {
     try {
       const tenants = await tenantService.getAll();
@@ -49,9 +47,7 @@ class TenantController {
     }
   }
 
-  // ==========================================
-  // 🔍 GET BY ID (RBAC + ISOLASI TENANT)
-  // ==========================================
+  // get tenant by id pakai rba dan isolasi tenant
   async getById(req, res, next) {
     try {
       const tenantID = req.pengguna?.tenantID;
@@ -61,7 +57,7 @@ class TenantController {
         throw createError(400, "Tenant tidak ditemukan pada pengguna.");
       }
 
-      // 🔥 Isolasi tenant
+      // Isolasi tenant
       if (tenantID.toString() !== targetId) {
         throw createError(403, "Akses ditolak ke tenant ini.");
       }
@@ -93,15 +89,13 @@ class TenantController {
     }
   }
 
-  // ==========================================
-  // 🏗️ CREATE TENANT (PAKAI AKUN)
-  // ==========================================
+  // create tenant (pakai akun)
   async create(req, res, next) {
     try {
       const userId = req.userDecoded?.id;
-      const deviceID = req.userDecoded?.deviceID;
 
-      if (!userId || !deviceID) {
+      // FIX: tidak lagi butuh deviceID — generateTokens cukup pakai akun
+      if (!userId) {
         throw createError(401, "Identitas akun tidak valid.");
       }
 
@@ -110,11 +104,9 @@ class TenantController {
         userId
       );
 
-      const device = akun.device.find((d) => d.deviceID === deviceID);
-      if (!device) throw createError(401, "Sesi perangkat tidak valid.");
-
-      // 🔥 regenerate token (biar tenantID masuk)
-      const tokens = akunService.generateTokens(akun, device);
+      // FIX: generateTokens sekarang hanya butuh akun (sudah update tokenVersion
+      // di tenantService.createWithOwner via Akun.findByIdAndUpdate)
+      const tokens = akunService.generateTokens(akun);
       setRefreshTokenCookie(res, tokens.refreshToken);
 
       res.status(201).json({
@@ -143,9 +135,7 @@ class TenantController {
     }
   }
 
-  // ==========================================
-  // ✏️ UPDATE TENANT (RBAC + ISOLASI)
-  // ==========================================
+  // update tenant (rba + isolasi tenant)
   async update(req, res, next) {
     try {
       const tenantID = req.pengguna?.tenantID;
@@ -191,9 +181,7 @@ class TenantController {
     }
   }
 
-  // ==========================================
-  // 🗑️ DELETE TENANT (PERMISSION)
-  // ==========================================
+  // delete tenant (permission)
   async delete(req, res, next) {
     try {
       const tenantID = req.pengguna?.tenantID;

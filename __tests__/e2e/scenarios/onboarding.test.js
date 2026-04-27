@@ -12,101 +12,9 @@ describe("E2E-01 — Setup Toko Baru (Onboarding)", () => {
   let tenantID;
   let roleID;
   let penggunaID;
-
-  // ─────────────────────────────────────────
-  // STEP 1 — Registrasi Akun Owner
-  // ─────────────────────────────────────────
-  test("Step 1 — Registrasi akun owner berhasil", async () => {
-    const res = await request(app).post("/api/akun/auth/register").send({
-      email: "owner@kafe-e2e.com",
-      password: "KafeOwner2026!",
-      username: "owner_kafe_e2e",
-    });
-
-    expect(res.statusCode).toBe(201);
-    expect(res.body).toHaveProperty("message", "Registrasi berhasil");
-    expect(res.body.data).toHaveProperty("email", "owner@kafe-e2e.com");
-    expect(res.body.data).not.toHaveProperty("password");
-  });
-
-  // ─────────────────────────────────────────
-  // STEP 2 — Login Owner
-  // ─────────────────────────────────────────
-  test("Step 2 — Login owner berhasil dapat accessToken", async () => {
-    const res = await request(app).post("/api/akun/auth/login").send({
-      email: "owner@kafe-e2e.com",
-      password: "KafeOwner2026!",
-      deviceID: "desktop-kasir-e2e",
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toHaveProperty("accessToken");
-
-    tokenA = res.body.accessToken;
-    expect(tokenA).toBeTruthy();
-  });
-
-  // ─────────────────────────────────────────
-  // STEP 3 — Buat Tenant
-  // ─────────────────────────────────────────
-  test("Step 3 — Buat tenant berhasil, dapat token baru dengan tenantID", async () => {
-    const res = await request(app)
-      .post("/api/tenant")
-      .set("Authorization", `Bearer ${tokenA}`)
-      .send({
-        namaToko: "Kafe E2E Makmur",
-        alamat: "Jl. Sudirman No. 45",
-        kota: "Pontianak",
-        nomorTelepon: "0561-55501234",
-        emailBisnis: "cs@kafe-e2e.com",
-      });
-
-    expect(res.statusCode).toBe(201);
-    expect(res.body.data).toHaveProperty("namaToko", "Kafe E2E Makmur");
-    expect(res.body.tokens).toHaveProperty("accessToken");
-
-    tokenB = res.body.tokens.accessToken;
-    tenantID = res.body.data._id;
-
-    expect(tokenB).toBeTruthy();
-    expect(tenantID).toBeTruthy();
-  });
-
-  // ─────────────────────────────────────────
-  // STEP 4
-  // ─────────────────────────────────────────
-  test("Step 4 — Register pengguna owner berhasil, dapat PIN token", async () => {
-    const res = await request(app)
-      .post("/api/pengguna/register-owner")
-      .set("Authorization", `Bearer ${tokenB}`)
-      .send({ nama: "Ahmad Owner", pin: "123456" });
-
-    expect(res.statusCode).toBe(201);
-
-    tokenC = res.body.accessToken; // ← langsung di root, bukan di tokens{}
-
-    // _id tidak dikembalikan di response — decode dari token saja
-    // atau skip assertion penggunaID karena tidak kritis untuk alur ini
-    const payload = JSON.parse(
-      Buffer.from(tokenC.split(".")[1], "base64").toString(),
-    );
-    penggunaID = payload.id;
-
-    expect(tokenC).toBeTruthy();
-    expect(penggunaID).toBeTruthy();
-  });
-
-  // ─────────────────────────────────────────
-  // STEP 5
-  // ─────────────────────────────────────────
-  test("Step 5 — Buat role kasir berhasil", async () => {
-    // Seed permission DAN assign ke Role Owner yang sudah ada
-    const Role = require("../../../models/roleModel");
-    const Permission = require("../../../models/permissionModel");
-
-    // Seed permission
-    const perms = await Permission.insertMany([
-      // Grup: Staff
+  beforeAll(async () => {
+    await Permission.deleteMany({});
+    await Permission.insertMany([
       {
         nama: "kelola-staff",
         grup: "Manajemen Staff",
@@ -117,8 +25,6 @@ describe("E2E-01 — Setup Toko Baru (Onboarding)", () => {
         grup: "Manajemen Pelanggan",
         deskripsi: "Dapat menambah, edit, hapus pelanggan",
       },
-
-      // Grup: Produk
       {
         nama: "kelola-produk",
         grup: "Manajemen Produk",
@@ -134,8 +40,6 @@ describe("E2E-01 — Setup Toko Baru (Onboarding)", () => {
         grup: "Manajemen Produk",
         deskripsi: "Dapat mengatur stok bahan baku",
       },
-
-      // Grup: Toko
       {
         nama: "kelola-tenant",
         grup: "Pengaturan Toko",
@@ -156,37 +60,144 @@ describe("E2E-01 — Setup Toko Baru (Onboarding)", () => {
         grup: "Pengaturan Toko",
         deskripsi: "Dapat menambah, edit, hapus pembayaran",
       },
-
-      // Grup: Laporan
       {
         nama: "laporan-penjualan",
         grup: "Laporan",
         deskripsi: "Dapat melihat omzet dan laporan",
       },
-
-      // Grup: POS
       {
         nama: "akses-pos",
         grup: "Transaksi",
         deskripsi: "Dapat melakukan transaksi kasir",
       },
+      {
+        nama: "read-role",
+        grup: "Pengaturan Toko",
+        deskripsi: "Melihat daftar jabatan",
+      },
+      {
+        nama: "create-role",
+        grup: "Pengaturan Toko",
+        deskripsi: "Membuat jabatan baru",
+      },
+      {
+        nama: "update-role",
+        grup: "Pengaturan Toko",
+        deskripsi: "Mengubah jabatan",
+      },
+      {
+        nama: "delete-role",
+        grup: "Pengaturan Toko",
+        deskripsi: "Menghapus jabatan",
+      },
     ]);
+  });
+
+  // STEP 1 Registrasi Akun Owner
+  test("Step 1 — Registrasi akun owner berhasil", async () => {
+    const res = await request(app).post("/api/akun/auth/register").send({
+      email: "owner@kafe-e2e.com",
+      password: "KafeOwner2026!",
+      username: "owner_kafe_e2e",
+    });
+
+    expect(res.statusCode).toBe(201);
+    // FIX: tambah titik di akhir sesuai response akunController
+    expect(res.body).toHaveProperty("message", "Registrasi berhasil.");
+    expect(res.body.data).toHaveProperty("email", "owner@kafe-e2e.com");
+    expect(res.body.data).not.toHaveProperty("password");
+  });
+
+  // STEP 2 Login Owner
+  test("Step 2 — Login owner berhasil dapat accessToken", async () => {
+    const res = await request(app).post("/api/akun/auth/login").send({
+      email: "owner@kafe-e2e.com",
+      password: "KafeOwner2026!",
+      // FIX: deviceID dihapus — login Akun SaaS tidak lagi butuh device binding
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toHaveProperty("accessToken");
+
+    tokenA = res.body.accessToken;
+    expect(tokenA).toBeTruthy();
+  });
+
+  // STEP 3 Buat Tenant
+  test("Step 3 — Buat tenant berhasil, dapat token baru dengan tenantID", async () => {
+    const res = await request(app)
+      .post("/api/tenant")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({
+        namaToko: "Kafe E2E Makmur",
+        alamat: "Jl. Sudirman No. 45",
+        kota: "Pontianak",
+        nomorTelepon: "0561-55501234",
+        emailBisnis: "cs@kafe-e2e.com",
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.data).toHaveProperty("namaToko", "Kafe E2E Makmur");
+
+    // FIX: accessToken ada di root body, bukan di dalam tokens{}
+    expect(res.body).toHaveProperty("accessToken");
+    tokenB = res.body.accessToken;
+    tenantID = res.body.data._id;
+
+    expect(tokenB).toBeTruthy();
+    expect(tenantID).toBeTruthy();
+  });
+
+  // STEP 4 Register Owner Pengguna
+  test("Step 4 — Register pengguna owner berhasil, dapat PIN token", async () => {
+    const res = await request(app)
+      .post("/api/pengguna/register-owner")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({
+        nama: "Ahmad Owner",
+        pin: "123456",
+        // FIX: set aksesType "web" agar Owner tidak butuh deviceID saat login PIN
+        // Owner tetap bisa login via app kapan pun dibutuhkan
+        aksesType: "web",
+      });
+
+    expect(res.statusCode).toBe(201);
+
+    tokenC = res.body.accessToken;
+
+    const payload = JSON.parse(
+      Buffer.from(tokenC.split(".")[1], "base64").toString(),
+    );
+    penggunaID = payload.id;
+
+    expect(tokenC).toBeTruthy();
+    expect(penggunaID).toBeTruthy();
+  });
+
+  // STEP 5 Buat Role Kasir
+  // STEP 5 Buat Role Kasir
+  test("Step 5 — Buat role kasir berhasil", async () => {
+    const Role = require("../../../models/roleModel");
+    const allPerms = await Permission.find({});
 
     // Assign semua permission ke Role Owner milik tenant ini
     await Role.findOneAndUpdate(
       { namaRole: "Owner", tenantID },
-      { $set: { permissions: perms.map((p) => p._id) } },
+      { $set: { permissions: allPerms.map((p) => p._id) } },
     );
 
     // Re-login PIN untuk dapat token baru yang sudah ada permissions
     const reloginRes = await request(app)
       .post("/api/pengguna/pin-login")
-      .set("Authorization", `Bearer ${tokenB}`) // token akun
+      .set("Authorization", `Bearer ${tokenB}`)
       .send({ nama: "Ahmad Owner", pin: "123456" });
 
     if (reloginRes.body.accessToken) {
       tokenC = reloginRes.body.accessToken;
     }
+
+    // Cari spesifik permission untuk kasir (misal: akses-pos)
+    const kasirPerm = allPerms.find((p) => p.nama === "akses-pos");
 
     const res = await request(app)
       .post("/api/role")
@@ -194,20 +205,19 @@ describe("E2E-01 — Setup Toko Baru (Onboarding)", () => {
       .send({
         namaRole: "Kasir",
         deskripsi: "Karyawan kasir yang mengelola transaksi",
+        // FIX: Tambahkan array permissions agar lolos validasi RoleService
+        permissions: kasirPerm ? [kasirPerm._id] : [], 
       });
 
     console.log("BUAT ROLE:", res.status, res.body.message ?? "");
 
     expect(res.statusCode).toBe(201);
     expect(res.body.data).toHaveProperty("namaRole", "Kasir");
-
     roleID = res.body.data._id;
     expect(roleID).toBeTruthy();
   });
 
-  // ─────────────────────────────────────────
-  // STEP 6 — Verifikasi PIN Token Bisa Akses API
-  // ─────────────────────────────────────────
+  // STEP 6 Verifikasi PIN Token Bisa Akses API
   test("Step 6 — PIN token kasir valid dan bisa akses API produk", async () => {
     const res = await request(app)
       .get("/api/produk")
@@ -216,9 +226,7 @@ describe("E2E-01 — Setup Toko Baru (Onboarding)", () => {
     expect(res.statusCode).toBe(200);
   });
 
-  // ─────────────────────────────────────────
-  // VERIFIKASI AKHIR — Semua ID terkumpul
-  // ─────────────────────────────────────────
+  // VERIFIKASI AKHIR Semua ID terkumpul
   test("Verifikasi akhir — semua entitas onboarding berhasil dibuat", () => {
     expect(tenantID).toBeTruthy();
     expect(roleID).toBeTruthy();

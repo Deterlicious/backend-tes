@@ -12,7 +12,7 @@ function validatePenggunaPayload(data, isUpdate = false) {
     };
   }
 
-  // --- 1. Mandatory Fields (Hanya saat Create) ---
+  // 1. Mandatory Fields (Hanya saat Create)
   if (!isUpdate) {
     if (!data.nama || validator.isEmpty(data.nama + "")) {
       errors.push("nama wajib diisi");
@@ -23,22 +23,21 @@ function validatePenggunaPayload(data, isUpdate = false) {
     if (!data.tenantID || !mongoose.Types.ObjectId.isValid(data.tenantID)) {
       errors.push("tenantID wajib diisi dan harus format yang valid");
     }
-    // roleID wajib diisi saat create
     if (!data.roleID || !mongoose.Types.ObjectId.isValid(data.roleID)) {
       errors.push("roleID wajib diisi dan harus format yang valid");
     }
   }
 
-  // --- 2. Nama Validation ---
+  // 2. Nama Validation
   if (data.nama) {
     const namaStr = data.nama + "";
     if (namaStr.length < 3) errors.push("Nama minimal 3 karakter");
     if (namaStr.length > 50) errors.push("Nama maksimal 50 karakter");
   }
 
-  // --- 3. PIN Validation ---
+  // 3. PIN Validation
   if (data.pin) {
-    const pinStr = data.pin + ""; 
+    const pinStr = data.pin + "";
     if (pinStr.length < 6) {
       errors.push("PIN minimal 6 karakter");
     }
@@ -47,14 +46,13 @@ function validatePenggunaPayload(data, isUpdate = false) {
     }
   }
 
-  // --- 4. ID Format Validation (Jika dikirim) ---
+  // 4. ID Format Validation (Jika dikirim)
   if (data.roleID && !mongoose.Types.ObjectId.isValid(data.roleID)) {
     errors.push("ID Role tidak valid");
   }
 
-  // --- 5. Format Pendukung ---
+  // 5. Format Pendukung
   if (data.nomorHp) {
-    // Memastikan nomor HP Indonesia yang valid
     if (!validator.isMobilePhone(data.nomorHp + "", "id-ID")) {
       errors.push("Format nomor HP tidak valid (Gunakan format Indonesia)");
     }
@@ -62,6 +60,11 @@ function validatePenggunaPayload(data, isUpdate = false) {
 
   if (data.status && !["aktif", "non-aktif"].includes(data.status)) {
     errors.push("Status harus 'aktif' atau 'non-aktif'");
+  }
+
+  // 6. aksesType Validation (TAMBAHAN BARU)
+  if (data.aksesType && !["web", "app"].includes(data.aksesType)) {
+    errors.push("aksesType harus 'web' atau 'app'");
   }
 
   if (errors.length > 0) return { valid: false, errors };
