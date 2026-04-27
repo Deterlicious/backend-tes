@@ -179,12 +179,6 @@ class TransferStokService {
         .populate("penerimaID", "nama")
         .sort({ tanggalKirim: -1, createdAt: -1 });
 
-      if (transfer.length === 0)
-        throw createError(
-          404,
-          "Tidak ada data Transfer Stok untuk tenant ini.",
-        );
-
       return transfer;
     } catch (error) {
       throw this.handleDbError(error, "Gagal mengambil daftar Transfer Stok.");

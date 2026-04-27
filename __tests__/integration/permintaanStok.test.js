@@ -31,6 +31,7 @@ const TransferStok = require("../../models/transferStokModel");
 
 // Gunakan ID yang sama dengan di dalam Mock Auth
 const VALID_TENANT_ID = "66164670c0c0c0c0c0c0c0c0";
+const AUTH_USER_ID = "66164670c0c0c0c0c0c0c0c0";
 
 describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
   let mongoServer;
@@ -108,6 +109,8 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
 
     const updatedPermintaan = await PermintaanStok.findById(permintaan._id);
     expect(updatedPermintaan.status).toBe("APPROVED");
+    expect(updatedPermintaan.disetujuiOleh.toString()).toBe(AUTH_USER_ID);
+    expect(updatedPermintaan.tanggalApprove).toBeInstanceOf(Date);
     expect(updatedPermintaan.transferStokID).toBeNull();
 
     const transferCount = await TransferStok.countDocuments({
@@ -140,6 +143,12 @@ describe("Integration Test - Permintaan Stok (Approve & Reject)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe("REJECTED");
+
+    const updatedPermintaan = await PermintaanStok.findById(permintaan._id);
+    expect(updatedPermintaan.status).toBe("REJECTED");
+    expect(updatedPermintaan.catatanPenolakan).toBe("Test Reject");
+    expect(updatedPermintaan.ditolakOleh.toString()).toBe(AUTH_USER_ID);
+    expect(updatedPermintaan.tanggalReject).toBeInstanceOf(Date);
   }, 20000); // Kasih waktu 20 detik
 
   // ====================== TEST PENGAMANAN (RACE CONDITION) ======================

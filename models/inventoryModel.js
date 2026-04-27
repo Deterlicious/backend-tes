@@ -5,7 +5,12 @@ const inventorySchema = new mongoose.Schema(
     bahanBakuID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "BahanBaku",
-      required: true,
+      default: null,
+    },
+    barangInventoryID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BarangInventory",
+      default: null,
     },
     locationID: {
       type: mongoose.Schema.Types.ObjectId,
@@ -32,7 +37,34 @@ const inventorySchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// Index agar pencarian stok per lokasi cepat
-inventorySchema.index({ locationID: 1, bahanBakuID: 1 }, { unique: true });
+inventorySchema.pre("validate", function (next) {
+  const hasBahanBaku = Boolean(this.bahanBakuID);
+  const hasBarangInventory = Boolean(this.barangInventoryID);
+
+  if (hasBahanBaku === hasBarangInventory) {
+    this.invalidate(
+      "item",
+      "Inventory wajib memiliki salah satu: bahanBakuID atau barangInventoryID.",
+    );
+  }
+
+  next();
+});
+
+// Index agar pencarian stok per lokasi cepat dan tidak ada item duplikat.
+inventorySchema.index(
+  { locationID: 1, bahanBakuID: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { bahanBakuID: { $type: "objectId" } },
+  },
+);
+inventorySchema.index(
+  { locationID: 1, barangInventoryID: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { barangInventoryID: { $type: "objectId" } },
+  },
+);
 
 module.exports = mongoose.model("Inventory", inventorySchema);

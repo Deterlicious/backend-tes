@@ -10,13 +10,22 @@ function validateInventoryPayload(data, isUpdate = false) {
   const errors = [];
   const allowedUpdates = ["stok"]; // Umumnya hanya stok yang diubah, ID tidak boleh
   const updates = {};
+  const hasBahanBakuID = Boolean(data.bahanBakuID);
+  const hasBarangInventoryID = Boolean(data.barangInventoryID);
 
   // --- Validasi Mandatory Fields (CREATE) ---
   if (!isUpdate) {
     if (!data.tenantID || !isValidObjectId(data.tenantID))
       errors.push("Tenant ID wajib diisi dan formatnya harus valid.");
-    if (!data.bahanBakuID || !isValidObjectId(data.bahanBakuID))
-      errors.push("Bahan Baku ID wajib diisi dan formatnya harus valid.");
+    if (hasBahanBakuID === hasBarangInventoryID) {
+      errors.push(
+        "Pilih salah satu item inventory: bahanBakuID atau barangInventoryID.",
+      );
+    }
+    if (hasBahanBakuID && !isValidObjectId(data.bahanBakuID))
+      errors.push("Bahan Baku ID formatnya harus valid.");
+    if (hasBarangInventoryID && !isValidObjectId(data.barangInventoryID))
+      errors.push("Barang Inventory ID formatnya harus valid.");
     if (!data.locationID || !isValidObjectId(data.locationID))
       errors.push("Location ID wajib diisi dan formatnya harus valid.");
     if (typeof data.stok !== "number" || data.stok < 0)
@@ -42,6 +51,7 @@ function validateInventoryPayload(data, isUpdate = false) {
         key === "tenantID" ||
         key === "_id" ||
         key === "bahanBakuID" ||
+        key === "barangInventoryID" ||
         key === "locationID"
       ) {
         errors.push(`Field '${key}' tidak diizinkan untuk diubah.`);

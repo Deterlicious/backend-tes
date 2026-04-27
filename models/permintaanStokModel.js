@@ -24,6 +24,7 @@ const PermintaanStokSchema = new mongoose.Schema(
       required: true,
     },
     disetujuiOleh: { type: mongoose.Schema.Types.ObjectId, ref: "Pengguna" },
+    ditolakOleh: { type: mongoose.Schema.Types.ObjectId, ref: "Pengguna" },
 
     // Menghubungkan ke tabel Surat Jalan (TransferStok)
     transferStokID: {
@@ -53,6 +54,8 @@ const PermintaanStokSchema = new mongoose.Schema(
     catatan: { type: String },
     catatanPenolakan: { type: String },
     tanggalKebutuhan: { type: Date },
+    tanggalApprove: { type: Date },
+    tanggalReject: { type: Date },
   },
   { timestamps: true },
 );

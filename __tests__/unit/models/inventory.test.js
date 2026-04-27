@@ -6,6 +6,7 @@ let mongoServer;
 const tid = new mongoose.Types.ObjectId();
 const lid = new mongoose.Types.ObjectId();
 const bid = new mongoose.Types.ObjectId();
+const barangId = new mongoose.Types.ObjectId();
 
 const baseInventory = (overrides = {}) => ({
   bahanBakuID: bid,
@@ -55,8 +56,20 @@ describe("Inventory Model — Unit Test", () => {
     await expect(inv.validate()).rejects.toThrow(); //
   });
 
-  test("Wajib memiliki bahanBakuID dan locationID", async () => {
+  test("Wajib memiliki salah satu item dan locationID", async () => {
     const inv = new Inventory({ tenantID: tid });
+    await expect(inv.validate()).rejects.toThrow();
+  });
+
+  test("Boleh memakai barangInventoryID sebagai item inventory", async () => {
+    const inv = new Inventory(
+      baseInventory({ bahanBakuID: undefined, barangInventoryID: barangId }),
+    );
+    await expect(inv.validate()).resolves.toBeUndefined();
+  });
+
+  test("Tidak boleh memiliki bahanBakuID dan barangInventoryID sekaligus", async () => {
+    const inv = new Inventory(baseInventory({ barangInventoryID: barangId }));
     await expect(inv.validate()).rejects.toThrow();
   });
 
@@ -64,5 +77,16 @@ describe("Inventory Model — Unit Test", () => {
     await Inventory.create(baseInventory());
     const duplikat = new Inventory(baseInventory());
     await expect(duplikat.save()).rejects.toThrow(); //
+  });
+
+  test("Compound Index: Tidak boleh ada duplikat barangInventory di lokasi yang sama", async () => {
+    const barangInventory = baseInventory({
+      bahanBakuID: undefined,
+      barangInventoryID: barangId,
+    });
+
+    await Inventory.create(barangInventory);
+    const duplikat = new Inventory(barangInventory);
+    await expect(duplikat.save()).rejects.toThrow();
   });
 });
