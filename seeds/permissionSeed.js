@@ -38,6 +38,11 @@ const permissionsList = [
   { nama: "create-pengguna", grup: "Pengguna", deskripsi: "Tambah staf" },
   { nama: "update-pengguna", grup: "Pengguna", deskripsi: "Edit staf" },
   { nama: "delete-pengguna", grup: "Pengguna", deskripsi: "Hapus staf" },
+  {
+    nama: "kelola-staff",
+    grup: "Pengguna",
+    deskripsi: "Kelola role dan permission staf",
+  },
 
   // =====================
   // ROLE
@@ -126,6 +131,11 @@ const permissionsList = [
     nama: "create-permintaan-stok",
     grup: "Permintaan Stok",
     deskripsi: "Buat permintaan",
+  },
+  {
+    nama: "update-permintaan-stok",
+    grup: "Permintaan Stok",
+    deskripsi: "Ubah draft dan submit permintaan",
   },
   {
     nama: "approve-permintaan-stok",
