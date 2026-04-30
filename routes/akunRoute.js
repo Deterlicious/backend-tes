@@ -48,21 +48,18 @@ router.delete(
   wrap(akunController.deleteUserByAdmin)
 );
 
-// rute berbasis pengguna (RBAC + PERMISSION)
-// router.use(authPengguna) dipindah ke bawah agar route admin
-// di atas tidak ikut terkena authPengguna
-router.use(authPengguna);
-
 // akun (pakai permission)
 router.get(
-  "/akun",
+  "/profil",
   checkPermission("read-akun"),
+  authPengguna,
   wrap(akunController.getProfile)
 );
 
 router.put(
-  "/akun",
+  "/profil/update",
   checkPermission("update-akun"),
+  authPengguna,
   wrap(akunController.updateProfile)
 );
 

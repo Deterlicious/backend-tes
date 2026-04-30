@@ -5,6 +5,7 @@ const bcrypt = require("bcrypt");
 // Definisi Model Inline (Saya update agar sesuai dengan Model Asli)
 const AkunSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
+  username: { type: String, unique: true },
   password: { type: String, required: true, hash: true },
   role: { type: String, required: true },
   roleID: { type: mongoose.Schema.Types.ObjectId, ref: "Role" },
@@ -32,6 +33,7 @@ const seedDB = async () => {
     const akunList = [
       {
         email: "admin@gmail.com",
+        username: "admin",
         password: hashedPassword,
         role: "admin",
         roleID: null,

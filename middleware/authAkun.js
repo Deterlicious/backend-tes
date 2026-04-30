@@ -7,7 +7,7 @@ const AKUN_JWT_SECRET = process.env.AKUN_JWT_SECRET || "akun_secret";
 
 async function authAkun(req, res, next) {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers?.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       throw createError(401, "Akses ditolak. Token akun tidak ditemukan.");
@@ -20,7 +20,10 @@ async function authAkun(req, res, next) {
       decoded = jwt.verify(token, AKUN_JWT_SECRET);
     } catch (err) {
       if (err.name === "TokenExpiredError") {
-        throw createError(401, "Sesi berakhir (Token expired). Silakan login ulang.");
+        throw createError(
+          401,
+          "Sesi berakhir (Token expired). Silakan login ulang.",
+        );
       }
       throw createError(403, "Token tidak valid.");
     }
@@ -34,16 +37,19 @@ async function authAkun(req, res, next) {
       throw createError(401, "Akun tidak ditemukan atau telah dihapus.");
     }
 
-    // Validasi tokenVersion untuk revoke sesi (logout paksa / ganti password)
-    if (decoded.version !== undefined && akun.tokenVersion !== decoded.version) {
-      throw createError(401, "Sesi telah berakhir. Silakan login ulang.");
+    // fix: Hilangkan bypass '!== undefined'. Versi WAJIB ada dan cocok.
+    if (!decoded.version || akun.tokenVersion !== decoded.version) {
+      throw createError(
+        401,
+        "Sesi telah berakhir atau dihentikan. Silakan login ulang.",
+      );
     }
 
     // Context Akun
     req.akunContext = {
       akunID: akun._id,
       roleAkun: akun.role,
-      tenantID: decoded.tenantID || null,
+      tenantID: akun.tenantID ? akun.tenantID.toString() : null,
     };
 
     req.userDecoded = decoded;

@@ -12,6 +12,12 @@ exports.checkPermission = (permissionName) => {
 
       const permissions = req.pengguna.permissions || [];
 
+      // fix: Mencegah eksploitasi String.prototype.includes()
+      // Jika permissions tidak ada atau bukan Array, langsung tolak
+      if (!Array.isArray(permissions)) {
+        throw createError(403, "Akses ditolak. Format izin tidak valid.");
+      }
+
       const hasPermission = permissions.includes(permissionName);
 
       if (!hasPermission) {

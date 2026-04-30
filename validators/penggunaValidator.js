@@ -67,8 +67,57 @@ function validatePenggunaPayload(data, isUpdate = false) {
     errors.push("aksesType harus 'web' atau 'app'");
   }
 
+  // 7. Conditional Validation untuk Device ID (TAMBAHAN MUTLAK)
+  // Jika akses via aplikasi, deviceID haram hukumnya kosong
+  if (data.aksesType === "app" && !data.deviceID) {
+    errors.push("Device ID wajib disertakan untuk akses aplikasi.");
+  }
+
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true };
 }
 
-module.exports = { validatePenggunaPayload };
+function validatePenggunaLogin(data) {
+  const errors = [];
+
+  if (!data || Object.keys(data).length === 0) {
+    return { valid: false, errors: ["Data login kosong"] };
+  }
+
+  // Mencegah Injeksi NoSQL & Whitespace pada Nama
+  if (
+    !data.nama ||
+    typeof data.nama !== "string" ||
+    validator.isEmpty(data.nama.trim())
+  ) {
+    errors.push(
+      "Format nama tidak valid atau kosong. Nama pengguna wajib diisi.",
+    );
+  }
+
+  // Mencegah Injeksi NoSQL & Whitespace pada PIN
+  const isPinObject = typeof data.pin === "object";
+  if (!data.pin || isPinObject || validator.isEmpty(String(data.pin).trim())) {
+    errors.push("Format PIN tidak valid atau kosong. PIN wajib diisi.");
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
+  return { valid: true };
+}
+
+function validateDeviceAction(data) {
+  const errors = [];
+
+  if (!data.deviceID) {
+    errors.push("Device ID wajib diisi.");
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
+  return { valid: true };
+}
+
+module.exports = {
+  validatePenggunaPayload,
+  validatePenggunaLogin,
+  validateDeviceAction,
+};

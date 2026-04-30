@@ -13,9 +13,9 @@ const setRefreshTokenCookie = (res, token) => {
 };
 
 class AkunController {
+  // 1. refresh token
   async refreshToken(req, res, next) {
     try {
-      // FIX MUTLAK: Ekstraksi aman dengan objek fallback
       const cookies = req.cookies || {};
       const body = req.body || {};
       const token = cookies.refreshToken || body.refreshToken;
@@ -27,10 +27,7 @@ class AkunController {
         );
       }
 
-      // Memanggil service
       const tokens = await akunService.refreshToken(token);
-
-      // Memanggil helper function
       setRefreshTokenCookie(res, tokens.refreshToken);
 
       res.json({
@@ -38,7 +35,6 @@ class AkunController {
         ...tokens,
       });
     } catch (err) {
-      // Jika error, hapus cookie (maxAge: 0) dan teruskan error ke errorHandler
       res.cookie("refreshToken", "", {
         maxAge: 0,
         path: "/api/akun/auth",
@@ -47,164 +43,104 @@ class AkunController {
     }
   }
 
-  // register
+  // 2. register
   async register(req, res, next) {
     try {
       const result = await akunService.register(req.body);
 
       res.status(201).json({
         message: "Registrasi berhasil.",
-        data: {
-          _id: result._id,
-          tenantID: result.tenantID,
-          username: result.username,
-          email: result.email,
-          role: result.role,
-        },
+        data: result, // Mengirim objek utuh dari service
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // login (akun)
+  // 3. login
   async login(req, res, next) {
     try {
-      const { email, password } = req.body;
-
-      if (!email || !password) {
-        throw createError(400, "Email dan password wajib diisi.");
-      }
-
       const result = await akunService.login(req.body);
-      setRefreshTokenCookie(res, result.tokens.refreshToken);
+
+      setRefreshTokenCookie(res, result.refreshToken);
 
       res.json({
-        message: result.message,
-        data: {
-          _id: result.id,
-          tenantID: result.tenantID,
-          username: result.username,
-          email: result.email,
-          role: result.role,
-        },
-        accessToken: result.tokens.accessToken,
-        refreshToken: result.tokens.refreshToken,
+        message: "Login berhasil.",
+        data: result.user, // Mengirim profil user utuh tanpa pemetaan manual
+        accessToken: result.accessToken,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // get profile
+  // 4. get profile
   async getProfile(req, res, next) {
     try {
-      const akunID = req.userDecoded?.id;
+      const userId = req.userDecoded?.id;
 
-      if (!akunID) {
-        throw createError(400, "Relasi akun tidak ditemukan pada pengguna.");
+      if (!userId) {
+        return res.status(401).json({
+          message: "Unauthorized: user context missing",
+        });
       }
-
-      const user = await akunService.getProfile(akunID);
-      if (!user) throw createError(404, "Akun tidak ditemukan.");
+      const result = await akunService.getProfile(userId);
 
       res.json({
         message: "Profil berhasil diambil.",
-        data: {
-          _id: user._id,
-          tenantID: user.tenantID,
-          username: user.username,
-          email: user.email,
-          role: user.role,
-        },
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // update profile
+  // 5. update profile
   async updateProfile(req, res, next) {
     try {
-      const akunID = req.userDecoded?.id;
+      // [JALAN TENGAH]: Karena kita menggunakan authPengguna, req.userDecoded.id adalah ID Karyawan.
+      // Kita harus mengambil ID Akun/Tenant dari relasi karyawan tersebut.
+      // (Sesuaikan variabel 'tenantID' dengan payload JWT Pengguna Anda)
+      const targetAkunId = req.userDecoded?.tenantID || req.akunContext?.akunID; 
 
-      if (!akunID) {
-        throw createError(400, "Relasi akun tidak ditemukan pada pengguna.");
+      if (!targetAkunId) {
+        return res.status(403).json({
+          message: "Forbidden: Tidak dapat menemukan referensi Akun dari Pengguna ini.",
+        });
       }
 
-      const updated = await akunService.updateProfile(akunID, req.body);
+      // Sekarang yang dilempar ke database Akun adalah targetAkunId yang benar, bukan ID Kasir
+      const result = await akunService.updateProfile(
+        targetAkunId,
+        req.body,
+      );
 
       res.json({
         message: "Profil berhasil diperbarui.",
-        data: {
-          _id: updated._id,
-          tenantID: updated.tenantID,
-          username: updated.username,
-          email: updated.email,
-          role: updated.role,
-        },
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // admin get all akun
-  async getAllAkun(req, res, next) {
-    try {
-      const users = await akunService.getAllUsers();
-
-      const formattedUsers = users.map((user) => ({
-        _id: user._id,
-        tenantID: user.tenantID,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-      }));
-
-      res.json({
-        message: "Daftar akun berhasil diambil.",
-        total: formattedUsers.length,
-        data: formattedUsers,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // refresh token
-  // async refreshToken(req, res, next) {
-  //   try {
-  //     const token = req.cookies.refreshToken || req.body.refreshToken;
-  //     if (!token) throw createError(401, "Refresh token tidak ditemukan.");
-
-  //     const tokens = await akunService.refreshToken(token);
-  //     setRefreshTokenCookie(res, tokens.refreshToken);
-
-  //     res.json({
-  //       message: "Token berhasil diperbarui.",
-  //       ...tokens,
-  //     });
-  //   } catch (err) {
-  //     res.cookie("refreshToken", "", {
-  //       maxAge: 0,
-  //       path: "/api/akun/auth",
-  //     });
-  //     next(err);
-  //   }
-  // }
-
-  // logout
+  // 6. logout
   async logout(req, res, next) {
     try {
-      // FIX MUTLAK: Terapkan pengamanan yang sama persis di logout
       const cookies = req.cookies || {};
       const body = req.body || {};
+      
       const token = cookies.refreshToken || body.refreshToken;
 
-      // Hanya proses logout di service jika token memang ada
-      if (token) {
-        await akunService.logout(token);
+      // [PERBAIKAN]: Ambil Access Token dari header Authorization
+      const authHeader = req.headers.authorization;
+      const accessToken = authHeader && authHeader.startsWith("Bearer ") 
+        ? authHeader.split(" ")[1] 
+        : null;
+
+      // [PERBAIKAN]: Pastikan service dieksekusi jika ada salah satu token
+      if (token || accessToken) {
+        await akunService.logout(token, accessToken); // Mengirim parameter kedua
       }
 
       res.cookie("refreshToken", "", {
@@ -217,15 +153,41 @@ class AkunController {
       next(err);
     }
   }
-  
-  // delete user by admin
-  async deleteUserByAdmin(req, res, next) {
+
+  // 7. admin only: get all akun
+  async getAllAkun(req, res, next) {
     try {
-      await akunService.deleteUserByAdmin(req.params.id, req.userDecoded.id);
+      const requesterId = req.userDecoded?.id;
+
+      if (!requesterId) {
+        return res.status(401).json({
+          message: "Unauthorized",
+        });
+      }
+
+      const result = await akunService.getAllAkun(requesterId);
 
       res.json({
-        message: "Akun berhasil dihapus oleh admin.",
+        message: "Semua akun berhasil diambil.",
+        data: result,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // 8. admin only: delete user
+  async deleteUserByAdmin(req, res, next) {
+    try {
+      const requesterId = req.userDecoded?.id;
+      if (!requesterId) {
+        return res.status(401).json({
+          message: "Unauthorized: admin context missing",
+        });
+      }
+
+      await akunService.deleteUserByAdmin(req.params.id, requesterId); // [PERBAIKAN]: Gunakan variabel requesterId
+      res.json({ message: "Akun berhasil dihapus oleh admin." });
     } catch (err) {
       next(err);
     }

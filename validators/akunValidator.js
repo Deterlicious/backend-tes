@@ -39,6 +39,16 @@ function validateRegister(data) {
     errors.push("Password harus mengandung minimal 1 angka.");
   }
 
+  if (data.username !== undefined && data.username !== null) {
+    if (typeof data.username !== "string") {
+      errors.push("Username harus berupa teks.");
+    } else if (data.username.trim().length < 3) {
+      errors.push("Username minimal 3 karakter.");
+    } else if (data.username.length > 25) {
+      errors.push("Username maksimal 25 karakter.");
+    }
+  }
+
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true };
 }
@@ -60,20 +70,66 @@ function validateLogin(data) {
 }
 
 // Validasi aksi manajemen perangkat (dipakai di penggunaService)
-function validateDeviceAction(data) {
+// function validateDeviceAction(data) {
+//   const errors = [];
+
+//   if (!data.deviceID) {
+//     errors.push("Device ID wajib diisi.");
+//   }
+
+//   if (errors.length > 0) return { valid: false, errors };
+//   return { valid: true };
+// }
+
+// ... (kode atas tetap sama) ...
+
+// [PENAMBAHAN]: Validasi khusus untuk update profil akun
+function validateUpdateProfile(data) {
   const errors = [];
 
-  if (!data.deviceID) {
-    errors.push("Device ID wajib diisi.");
+  // Validasi email jika dikirimkan
+  if (data.email !== undefined) {
+    if (!validator.isEmail(data.email)) {
+      errors.push("Format email baru tidak valid.");
+    } else if (isDisposableEmail(data.email)) {
+      errors.push("Email dari layanan disposable tidak diizinkan.");
+    }
+  }
+
+  // Validasi username jika dikirimkan
+  if (data.username !== undefined && data.username !== null) {
+    if (typeof data.username !== "string") {
+      errors.push("Username harus berupa teks.");
+    } else if (data.username.trim().length < 3) {
+      errors.push("Username minimal 3 karakter.");
+    } else if (data.username.length > 50) {
+      errors.push("Username maksimal 50 karakter.");
+    }
+  }
+
+  // Validasi password baru jika dikirimkan
+  if (data.password !== undefined) {
+    if (!data.oldPassword) {
+      errors.push("Password lama wajib diisi jika ingin mengubah password.");
+    }
+    if (data.password.length < 8) {
+      errors.push("Password baru minimal 8 karakter.");
+    } else if (!/[A-Z]/.test(data.password)) {
+      errors.push("Password baru harus mengandung minimal 1 huruf kapital.");
+    } else if (!/[0-9]/.test(data.password)) {
+      errors.push("Password baru harus mengandung minimal 1 angka.");
+    }
   }
 
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true };
 }
 
+// Pastikan untuk mengekspor fungsi yang baru dibuat
 module.exports = {
   validateRegister,
   validateLogin,
-  validateDeviceAction,
+  // validateDeviceAction,
+  validateUpdateProfile, // [PERBAIKAN]: Ekspor fungsi baru
   isDisposableEmail,
 };

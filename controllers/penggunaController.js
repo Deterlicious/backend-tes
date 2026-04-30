@@ -1,20 +1,19 @@
 const penggunaService = require("../services/penggunaService");
 const createError = require("http-errors");
 
+// Standardisasi Cookie Mutlak: Nama "refreshToken" dan path "/"
 const setRefreshTokenCookie = (res, token) => {
-  res.cookie("penggunaRefreshToken", token, {
+  res.cookie("refreshToken", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    path: "/api/pengguna",
+    path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 };
 
 class PenggunaController {
   _getRequesterContext(req) {
-    if (req.akun)
-      return { tenantID: req.akun.tenantID || null, source: "AKUN" };
     if (req.akunContext)
       return { tenantID: req.akunContext.tenantID ?? null, source: "AKUN" };
     if (req.pengguna)
@@ -29,68 +28,78 @@ class PenggunaController {
     return context.tenantID;
   }
 
-  // ==========================================
-  // 1. REGISTER OWNER
-  // ==========================================
+  // 1. register owner
+  // async registerOwner(req, res, next) {
+  //   try {
+  //     const context = this._getRequesterContext(req);
+  //     if (!context || context.source !== "AKUN") {
+  //       throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
+  //     }
+
+  //     const tenantID = this._ensureTenant(context);
+  //     const result = await penggunaService.registerOwner(req.body, tenantID);
+
+  //     res.status(201).json({
+  //       message: "Owner berhasil didaftarkan.",
+  //       data: result,
+  //       accessToken
+  //     });
+  //   } catch (err) {
+  //     next(err);
+  //   }
+  // }
+
   async registerOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-
       if (!context || context.source !== "AKUN") {
         throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
       }
 
       const tenantID = this._ensureTenant(context);
 
+      // Ekstrak eksplisit — jangan pass req.body mentah
+      const { nama, pin, aksesType, deviceID, deviceType } = req.body;
+
+      const resolvedAksesType = aksesType || "app";
+      if (resolvedAksesType === "app" && !deviceID) {
+        throw createError(
+          400,
+          "Device ID wajib disertakan untuk pendaftaran Owner via aplikasi.",
+        );
+      }
+
       const result = await penggunaService.registerOwner(req.body, tenantID);
+
       setRefreshTokenCookie(res, result.refreshToken);
 
       res.status(201).json({
-        message: "Owner berhasil didaftarkan dengan akses penuh.",
-        data: {
-          _id: result.user._id,
-          nama: result.user.nama,
-          role: result.user.role,
-          aksesType: result.user.aksesType,
-        },
-        accessToken: result.token,
-        refreshToken: result.refreshToken,
+        message: "Owner berhasil didaftarkan.",
+        data: result.pengguna,
+        accessToken: result.accessToken, // FIX: dari result, bukan variabel bebas
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 2. CREATE STAFF
-  // ==========================================
+  // 2. create pengguna biasa
   async create(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
-
       const result = await penggunaService.create(req.body, tenantID);
 
       res.status(201).json({
         message: "Pengguna berhasil dibuat.",
-        data: {
-          _id: result._id,
-          nama: result.nama,
-          nomorHp: result.nomorHp,
-          role: result.roleID?.namaRole || "No Role",
-          fotoKaryawan: result.fotoKaryawan,
-          status: result.status,
-          aksesType: result.aksesType,
-        },
+        data: result.pengguna,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 3. GET ALL
-  // ==========================================
+  // 3. get all
   async getAll(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
@@ -98,91 +107,83 @@ class PenggunaController {
 
       const result = await penggunaService.getAll(tenantID);
 
-      // FIX: hapus duplikasi field status dan data
-      const formatted = result.map((u) => ({
-        _id: u._id,
-        nama: u.nama,
-        nomorHp: u.nomorHp,
-        role: u.roleID?.namaRole || "No Role",
-        status: u.status,
-        aksesType: u.aksesType,
-      }));
-
       res.json({
         message: "Daftar pengguna berhasil diambil.",
-        total: formatted.length,
-        data: formatted,
+        total: result.length,
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 4. GET BY ID
-  // ==========================================
+  // 4. get by id
   async getById(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
-      const u = await penggunaService.getById(req.params.id, tenantID);
+      const result = await penggunaService.getById(req.params.id, tenantID);
 
       res.json({
         message: "Detail pengguna berhasil diambil.",
-        data: {
-          _id: u._id,
-          nama: u.nama,
-          nomorHp: u.nomorHp,
-          role: u.roleID?.namaRole || "No Role",
-          fotoKaryawan: u.fotoKaryawan,
-          status: u.status,
-          aksesType: u.aksesType,
-        },
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 5. UPDATE
-  // ==========================================
+  // 5. update
   async update(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
-      const u = await penggunaService.update(req.params.id, req.body, tenantID);
+      const result = await penggunaService.update(
+        req.params.id,
+        req.body,
+        tenantID,
+      );
 
       res.json({
         message: "Data pengguna berhasil diperbarui.",
-        data: {
-          _id: u._id,
-          nama: u.nama,
-          nomorHp: u.nomorHp,
-          role: u.roleID?.namaRole || "No Role",
-          fotoKaryawan: u.fotoKaryawan,
-          status: u.status,
-          aksesType: u.aksesType,
-        },
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 6. LOGIN PIN
-  // ==========================================
+  // 6. login pin pengguna
+  // async loginPin(req, res, next) {
+  //   try {
+  //     const { email, password, deviceID, deviceName } = req.body;
+  //     const result = await penggunaService.login(email, password, deviceID, deviceName);
+
+  //     setRefreshTokenCookie(res, result.refreshToken);
+
+  //     res.json({
+  //       message: "Login berhasil.",
+  //       data: {
+  //         accessToken: result.accessToken,
+  //         pengguna: result.pengguna,
+  //       },
+  //     });
+  //   } catch (err) {
+  //     next(err);
+  //   }
+  // }
+
   async loginPin(req, res, next) {
     try {
-      // FIX: tambah deviceID dan deviceType untuk pengguna aksesType "app"
+      // FIX: field sesuai schema pengguna, bukan email/password
       const { nama, pin, deviceID, deviceType } = req.body;
 
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
+      // FIX: pass sebagai object sesuai signature service.login({ ... })
       const result = await penggunaService.login({
         nama,
         pin,
@@ -193,63 +194,60 @@ class PenggunaController {
 
       setRefreshTokenCookie(res, result.refreshToken);
 
-      // FIX: hapus duplikasi field role
       res.json({
-        message: "Login pengguna berhasil.",
-        data: {
-          _id: result.user._id,
-          nama: result.user.nama,
-          role: result.user.role,
-          aksesType: result.user.aksesType,
-        },
-        accessToken: result.token,
-        refreshToken: result.refreshToken,
+        message: "Login berhasil.",
+        data: result.pengguna,
+        accessToken: result.accessToken,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 🔄 REFRESH TOKEN
-  // ==========================================
+  // 7. refresh token
   async refreshToken(req, res, next) {
     try {
-      const token = req.cookies.penggunaRefreshToken || req.body.refreshToken;
+      // fix: Mencari cookie dengan nama yang benar
+      const token = req.cookies.refreshToken || req.body.refreshToken;
 
       if (!token) {
-        throw createError(401, "Refresh Token tidak ditemukan.");
+        throw createError(401, "Refresh token tidak ditemukan.");
       }
 
-      const tokens = await penggunaService.refreshToken(token);
-      setRefreshTokenCookie(res, tokens.refreshToken);
+      const result = await penggunaService.refreshToken(token);
+
+      setRefreshTokenCookie(res, result.newRefreshToken);
 
       res.json({
-        message: "Token pengguna diperbarui.",
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
+        message: "Token berhasil diperbarui.",
+        data: { accessToken: result.accessToken },
       });
     } catch (err) {
-      res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
       next(err);
     }
   }
 
-  // ==========================================
-  // 🚪 LOGOUT
-  // ==========================================
+  // 8. logout
   async logout(req, res, next) {
+    const cookieOptions = { path: "/", httpOnly: true };
     try {
-      res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
+      const token = req.cookies.refreshToken || req.body.refreshToken;
+
+      if (token) {
+        await penggunaService.logout(token);
+      }
+
+      // fix: Menghapus cookie dengan nama dan path yang konsisten
+      res.clearCookie("refreshToken", cookieOptions);
       res.json({ message: "Logout berhasil." });
     } catch (err) {
+      // Tindakan Defensif: Tetap hancurkan sesi di browser jika server gagal
+      res.clearCookie("refreshToken", cookieOptions);
       next(err);
     }
   }
 
-  // ==========================================
-  // CHECK OWNER
-  // ==========================================
+  // 9. check owner
   async checkOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
@@ -269,9 +267,7 @@ class PenggunaController {
     }
   }
 
-  // ==========================================
-  // 🗑️ DELETE
-  // ==========================================
+  // 10. delete
   async delete(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
@@ -285,16 +281,18 @@ class PenggunaController {
     }
   }
 
-  // ==========================================
-  // 📱 DEVICE MANAGEMENT
-  // ==========================================
+  // 11. device management
   async addDevice(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
       const penggunaID = req.params.id;
 
-      const result = await penggunaService.addDevice(penggunaID, tenantID, req.body);
+      const result = await penggunaService.addDevice(
+        penggunaID,
+        tenantID,
+        req.body,
+      );
 
       res.status(201).json({
         message: "Perangkat berhasil ditambahkan.",
@@ -371,7 +369,10 @@ class PenggunaController {
       const tenantID = this._ensureTenant(context);
       const penggunaID = req.params.id;
 
-      const history = await penggunaService.getDeviceHistory(penggunaID, tenantID);
+      const history = await penggunaService.getDeviceHistory(
+        penggunaID,
+        tenantID,
+      );
 
       res.json({
         message: "Riwayat perangkat berhasil diambil.",
