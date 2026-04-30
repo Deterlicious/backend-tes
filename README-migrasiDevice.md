@@ -100,6 +100,54 @@ Mengembalikan `accessToken`. `refreshToken` disimpan di dalam HTTP-Only Cookie.
 
 ---
 
+### daftar pengguna
+
+Digunakan untuk daftar pengguna, akses type bisa pilih salah satu antara web atau app, ataupun bisa pilih keduanya.
+
+**Endpoint**
+
+```
+POST /api/pengguna/register-owner
+POST /api/pengguna/register-pengguna
+```
+
+**Body Request**
+
+jika ingin hanya bisa dipakai di app
+
+```json
+{
+  "nama": "nama pengguna",
+  "pin": "123456",
+  "deviceID": "DEV-MAC-001",
+  "aksesType": "app"
+}
+```
+
+jika hanya ingin bisa dipakai di web
+
+```json
+{
+  "nama": "nama pengguna",
+  "pin": "123456",
+  "aksesType": "web"
+}
+```
+
+jika ingin bisa dipakai di web dan app
+
+```json
+{
+  "nama": "nama pengguna",
+  "pin": "123456",
+  "deviceID": "DEV-MAC-001",
+  "aksesType": [
+    "web", 
+    "app"
+  ]
+}
+```
+
 ### Login — Pengguna (Aplikasi Kasir / POS)
 
 Digunakan oleh kasir dan staf di lapangan. Sangat ketat dan terikat pada perangkat.
@@ -107,16 +155,29 @@ Digunakan oleh kasir dan staf di lapangan. Sangat ketat dan terikat pada perangk
 **Endpoint**
 
 ```
-POST /api/pengguna/auth/login
+POST /api/pengguna/pin-login
 ```
 
 **Body Request**
+
+jika lewat aplikasi, maka jsonnya seperti ini
 
 ```json
 {
   "nama": "nama pengguna",
   "pin": "123456",
-  "deviceID": "DEV-MAC-001"
+  "deviceID": "DEV-MAC-001",
+  "aksesType": "app"
+}
+```
+
+jika lewat website, maka jsonnya seperti ini
+
+```json
+{
+  "nama": "nama pengguna",
+  "pin": "123456",
+  "aksesType": "web"
 }
 ```
 
@@ -135,7 +196,7 @@ Sistem menggunakan rotasi JWT otomatis. Klien wajib memanggil endpoint ini ketik
 **Endpoint**
 
 ```
-POST /api/pengguna/auth/refreshtoken
+POST /api/pengguna/pin-refresh
 ```
 
 **Kondisi Pengiriman**
@@ -145,7 +206,7 @@ POST /api/pengguna/auth/refreshtoken
 
 ```json
 {
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
 }
 ```
 
@@ -155,33 +216,3 @@ POST /api/pengguna/auth/refreshtoken
 - Jika manajer telah mencabut akses perangkat tersebut, sistem akan membalas dengan `401 Unauthorized` (Sesi Kedaluwarsa / Tidak Dikenali).
 
 ---
-
-### Manajemen Perangkat — Mendaftarkan Perangkat Kasir
-
-Hanya dapat diakses oleh akun dengan role otoritas tinggi (Manager/Owner) melalui Web Dashboard.
-
-**Endpoint**
-
-```
-POST /api/pengguna/device/action
-```
-
-**Header Wajib**
-
-```
-Authorization: Bearer <Web_Access_Token>
-```
-
-**Body Request — Mendaftarkan Perangkat**
-
-```json
-{
-  "penggunaID": "60d5ecb74d6bb830b8e722a4",
-  "action": "added",
-  "deviceData": {
-    "deviceID": "DEV-MAC-001",
-    "type": "primary"
-  }
-}
-```
-
