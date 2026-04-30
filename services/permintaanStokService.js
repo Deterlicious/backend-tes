@@ -93,31 +93,31 @@ class PermintaanStokService {
     return updated;
   }
 
-  async updateStatus(id, tenantID, userID, newStatus, catatanPenolakan = "") {
-    // 1. Cari data permintaan
-    const permintaan = await PermintaanStok.findOne({ _id: id, tenantID });
-    if (!permintaan) throw createError(404, "Permintaan tidak ditemukan.");
-
-    // 2. Validasi Transisi Status (State Machine)
-    // Hanya status SUBMITTED yang bisa di-Approve atau Reject
-    if (permintaan.status !== "SUBMITTED") {
-      throw createError(
-        400,
-        "Hanya permintaan dengan status 'SUBMITTED' yang bisa diproses.",
-      );
-    }
-
-    // 3. Update Data
-    permintaan.status = newStatus; // "APPROVED" atau "REJECTED"
-    permintaan.disetujuiOleh = userID; // Catat ID Manajer yang eksekusi
-
-    if (newStatus === "REJECTED") {
-      permintaan.catatanPenolakan = catatanPenolakan;
-    }
-
-    await permintaan.save();
-    return permintaan;
-  }
+  // updateStatus dinonaktifkan karena tidak relevan untuk flow saat ini.
+  // Route aktif memakai approve() dan reject(), yang punya audit field lebih
+  // lengkap seperti tanggalApprove, tanggalReject, disetujuiOleh, dan ditolakOleh.
+  //
+  // async updateStatus(id, tenantID, userID, newStatus, catatanPenolakan = "") {
+  //   const permintaan = await PermintaanStok.findOne({ _id: id, tenantID });
+  //   if (!permintaan) throw createError(404, "Permintaan tidak ditemukan.");
+  //
+  //   if (permintaan.status !== "SUBMITTED") {
+  //     throw createError(
+  //       400,
+  //       "Hanya permintaan dengan status 'SUBMITTED' yang bisa diproses.",
+  //     );
+  //   }
+  //
+  //   permintaan.status = newStatus;
+  //   permintaan.disetujuiOleh = userID;
+  //
+  //   if (newStatus === "REJECTED") {
+  //     permintaan.catatanPenolakan = catatanPenolakan;
+  //   }
+  //
+  //   await permintaan.save();
+  //   return permintaan;
+  // }
 
   async approve(id, tenantID, userID) {
     // 1. Cari data Permintaan

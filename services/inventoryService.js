@@ -189,9 +189,6 @@ class InventoryService {
 
   async processSaleStock(produkID, qtyJual, locationID, tenantID, userID) {
     // Parameter diganti menjadi locationID agar konsisten dengan tim FE
-    const produk = await Produk.findOne({ _id: produkID, tenantID }).lean();
-    if (!produk) throw createError(404, "Produk tidak ditemukan");
-
     if (!produkID || !locationID || !tenantID || !userID) {
       throw createError(
         400,
@@ -201,6 +198,9 @@ class InventoryService {
 
     if (qtyJual <= 0)
       throw createError(400, "Jumlah penjualan harus lebih dari 0");
+
+    const produk = await Produk.findOne({ _id: produkID, tenantID }).lean();
+    if (!produk) throw createError(404, "Produk tidak ditemukan");
 
     const updatedProduk = await Produk.findOneAndUpdate(
       { _id: produkID, tenantID, stok: { $gte: qtyJual } },
