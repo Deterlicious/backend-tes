@@ -58,25 +58,30 @@ class PenggunaController {
 
       const tenantID = this._ensureTenant(context);
 
-      // Ekstrak eksplisit — jangan pass req.body mentah
       const { nama, pin, aksesType, deviceID, deviceType } = req.body;
 
-      const resolvedAksesType = aksesType || "app";
-      if (resolvedAksesType === "app" && !deviceID) {
+      // Konsisten dengan service (array-based)
+      const normalizedAksesType = Array.isArray(aksesType)
+        ? aksesType
+        : [aksesType || "app"];
+
+      if (normalizedAksesType.includes("app") && !deviceID) {
         throw createError(
           400,
           "Device ID wajib disertakan untuk pendaftaran Owner via aplikasi.",
         );
       }
 
-      const result = await penggunaService.registerOwner(req.body, tenantID);
+      const payload = { nama, pin, aksesType, deviceID, deviceType };
+
+      const result = await penggunaService.registerOwner(payload, tenantID);
 
       setRefreshTokenCookie(res, result.refreshToken);
 
       res.status(201).json({
         message: "Owner berhasil didaftarkan.",
         data: result.pengguna,
-        accessToken: result.accessToken, // FIX: dari result, bukan variabel bebas
+        accessToken: result.accessToken,
       });
     } catch (err) {
       next(err);
@@ -88,7 +93,12 @@ class PenggunaController {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
-      const result = await penggunaService.create(req.body, tenantID);
+
+      const { nama, pin, roleID, deviceID, deviceType, aksesType } = req.body;
+
+      const payload = { nama, pin, roleID, deviceID, deviceType, aksesType };
+
+      const result = await penggunaService.create(payload, tenantID);
 
       res.status(201).json({
         message: "Pengguna berhasil dibuat.",
@@ -178,7 +188,7 @@ class PenggunaController {
   async loginPin(req, res, next) {
     try {
       // FIX: field sesuai schema pengguna, bukan email/password
-      const { nama, pin, deviceID, deviceType } = req.body;
+      const { nama, pin, deviceID, deviceType, aksesType } = req.body;
 
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
@@ -190,6 +200,7 @@ class PenggunaController {
         tenantID,
         deviceID,
         deviceType,
+        aksesType,
       });
 
       setRefreshTokenCookie(res, result.refreshToken);

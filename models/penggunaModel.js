@@ -81,10 +81,16 @@ const penggunaSchema = new mongoose.Schema(
     },
 
     // Tipe akses: web = tidak perlu device binding, app = wajib device binding
+    // aksesType: {
+    //   type: String,
+    //   enum: ["web", "app"],
+    //   default: "app",
+    // },
+
     aksesType: {
-      type: String,
+      type: [String], // ← ubah jadi array
       enum: ["web", "app"],
-      default: "app",
+      default: ["app"],
     },
 
     // Device management — hanya relevan untuk aksesType "app"
