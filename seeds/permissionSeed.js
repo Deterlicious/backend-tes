@@ -79,7 +79,11 @@ const permissionsList = [
   // =====================
   // INVENTORY WMS
   // =====================
-  { nama: "read-inventory", grup: "Inventory", deskripsi: "Lihat stok" },
+  { nama: "create-inventory", grup: "Inventory", deskripsi: "Tambah stok" },
+  { nama: "read-inventory", grup: "Inventory", deskripsi: "Lihat semua stok (Global)" },
+  { nama: "read-inventory-gudang", grup: "Inventory", deskripsi: "Lihat stok khusus gudang" },
+  { nama: "read-inventory-outlet", grup: "Inventory", deskripsi: "Lihat stok khusus outlet" },
+  { nama: "delete-inventory", grup: "Inventory", deskripsi: "Hapus stok" },
   {
     nama: "update-inventory-minimum",
     grup: "Inventory",

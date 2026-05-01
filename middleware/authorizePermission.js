@@ -1,6 +1,6 @@
 const createError = require("http-errors");
 
-exports.checkPermission = (permissionName) => {
+exports.checkPermission = (...allowedPermissions) => {
   return (req, res, next) => {
     try {
       if (!req.pengguna) {
@@ -12,12 +12,13 @@ exports.checkPermission = (permissionName) => {
 
       const permissions = req.pengguna.permissions || [];
 
-      const hasPermission = permissions.includes(permissionName);
+      // Mengizinkan jika user memiliki SALAH SATU dari permission yang disyaratkan
+      const hasPermission = allowedPermissions.some(p => permissions.includes(p));
 
       if (!hasPermission) {
         throw createError(
           403,
-          `Akses ditolak. Anda tidak memiliki izin: '${permissionName}'.`
+          `Akses ditolak. Anda tidak memiliki salah satu dari izin berikut: ${allowedPermissions.join(', ')}.`
         );
       }
 
