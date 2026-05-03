@@ -40,6 +40,7 @@ class PermintaanStokService {
       .populate("dariLocationID", "nama tipe")
       .populate("keLocationID", "nama tipe")
       .populate("dimintaOleh", "nama")
+      .populate("items.bahanBakuID", "namaBahan satuan") // Menambahkan populate untuk bahanBakuID agar nama dan satuan terbaca Frontend
       .sort({ createdAt: -1 });
 
     return data;
