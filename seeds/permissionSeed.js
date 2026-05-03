@@ -182,6 +182,35 @@ const permissionsList = [
   },
 
   // =====================
+  // PENGIRIMAN STOK
+  // =====================
+  {
+    nama: "read-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Lihat pengiriman stok",
+  },
+  {
+    nama: "create-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Buat pengiriman stok",
+  },
+  {
+    nama: "update-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Edit pengiriman stok",
+  },
+  {
+    nama: "approve-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Setujui pengiriman stok",
+  },
+  {
+    nama: "reject-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Tolak pengiriman stok",
+  },
+
+  // =====================
   // MANEJEMEN PELANGGAN
   // =====================
   {
