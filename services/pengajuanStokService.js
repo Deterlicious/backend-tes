@@ -10,10 +10,13 @@ class PengajuanStokService {
   // 1. GET ALL - Untuk daftar di tabel FE
   async getAll(query, user) {
     const { tenantID, permissions = [] } = user;
-    const { status } = query;
+    const { status, jenisPengajuan } = query;
 
     // 1. Tentukan Filter Dasar
     let filter = { tenantID };
+    if (jenisPengajuan) {
+      filter.jenisPengajuan = jenisPengajuan;
+    }
 
     // 2. LOGIKA WORKFLOW (The "Security Guard")
     const canApprove = permissions.includes("approve-pengajuan-stok");
