@@ -77,14 +77,15 @@ class AkunController {
   // 4. get profile
   async getProfile(req, res, next) {
     try {
-      const userId = req.userDecoded?.id;
+      const tenantID = req.userDecoded?.tenantID; // ✅ konsisten dengan updateProfile
 
-      if (!userId) {
+      if (!tenantID) {
         return res.status(401).json({
-          message: "Unauthorized: user context missing",
+          message: "Unauthorized: tenant context missing",
         });
       }
-      const result = await akunService.getProfile(userId);
+
+      const result = await akunService.getProfile(tenantID);
 
       res.json({
         message: "Profil berhasil diambil.",
@@ -98,22 +99,15 @@ class AkunController {
   // 5. update profile
   async updateProfile(req, res, next) {
     try {
-      // [JALAN TENGAH]: Karena kita menggunakan authPengguna, req.userDecoded.id adalah ID Karyawan.
-      // Kita harus mengambil ID Akun/Tenant dari relasi karyawan tersebut.
-      // (Sesuaikan variabel 'tenantID' dengan payload JWT Pengguna Anda)
-      const targetAkunId = req.userDecoded?.tenantID || req.akunContext?.akunID; 
+      const tenantID = req.userDecoded?.tenantID;
 
-      if (!targetAkunId) {
+      if (!tenantID) {
         return res.status(403).json({
-          message: "Forbidden: Tidak dapat menemukan referensi Akun dari Pengguna ini.",
+          message: "Forbidden: Tenant tidak ditemukan.",
         });
       }
 
-      // Sekarang yang dilempar ke database Akun adalah targetAkunId yang benar, bukan ID Kasir
-      const result = await akunService.updateProfile(
-        targetAkunId,
-        req.body,
-      );
+      const result = await akunService.updateProfile(tenantID, req.body);
 
       res.json({
         message: "Profil berhasil diperbarui.",
@@ -129,16 +123,17 @@ class AkunController {
     try {
       const cookies = req.cookies || {};
       const body = req.body || {};
-      
+
       const token = cookies.refreshToken || body.refreshToken;
 
-      // [PERBAIKAN]: Ambil Access Token dari header Authorization
+      // perbaikan: Ambil Access Token dari header Authorization
       const authHeader = req.headers.authorization;
-      const accessToken = authHeader && authHeader.startsWith("Bearer ") 
-        ? authHeader.split(" ")[1] 
-        : null;
+      const accessToken =
+        authHeader && authHeader.startsWith("Bearer ")
+          ? authHeader.split(" ")[1]
+          : null;
 
-      // [PERBAIKAN]: Pastikan service dieksekusi jika ada salah satu token
+      // perbaikan: Pastikan service dieksekusi jika ada salah satu token
       if (token || accessToken) {
         await akunService.logout(token, accessToken); // Mengirim parameter kedua
       }
@@ -186,7 +181,7 @@ class AkunController {
         });
       }
 
-      await akunService.deleteUserByAdmin(req.params.id, requesterId); // [PERBAIKAN]: Gunakan variabel requesterId
+      await akunService.deleteUserByAdmin(req.params.id, requesterId); // perbaikan: Gunakan variabel requesterId
       res.json({ message: "Akun berhasil dihapus oleh admin." });
     } catch (err) {
       next(err);

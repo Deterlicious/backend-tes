@@ -4,7 +4,8 @@ const Pengguna = require("../models/penggunaModel");
 const redis = require("../config/redis");
 const createError = require("http-errors");
 
-const PENGGUNA_JWT_SECRET = process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
+const PENGGUNA_JWT_SECRET =
+  process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
 
 module.exports = async (req, res, next) => {
   try {
@@ -66,30 +67,78 @@ module.exports = async (req, res, next) => {
     }
 
     // VALIDASI SESI (Multi-Device & Revocation)
-    if (sessionData.aksesType === "app") {
+    // if (Array.isArray(sessionData.aksesType) && sessionData.aksesType.includes("app")) {
+    //   if (!decoded.deviceID) {
+    //     throw createError(
+    //       401,
+    //       "Device ID tidak ditemukan pada token. Silakan login ulang.",
+    //     );
+    //   }
+
+    //   const currentDevice = sessionData.device.find(
+    //     (d) => d.deviceID === decoded.deviceID,
+    //   );
+
+    //   if (!currentDevice) {
+    //     throw createError(
+    //       401,
+    //       "Perangkat tidak dikenali. Silakan login ulang.",
+    //     );
+    //   }
+
+    //   if (
+    //     decoded.version === undefined ||
+    //     currentDevice.tokenVersion !== decoded.version
+    //   ) {
+    //     throw createError(
+    //       401,
+    //       "Sesi telah berakhir di perangkat ini. Silakan login ulang.",
+    //     );
+    //   }
+    // } else {
+    //   // Validasi web
+    //   if (sessionData.tokenVersion !== decoded.version) {
+    //     throw createError(401, "Sesi tidak valid. Silakan login kembali.");
+    //   }
+    // }
+
+    if (decoded.loginType === "app") {
       if (!decoded.deviceID) {
-        throw createError(401, "Device ID tidak ditemukan pada token. Silakan login ulang.");
+        throw createError(
+          401,
+          "Device ID tidak ditemukan pada token. Silakan login ulang.",
+        );
       }
 
       const currentDevice = sessionData.device.find(
-        (d) => d.deviceID === decoded.deviceID
+        (d) => d.deviceID === decoded.deviceID,
       );
 
       if (!currentDevice) {
-        throw createError(401, "Perangkat tidak dikenali. Silakan login ulang.");
+        throw createError(
+          401,
+          "Perangkat tidak dikenali. Silakan login ulang.",
+        );
       }
 
-      if (decoded.version === undefined || currentDevice.tokenVersion !== decoded.version) {
-        throw createError(401, "Sesi telah berakhir di perangkat ini. Silakan login ulang.");
+      if (
+        decoded.version === undefined ||
+        currentDevice.tokenVersion !== decoded.version
+      ) {
+        throw createError(
+          401,
+          "Sesi telah berakhir di perangkat ini. Silakan login ulang.",
+        );
       }
     } else {
-      // Validasi web
+      // WEB
       if (sessionData.tokenVersion !== decoded.version) {
         throw createError(401, "Sesi tidak valid. Silakan login kembali.");
       }
     }
 
     req.pengguna = sessionData;
+    req.userDecoded = sessionData; // supaya controller bisa baca tenantID
     next();
   } catch (err) {
     next(err);

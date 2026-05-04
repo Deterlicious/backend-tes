@@ -12,10 +12,10 @@ const wrap = (fn) => (req, res, next) => {
 };
 
 // daftar semua tenant (khusus super admin SaaS)
-router.get("/", adminOnly, wrap(tenantController.getAll));
+router.get("/", adminOnly, authAkun, wrap(tenantController.getAll));
 
 // registrasi tenant baru (khusus akun owner)
-router.post("/", authAkun, wrap(tenantController.create));
+router.post("/", authAkun, wrap(tenantController.createWithOwner));
 
 // lihat detail tenant (karyawan dengan izin read-tenant)
 router.get("/:id", authPengguna, wrap(tenantController.getById));

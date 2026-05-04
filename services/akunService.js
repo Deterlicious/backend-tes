@@ -136,7 +136,7 @@ class AkunService {
     return this.generateTokens(user);
   }
 
-  // [PERBAIKAN]: Menambah parameter accessToken dari controller
+  // perbaikan: Menambah parameter accessToken dari controller
   async logout(token, accessToken) {
     // 1. Logika Invalidasi Refresh Token (Tetap dipertahankan)
     if (token) {
@@ -153,7 +153,7 @@ class AkunService {
       } catch (ignore) {}
     }
 
-    // 2. [PERBAIKAN]: Logika Redis Blacklist khusus untuk Access Token
+    // 2. perbaikan: Logika Redis Blacklist khusus untuk Access Token
     if (accessToken) {
       try {
         const decodedAccess = jwt.verify(accessToken, AKUN_JWT_SECRET);
@@ -178,26 +178,28 @@ class AkunService {
     }
   }
 
-  async getProfile(userId) {
-    const cached = await redis.get(KEY_PROFILE(userId));
+  async getProfile(tenantID) {
+    // Cari akun via tenantID untuk dapat akunID
+    const akun = await Akun.findOne({ tenantID }).select("-password").lean();
+    if (!akun) throw createError(404, "Akun tidak ditemukan."); // ✅ throw, bukan return null
+
+    // Cache tetap pakai akunID → konsisten dengan clearCache()
+    const cached = await redis.get(KEY_PROFILE(akun._id));
     if (cached) return JSON.parse(cached);
 
-    const user = await Akun.findById(userId).select("-password").lean();
-    if (!user) return null;
-
-    await redis.set(KEY_PROFILE(userId), JSON.stringify(user), "EX", 300);
-    return user;
+    await redis.set(KEY_PROFILE(akun._id), JSON.stringify(akun), "EX", 300);
+    return akun;
   }
 
-  // [PERBAIKAN]: Menggunakan findById dan .save() agar middleware Mongoose untuk hashing password aktif
-  async updateProfile(userId, payload) {
-    const user = await Akun.findById(userId);
+  // perbaikan: Menggunakan findById dan .save() agar middleware Mongoose untuk hashing password aktif
+  async updateProfile(tenantID, payload) {
+    const user = await Akun.findById({ tenantID });
 
     if (!user) {
       throw createError(404, "Akun tidak ditemukan.");
     }
 
-    // [PERBAIKAN]: Logika ganti password yang mengunci pergerakan tanpa password lama
+    // perbaikan: Logika ganti password yang mengunci pergerakan tanpa password lama
     if (payload.password) {
       if (!payload.oldPassword) {
         throw createError(
@@ -238,9 +240,9 @@ class AkunService {
     return result;
   }
 
-  // [PERBAIKAN]: Tambahkan parameter requesterId agar selaras dengan Controller
+  // perbaikan: Tambahkan parameter requesterId agar selaras dengan Controller
   async getAllAkun(requesterId) {
-    // [PERBAIKAN]: Terapkan validasi otorisasi level akun (platform)
+    // perbaikan: Terapkan validasi otorisasi level akun (platform)
     const requester = await Akun.findById(requesterId).select("role").lean();
     if (!requester || requester.role !== "admin") {
       throw createError(

@@ -20,16 +20,16 @@ const KEY_LOGIN_LIST = (tenantID) => `pengguna:login-screen:${tenantID}`;
 
 class PenggunaService {
   // TOKEN GENERATORS
-
-  generateToken(pengguna, device = null) {
+  generateToken(pengguna, device = null, loginType) {
     const payload = {
       id: pengguna._id,
       tenantID: pengguna.tenantID,
       roleID: pengguna.roleID._id || pengguna.roleID,
-      aksesType: pengguna.aksesType,
+      aksesType: pengguna.aksesType, // tetap simpan (capability)
+      loginType,
     };
 
-    if (pengguna.aksesType === "app" && device) {
+    if (loginType === "app" && device) {
       payload.deviceID = device.deviceID;
       payload.version = device.tokenVersion;
     } else {
@@ -39,14 +39,15 @@ class PenggunaService {
     return jwt.sign(payload, PENGGUNA_ACCESS_TOKEN, { expiresIn: "1d" });
   }
 
-  generateRefreshToken(pengguna, device = null) {
+  generateRefreshToken(pengguna, device = null, loginType) {
     const payload = {
       id: pengguna._id,
       tenantID: pengguna.tenantID,
       aksesType: pengguna.aksesType,
+      loginType,
     };
 
-    if (pengguna.aksesType === "app" && device) {
+    if (loginType === "app" && device) {
       payload.deviceID = device.deviceID;
       payload.version = device.tokenVersion;
     } else {
@@ -56,82 +57,12 @@ class PenggunaService {
     return jwt.sign(payload, PENGGUNA_REFRESH_TOKEN, { expiresIn: "7d" });
   }
 
-  // async registerOwner(payload, tenantID) {
-  //   const { pin, nama, roleID, deviceID, deviceType, aksesType } = payload;
-
-  //   const roleOwner = await Role.findOne({ tenantID, namaRole: "Owner" });
-  //   if (!roleOwner) throw createError(404, "Role Owner tidak ditemukan.");
-
-  //   // cek nama sudah dipakai atau belum di tenant ini
-  //   const existing = await Pengguna.findOne({ tenantID, nama: payload.nama });
-  //   if (existing) throw createError(400, "nama sudah digunakan ini.");
-
-  //   // Tentukan aksesType: default "app" kalau tidak dikirim
-  //   const resolvedAksesType = aksesType || "app";
-
-  //   // Kalau aksesType "app", deviceID wajib ada
-  //   if (resolvedAksesType === "app" && !deviceID) {
-  //     throw createError(
-  //       400,
-  //       "Device ID wajib disertakan untuk Owner via aplikasi.",
-  //     );
-  //   }
-
-  //   const newOwner = new Pengguna({
-  //     tenantID,
-  //     pin,
-  //     nama,
-  //     roleID: roleOwner._id,
-  //     aksesType: resolvedAksesType,
-  //     tokenVersion: Date.now(),
-
-  //     ...payload,
-  //     tenantID,
-  //     tokenVersion: Date.now(),
-  //   });
-
-  //   // Kalau aksesType "app", daftarkan device pertama langsung
-  //   let device = null;
-  //   if (resolvedAksesType === "app") {
-  //     const newDeviceObj = {
-  //       deviceID,
-  //       type: deviceType || "primary",
-  //       tokenVersion: Date.now(),
-  //       lastUsed: new Date(),
-  //     };
-  //     newOwner.device.push(newDeviceObj);
-  //     newOwner.deviceHistory.push({
-  //       deviceID,
-  //       type: newDeviceObj.type,
-  //       action: "added",
-  //     });
-  //     device = newOwner.device[newOwner.device.length - 1];
-  //   }
-
-  //   await newOwner.save();
-  //   await newOwner.populate("roleID", "namaRole");
-  //   await this.clearCache(tenantID, newOwner._id);
-
-  //   // await redis.del(`auth:pengguna:${newOwner._id}`);
-
-  //   const accessToken = this.generateToken(newOwner, device);
-  //   const refreshToken = this.generateRefreshToken(newOwner, device);
-
-  //   return {
-  //     pengguna: {
-  //       id: newOwner._id,
-  //       nama: newOwner.nama,
-  //       aksesType: newOwner.aksesType,
-  //       role: newOwner.roleID.namaRole,
-  //       status: newOwner.status,
-  //     },
-  //     accessToken,
-  //     refreshToken,
-  //   };
-  // }
-
   async registerOwner(payload, tenantID) {
     const { pin, nama, deviceID, deviceType, aksesType } = payload;
+
+    if (!deviceID) {
+      throw createError(400, "Device ID wajib untuk registrasi Owner.");
+    }
 
     const roleOwner = await Role.findOne({ tenantID, namaRole: "Owner" });
     if (!roleOwner) throw createError(404, "Role Owner tidak ditemukan.");
@@ -146,11 +77,6 @@ class PenggunaService {
     const normalizedAksesType = Array.isArray(aksesType)
       ? aksesType
       : [aksesType || "app"]; // default tetap app
-
-    // Validasi: kalau ada "app", device wajib
-    if (normalizedAksesType.includes("app") && !deviceID) {
-      throw createError(400, "Device ID wajib jika aksesType mengandung 'app'");
-    }
 
     const newOwner = new Pengguna({
       ...payload,
@@ -187,8 +113,10 @@ class PenggunaService {
 
     await this.clearCache(tenantID, newOwner._id);
 
-    const accessToken = this.generateToken(newOwner, device);
-    const refreshToken = this.generateRefreshToken(newOwner, device);
+    const loginType = "app";
+
+    const accessToken = this.generateToken(newOwner, device, loginType);
+    const refreshToken = this.generateRefreshToken(newOwner, device, loginType);
 
     return {
       pengguna: {
@@ -203,115 +131,24 @@ class PenggunaService {
     };
   }
 
-  // async login({ nama, pin, tenantID, deviceID, deviceType, aksesType }) {
-  //   const { pin, nama, deviceID, deviceType, aksesType } = payload;
-
-  //   const requestAkses = payload.ak
-
-  //   if (
-  //     !requestAkses ||
-  //     !Array.isArray(requestAkses) ||
-  //     requestAkses.length !== 1
-  //   ) {
-  //     throw createError(400, "aksesType saat login harus satu (web atau app)");
-  //   }
-
-  //   const loginType = requestAkses[0];
-
-  //   // FIX: filter wajib pakai nama dan tenantID agar tidak ambil data sembarangan
-  //   const user = await Pengguna.findOne({ nama, tenantID }).populate(
-  //     "roleID",
-  //     "namaRole permissions",
-  //   );
-  //   if (!user) throw createError(401, "Nama atau PIN tidak ditemukan.");
-
-  //   const isMatch = await user.comparePin(pin);
-  //   if (!isMatch) throw createError(401, "Nama atau PIN salah.");
-
-  //   let device = null;
-
-  //   // if (user.aksesType.includes("app")) {
-  //   if (Array.isArray(user.aksesType) && user.aksesType.includes("app")) {
-  //     // if (user.aksesType === "app") {
-  //     if (!deviceID) throw createError(400, "Device ID wajib disertakan.");
-
-  //     device = user.device.find((d) => d.deviceID === deviceID);
-
-  //     if (device) {
-  //       // Device sudah terdaftar — update tokenVersion dan lastUsed
-  //       device.tokenVersion = Date.now();
-  //       device.lastUsed = new Date(); // FIX: lastUsed bukan lastLogin
-  //     } else {
-  //       // Device baru — cek kuota
-  //       if (user.device.length >= user.maxDevice) {
-  //         throw createError(
-  //           403,
-  //           "Kuota perangkat penuh. Hapus perangkat lama terlebih dahulu.",
-  //         );
-  //       }
-  //       user.device.push({
-  //         deviceID,
-  //         type:
-  //           deviceType || (user.device.length === 0 ? "primary" : "secondary"),
-  //         tokenVersion: Date.now(),
-  //         lastUsed: new Date(), // FIX: lastUsed bukan lastLogin
-  //       });
-  //       user.deviceHistory.push({
-  //         deviceID,
-  //         type: deviceType || "secondary",
-  //         action: "added",
-  //       });
-  //       device = user.device[user.device.length - 1];
-  //     }
-
-  //     user.markModified("device");
-  //     user.markModified("deviceHistory");
-  //   } else {
-  //     // Pengguna web — update tokenVersion di root
-  //     user.tokenVersion = Date.now();
-  //   }
-
-  //   await user.save();
-  //   await this.clearCache(tenantID, user._id);
-  //   await redis.del(`auth:pengguna:${user._id}`);
-
-  //   const accessToken = this.generateToken(user, device);
-  //   const refreshToken = this.generateRefreshToken(user, device);
-
-  //   return {
-  //     pengguna: {
-  //       id: user._id,
-  //       nama: user.nama,
-  //       aksesType: user.aksesType,
-  //       role: user.roleID?.namaRole || null,
-  //       status: user.status,
-  //     },
-  //     accessToken,
-  //     refreshToken,
-  //   };
-  // }
-
-  async login({ nama, pin, tenantID, deviceID, deviceType, aksesType }) {
-    // NORMALISASI: terima string atau array
-    const normalizedAksesType = Array.isArray(aksesType)
-      ? aksesType
-      : aksesType
-        ? [aksesType]
+  async login({ nama, pin, tenantID, deviceID, deviceType, loginType }) {
+    // Normalisasi — terima string atau array
+    const normalizedLoginType = Array.isArray(loginType)
+      ? loginType
+      : loginType
+        ? [loginType]
         : [];
 
-    // VALIDASI: harus 1 (login context)
-    if (normalizedAksesType.length !== 1) {
-      throw createError(400, "aksesType saat login harus satu (web atau app)");
+    if (normalizedLoginType.length !== 1) {
+      throw createError(400, "loginType saat login harus satu (web atau app)");
     }
 
-    const loginType = normalizedAksesType[0];
+    const resolvedLoginType = normalizedLoginType[0];
 
-    // VALIDASI nilai
-    if (!["web", "app"].includes(loginType)) {
-      throw createError(400, "aksesType tidak valid");
+    if (!["web", "app"].includes(resolvedLoginType)) {
+      throw createError(400, "loginType tidak valid");
     }
 
-    // Ambil user
     const user = await Pengguna.findOne({ nama, tenantID }).populate(
       "roleID",
       "namaRole permissions",
@@ -321,15 +158,17 @@ class PenggunaService {
     const isMatch = await user.comparePin(pin);
     if (!isMatch) throw createError(401, "Nama atau PIN salah.");
 
-    // VALIDASI akses user
-    if (!Array.isArray(user.aksesType) || !user.aksesType.includes(loginType)) {
+    if (
+      !Array.isArray(user.aksesType) ||
+      !user.aksesType.includes(resolvedLoginType)
+    ) {
       throw createError(403, "Akses tidak diizinkan untuk pengguna ini.");
     }
 
     const now = Date.now();
     let device = null;
 
-    if (loginType === "app") {
+    if (resolvedLoginType === "app") {
       if (!deviceID) {
         throw createError(400, "Device ID wajib disertakan.");
       }
@@ -356,7 +195,6 @@ class PenggunaService {
         };
 
         user.device.push(newDeviceObj);
-
         user.deviceHistory.push({
           deviceID,
           type: newDeviceObj.type,
@@ -375,10 +213,13 @@ class PenggunaService {
 
     await user.save();
     await this.clearCache(tenantID, user._id);
-    await redis.del(`auth:pengguna:${user._id}`);
 
-    const accessToken = this.generateToken(user, device);
-    const refreshToken = this.generateRefreshToken(user, device);
+    const accessToken = this.generateToken(user, device, resolvedLoginType);
+    const refreshToken = this.generateRefreshToken(
+      user,
+      device,
+      resolvedLoginType,
+    );
 
     return {
       pengguna: {
@@ -400,8 +241,10 @@ class PenggunaService {
 
       if (!user) throw createError(401, "Pengguna tidak ditemukan.");
 
+      const loginType = decoded.loginType;
+
       let device = null;
-      if (user.aksesType === "app") {
+      if (loginType === "app") {
         device = user.device.find((d) => d.deviceID === decoded.deviceID);
         if (!device || device.tokenVersion !== decoded.version) {
           throw createError(401, "Sesi perangkat tidak valid.");
@@ -422,8 +265,12 @@ class PenggunaService {
       await user.save();
       await this.clearCache(user.tenantID, user._id); // ✅ invalidate cache
 
-      const accessToken = this.generateToken(user, device);
-      const newRefreshToken = this.generateRefreshToken(user, device);
+      const accessToken = this.generateToken(user, device, loginType);
+      const newRefreshToken = this.generateRefreshToken(
+        user,
+        device,
+        loginType,
+      );
 
       return { accessToken, newRefreshToken };
     } catch (err) {
@@ -438,13 +285,16 @@ class PenggunaService {
       const user = await Pengguna.findById(decoded.id);
       if (!user) return;
 
-      if (user.aksesType === "app") {
+      const loginType = decoded.loginType;
+
+      if (loginType === "app") {
         const device = user.device.find((d) => d.deviceID === decoded.deviceID);
         if (device) {
-          device.tokenVersion += 1;
+          device.tokenVersion = 0;
+          user.markModified("device");
         }
       } else {
-        user.tokenVersion += 1;
+        user.tokenVersion = 0;
       }
 
       await user.save();
@@ -454,19 +304,12 @@ class PenggunaService {
     }
   }
 
-  // CACHE HELPERS
-  // async clearCache(tenantID, id = null) {
-  //   const keys = [KEY_LIST(tenantID), KEY_LOGIN_LIST(tenantID)];
-  //   if (id) keys.push(KEY_DETAIL(id));
-
-  //   await Promise.all(keys.map((key) => redis.del(key)));
-  // }
-
+  // Cache helpers
   async clearCache(tenantID, id = null) {
     const keys = [KEY_LIST(tenantID), KEY_LOGIN_LIST(tenantID)];
     if (id) {
       keys.push(KEY_DETAIL(id));
-      // [PERBAIKAN MUTLAK]: Wajib menghapus cache sesi auth milik middleware!
+      // perbaikan: Wajib menghapus cache sesi auth milik middleware.
       // Jika tidak, middleware akan terus membaca tokenVersion lama yang tertinggal di Redis.
       keys.push(`auth:pengguna:${id}`);
     }
@@ -481,7 +324,7 @@ class PenggunaService {
 
     const users = await Pengguna.find({ tenantID })
       .populate("roleID", "namaRole")
-      .select("-pin -pin -__v")
+      .select("-pin -__v")
       .lean();
 
     const result = users.map((u) => ({
@@ -500,7 +343,7 @@ class PenggunaService {
 
     const user = await Pengguna.findOne({ _id: id, tenantID })
       .populate("roleID", "namaRole")
-      .select("-pin -pin -__v")
+      .select("-pin -__v")
       .lean();
 
     if (!user) throw createError(404, "Pengguna tidak ditemukan");
@@ -514,64 +357,6 @@ class PenggunaService {
     await redis.set(KEY_DETAIL(id), JSON.stringify(result), "EX", 3600);
     return result;
   }
-
-  // async create(payload, tenantID) {
-  //   validatePenggunaPayload(payload);
-  //   const { roleID, deviceID, deviceType, aksesType } = payload;
-
-  //   const existing = await Pengguna.findOne({ tenantID, nama: payload.nama });
-  //   if (existing) throw createError(400, "nama sudah digunakan ini.");
-
-  //   const roleExists = await Role.findById(roleID);
-  //   if (!roleExists) throw createError(404, "Role tidak ditemukan.");
-
-  //   const newUser = new Pengguna({
-  //     ...payload,
-  //     tenantID,
-  //     tokenVersion: Date.now(),
-  //   });
-
-  //   const normalizedAksesType = Array.isArray(aksesType)
-  //     ? aksesType
-  //     : [aksesType];
-
-  //   // if (aksesType === "app") {
-  //   if (normalizedAksesType.includes("app")) {
-  //     if (!deviceID) {
-  //       throw createError(
-  //         400,
-  //         "deviceID wajib jika aksesType mengandung 'app'",
-  //       );
-  //     }
-  //     const newDeviceObj = {
-  //       deviceID,
-  //       type: deviceType || "primary", // Karena ini pengguna biasa/karyawan, default-nya secondary/tergantung skema Anda
-  //       tokenVersion: Date.now(),
-  //       lastUsed: new Date(),
-  //     };
-  //     newUser.device.push(newDeviceObj);
-  //     newUser.deviceHistory.push({
-  //       deviceID,
-  //       type: newDeviceObj.type,
-  //       action: "added",
-  //     });
-  //   }
-
-  //   await newUser.save();
-  //   newUser.aksesType = normalizedAksesType;
-  //   await newUser.populate("roleID", "namaRole");
-
-  //   return {
-  //     pengguna: {
-  //       id: newUser._id,
-  //       nama: newUser.nama,
-  //       role: newUser.roleID.namaRole,
-  //       status: newUser.status,
-  //       fotoKaryawan: newUser.fotoKaryawan || null,
-  //       aksesType: newUser.aksesType,
-  //     },
-  //   };
-  // }
 
   async create(payload, tenantID) {
     validatePenggunaPayload(payload);
@@ -751,7 +536,7 @@ class PenggunaService {
     user.device.push({
       ...payload,
       tokenVersion: 0,
-      lastLogin: null,
+      lastUsed: null,
     });
 
     await user.save();

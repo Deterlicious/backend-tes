@@ -130,6 +130,6 @@ module.exports = {
   validateRegister,
   validateLogin,
   // validateDeviceAction,
-  validateUpdateProfile, // [PERBAIKAN]: Ekspor fungsi baru
+  validateUpdateProfile, // perbaikan: Ekspor fungsi baru
   isDisposableEmail,
 };

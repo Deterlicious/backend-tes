@@ -29,26 +29,6 @@ class PenggunaController {
   }
 
   // 1. register owner
-  // async registerOwner(req, res, next) {
-  //   try {
-  //     const context = this._getRequesterContext(req);
-  //     if (!context || context.source !== "AKUN") {
-  //       throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
-  //     }
-
-  //     const tenantID = this._ensureTenant(context);
-  //     const result = await penggunaService.registerOwner(req.body, tenantID);
-
-  //     res.status(201).json({
-  //       message: "Owner berhasil didaftarkan.",
-  //       data: result,
-  //       accessToken
-  //     });
-  //   } catch (err) {
-  //     next(err);
-  //   }
-  // }
-
   async registerOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
@@ -166,29 +146,10 @@ class PenggunaController {
   }
 
   // 6. login pin pengguna
-  // async loginPin(req, res, next) {
-  //   try {
-  //     const { email, password, deviceID, deviceName } = req.body;
-  //     const result = await penggunaService.login(email, password, deviceID, deviceName);
-
-  //     setRefreshTokenCookie(res, result.refreshToken);
-
-  //     res.json({
-  //       message: "Login berhasil.",
-  //       data: {
-  //         accessToken: result.accessToken,
-  //         pengguna: result.pengguna,
-  //       },
-  //     });
-  //   } catch (err) {
-  //     next(err);
-  //   }
-  // }
-
   async loginPin(req, res, next) {
     try {
       // FIX: field sesuai schema pengguna, bukan email/password
-      const { nama, pin, deviceID, deviceType, aksesType } = req.body;
+      const { nama, pin, deviceID, deviceType, loginType } = req.body;
 
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
@@ -200,7 +161,7 @@ class PenggunaController {
         tenantID,
         deviceID,
         deviceType,
-        aksesType,
+        loginType,
       });
 
       setRefreshTokenCookie(res, result.refreshToken);
