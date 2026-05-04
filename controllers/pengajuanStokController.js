@@ -1,17 +1,17 @@
-const permintaanStokService = require("../services/permintaanStokService");
+const pengajuanStokService = require("../services/pengajuanStokService");
 
-class PermintaanStokController {
+class PengajuanStokController {
   // GET ALL dengan filter status (Opsional)
-  async getAllPermintaanStok(req, res, next) {
+  async getAllPengajuanStok(req, res, next) {
     try {
-      const data = await permintaanStokService.getAll(req.query, req.pengguna);
+      const data = await pengajuanStokService.getAll(req.query, req.pengguna);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
     }
   }
 
-  async createPermintaanStok(req, res, next) {
+  async createPengajuanStok(req, res, next) {
     try {
       const payload = {
         ...req.body,
@@ -20,7 +20,7 @@ class PermintaanStokController {
         status: "DRAFT",
       };
 
-      const data = await permintaanStokService.create(payload);
+      const data = await pengajuanStokService.create(payload);
       res.status(201).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -28,10 +28,10 @@ class PermintaanStokController {
   }
 
   // FUNGSI BARU: Untuk Edit Draft / Grace Period Pending
-  async updatePermintaanStok(req, res, next) {
+  async updatePengajuanStok(req, res, next) {
     try {
       const { id } = req.params;
-      const data = await permintaanStokService.update(
+      const data = await pengajuanStokService.update(
         id,
         req.pengguna.tenantID,
         req.body,
@@ -50,7 +50,7 @@ class PermintaanStokController {
   async submitRequest(req, res, next) {
     try {
       const { id } = req.params;
-      const data = await permintaanStokService.submit(
+      const data = await pengajuanStokService.submit(
         id,
         req.pengguna.tenantID,
       );
@@ -68,7 +68,7 @@ class PermintaanStokController {
   async approveRequest(req, res, next) {
     try {
       const { id } = req.params;
-      const result = await permintaanStokService.approve(
+      const result = await pengajuanStokService.approve(
         id,
         req.pengguna.tenantID,
         req.pengguna._id,
@@ -86,7 +86,7 @@ class PermintaanStokController {
       const { id } = req.params;
       const { alasan } = req.body || {}; // Proteksi jika body kosong
 
-      const data = await permintaanStokService.reject(
+      const data = await pengajuanStokService.reject(
         id,
         req.pengguna.tenantID,
         req.pengguna._id,
@@ -100,4 +100,4 @@ class PermintaanStokController {
   }
 }
 
-module.exports = new PermintaanStokController();
+module.exports = new PengajuanStokController();

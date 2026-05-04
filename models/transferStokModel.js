@@ -8,9 +8,9 @@ const TransferStokSchema = new mongoose.Schema(
       unique: true, // e.g., "TRF/GDG/001"
     },
 
-    permintaanStokID: {
+    pengajuanStokID: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "PermintaanStok",
+      ref: "PengajuanStok",
       default: null,
     },
     // RELASI: DARI MANA? (Biasanya Gudang)

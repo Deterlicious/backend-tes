@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const permintaanStokController = require("../controllers/permintaanStokController");
+const pengajuanStokController = require("../controllers/pengajuanStokController");
 const authPengguna = require("../middleware/authPengguna");
 
 // 1. Import middleware authorizePermission
@@ -18,43 +18,43 @@ router.use(authPengguna);
 // Melihat daftar permintaan (Staff, Manager, Gudang biasanya boleh)
 router.get(
   "/",
-  checkPermission("read-permintaan-stok"),
-  wrap(permintaanStokController.getAllPermintaanStok),
+  checkPermission("read-pengajuan-stok"),
+  wrap(pengajuanStokController.getAllPengajuanStok),
 );
 
 // Membuat draft (Biasanya hanya Staff Outlet)
 router.post(
   "/",
-  checkPermission("create-permintaan-stok"),
-  wrap(permintaanStokController.createPermintaanStok),
+  checkPermission("create-pengajuan-stok"),
+  wrap(pengajuanStokController.createPengajuanStok),
 );
 
 // Update isi barang
 router.put(
   "/:id",
-  checkPermission("update-permintaan-stok"),
-  wrap(permintaanStokController.updatePermintaanStok),
+  checkPermission("update-pengajuan-stok"),
+  wrap(pengajuanStokController.updatePengajuanStok),
 );
 
 // Mengajukan permintaan (Submit)
 router.patch(
   "/:id/submit",
-  checkPermission("update-permintaan-stok"),
-  wrap(permintaanStokController.submitRequest),
+  checkPermission("update-pengajuan-stok"),
+  wrap(pengajuanStokController.submitRequest),
 );
 
 // MENYETUJUI (Khusus Manager)
 router.patch(
   "/:id/approve",
-  checkPermission("approve-permintaan-stok"),
-  wrap(permintaanStokController.approveRequest),
+  checkPermission("approve-pengajuan-stok"),
+  wrap(pengajuanStokController.approveRequest),
 );
 
 // MENOLAK (Khusus Manager)
 router.patch(
   "/:id/reject",
-  checkPermission("reject-permintaan-stok"),
-  wrap(permintaanStokController.rejectRequest),
+  checkPermission("reject-pengajuan-stok"),
+  wrap(pengajuanStokController.rejectRequest),
 );
 
 module.exports = router;

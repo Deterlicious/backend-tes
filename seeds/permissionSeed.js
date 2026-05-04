@@ -124,32 +124,32 @@ const permissionsList = [
   },
 
   // =====================
-  // PERMINTAAN STOK
+  // PENGAJUAN STOK
   // =====================
   {
-    nama: "read-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Lihat permintaan",
+    nama: "read-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Lihat pengajuan",
   },
   {
-    nama: "create-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Buat permintaan",
+    nama: "create-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Buat pengajuan",
   },
   {
-    nama: "update-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Ubah draft dan submit permintaan",
+    nama: "update-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Ubah draft dan submit pengajuan",
   },
   {
-    nama: "approve-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Setujui permintaan",
+    nama: "approve-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Setujui pengajuan",
   },
   {
-    nama: "reject-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Tolak permintaan",
+    nama: "reject-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Tolak pengajuan",
   },
 
   // =====================

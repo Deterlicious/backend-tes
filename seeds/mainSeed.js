@@ -138,9 +138,9 @@ const runSeed = async () => {
     // ────────────────────────────────────────────────────────
     // LANGKAH 4: Buat 3 Role dengan permissions yang sesuai
     //
-    // Manager     → bisa approve/reject permintaan stok
+    // Manager     → bisa approve/reject pengajuan stok
     // Staf Gudang → bisa buat & kirim transfer stok
-    // Staf Outlet → bisa buat permintaan stok & terima barang
+    // Staf Outlet → bisa buat pengajuan stok & terima barang
     //
     // Kita ambil permission dari database (yang sudah di-seed
     // oleh permissionSeed.js) berdasarkan namanya.
@@ -150,12 +150,12 @@ const runSeed = async () => {
     const roleConfigs = [
       {
         namaRole: "Manager",
-        deskripsi: "Manager toko — dapat approve/reject permintaan stok",
+        deskripsi: "Manager toko — dapat approve/reject pengajuan stok",
         permissions: [
           "read-inventory",
-          "read-permintaan-stok",
-          "approve-permintaan-stok",
-          "reject-permintaan-stok",
+          "read-pengajuan-stok",
+          "approve-pengajuan-stok",
+          "reject-pengajuan-stok",
           "read-transfer-stok",
           "read-pengguna",
           "read-jurnal-stok",
@@ -171,7 +171,7 @@ const runSeed = async () => {
           "create-inventory",
           "update-inventory-minimum",
           "opname-inventory",
-          "read-permintaan-stok",
+          "read-pengajuan-stok",
           "read-transfer-stok",
           "create-transfer-stok",
           "approve-transfer-stok",
@@ -185,9 +185,9 @@ const runSeed = async () => {
         deskripsi: "Staf outlet — minta stok ke gudang dan terima barang",
         permissions: [
           "read-inventory-outlet",
-          "read-permintaan-stok",
-          "create-permintaan-stok",
-          "update-permintaan-stok",
+          "read-pengajuan-stok",
+          "create-pengajuan-stok",
+          "update-pengajuan-stok",
           "read-transfer-stok",
           "receive-transfer-stok",
           "read-dashboard-outlet",

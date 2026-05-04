@@ -1,7 +1,7 @@
 // transferStokService.js
 const TransferStok = require("../models/transferStokModel");
 const Inventory = require("../models/inventoryModel"); // Menggunakan model Inventory/Stok per Lokasi
-const PermintaanStok = require("../models/permintaanStokModel");
+const PengajuanStok = require("../models/pengajuanStokModel");
 const mongoose = require("mongoose");
 const createError = require("http-errors");
 const {
@@ -58,64 +58,64 @@ class TransferStokService {
   // --- CREATE (Membuat Draft Transfer - Status PENDING) ---
   async create(payload) {
     if (
-      !payload.permintaanStokID ||
-      !isValidObjectId(payload.permintaanStokID)
+      !payload.pengajuanStokID ||
+      !isValidObjectId(payload.pengajuanStokID)
     ) {
       throw createError(
         400,
-        "Surat jalan wajib dibuat dari Permintaan Stok yang sudah disetujui.",
+        "Surat jalan wajib dibuat dari Pengajuan Stok yang sudah disetujui.",
       );
     }
 
     // TAMBAHAN: Kita mempopulate bahanBakuID agar tahu satuan dasar dari master data Gudang
-    const permintaan = await PermintaanStok.findOne({
-      _id: payload.permintaanStokID,
+    const pengajuan = await PengajuanStok.findOne({
+      _id: payload.pengajuanStokID,
       tenantID: payload.tenantID,
       status: "APPROVED",
     }).populate("items.bahanBakuID");
 
-    if (!permintaan) {
+    if (!pengajuan) {
       throw createError(
         400,
-        "Permintaan Stok tidak ditemukan atau belum berstatus APPROVED.",
+        "Pengajuan Stok tidak ditemukan atau belum berstatus APPROVED.",
       );
     }
 
-    if (permintaan.transferStokID) {
+    if (pengajuan.transferStokID) {
       throw createError(
         400,
-        "Permintaan Stok ini sudah memiliki Surat Jalan.",
+        "Pengajuan Stok ini sudah memiliki Surat Jalan.",
       );
     }
 
     if (
       payload.dariLocationID &&
-      String(payload.dariLocationID) !== String(permintaan.dariLocationID)
+      String(payload.dariLocationID) !== String(pengajuan.dariLocationID)
     ) {
       throw createError(
         400,
-        "Lokasi asal Surat Jalan harus sama dengan Permintaan Stok.",
+        "Lokasi asal Surat Jalan harus sama dengan Pengajuan Stok.",
       );
     }
 
     if (
       payload.keLocationID &&
-      String(payload.keLocationID) !== String(permintaan.keLocationID)
+      String(payload.keLocationID) !== String(pengajuan.keLocationID)
     ) {
       throw createError(
         400,
-        "Lokasi tujuan Surat Jalan harus sama dengan Permintaan Stok.",
+        "Lokasi tujuan Surat Jalan harus sama dengan Pengajuan Stok.",
       );
     }
 
     const requestedItems = new Map(
-      permintaan.items.map((item) => [String(item.bahanBakuID._id), item]),
+      pengajuan.items.map((item) => [String(item.bahanBakuID._id), item]),
     );
 
     const items =
       Array.isArray(payload.items) && payload.items.length > 0
         ? payload.items
-        : permintaan.items.map((item) => ({
+        : pengajuan.items.map((item) => ({
             bahanBakuID: String(item.bahanBakuID._id),
             qtyKirim: item.jumlah,
           }));
@@ -126,7 +126,7 @@ class TransferStokService {
       if (!requestedItem) {
         throw createError(
           400,
-          "Item Surat Jalan harus berasal dari item Permintaan Stok.",
+          "Item Surat Jalan harus berasal dari item Pengajuan Stok.",
         );
       }
 
@@ -153,14 +153,14 @@ class TransferStokService {
       });
     }
 
-    payload.dariLocationID = permintaan.dariLocationID;
-    payload.keLocationID = permintaan.keLocationID;
+    payload.dariLocationID = pengajuan.dariLocationID;
+    payload.keLocationID = pengajuan.keLocationID;
     payload.items = processedItems;
 
-    // 1. AUTO-GENERATE NOMOR TRANSFER dari nomor permintaan yang sudah approved
+    // 1. AUTO-GENERATE NOMOR TRANSFER dari nomor pengajuan yang sudah approved
     if (!payload.nomorTransfer) {
       const uniqueString = Date.now().toString().slice(-4);
-      payload.nomorTransfer = `SJ-${permintaan.nomorRequest}-${uniqueString}`;
+      payload.nomorTransfer = `SJ-${pengajuan.nomorPengajuan}-${uniqueString}`;
     }
 
     const validation = validateTransferPayload(payload, false);
@@ -191,8 +191,8 @@ class TransferStokService {
       const transfer = await TransferStok.create(payload);
       // Gunakan updateOne agar .save() tidak menyebabkan error validasi 
       // dari objectId bahanBakuID yang sudah kita populate
-      await PermintaanStok.updateOne(
-        { _id: permintaan._id }, 
+      await PengajuanStok.updateOne(
+        { _id: pengajuan._id }, 
         { $set: { transferStokID: transfer._id } }
       );
 
@@ -374,11 +374,11 @@ class TransferStokService {
         transfer.tanggalTerima = updates.tanggalTerima || Date.now();
         transfer.penerimaID = updates.penerimaID || transfer.penerimaID;
 
-        // 🎯 LOGIKA JEMBATAN (Hanya dieksekusi jika ini berasal dari Permintaan Pusat)
-        if (transfer.permintaanStokID) {
-          const PermintaanStok = require("../models/permintaanStokModel");
-          await PermintaanStok.findOneAndUpdate(
-            { _id: transfer.permintaanStokID, tenantID },
+        // 🎯 LOGIKA JEMBATAN (Hanya dieksekusi jika ini berasal dari Pengajuan Pusat)
+        if (transfer.pengajuanStokID) {
+          const PengajuanStok = require("../models/pengajuanStokModel");
+          await PengajuanStok.findOneAndUpdate(
+            { _id: transfer.pengajuanStokID, tenantID },
             { status: "COMPLETED" },
           );
         }

@@ -1,8 +1,13 @@
 const mongoose = require("mongoose");
 
-const PermintaanStokSchema = new mongoose.Schema(
+const PengajuanStokSchema = new mongoose.Schema(
   {
-    nomorRequest: { type: String, required: true, unique: true },
+    nomorPengajuan: { type: String, required: true, unique: true },
+    jenisPengajuan: {
+      type: String,
+      enum: ["PERMINTAAN", "PENGIRIMAN"],
+      default: "PERMINTAAN",
+    },
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -61,9 +66,9 @@ const PermintaanStokSchema = new mongoose.Schema(
 );
 
 // Indexing untuk Optimasi
-PermintaanStokSchema.index({ tenantID: 1, status: 1 });
-PermintaanStokSchema.index({ transferStokID: 1 }); // Penting untuk pencarian relasi
-PermintaanStokSchema.index({ dariLocationID: 1 });
-PermintaanStokSchema.index({ keLocationID: 1 });
+PengajuanStokSchema.index({ tenantID: 1, status: 1 });
+PengajuanStokSchema.index({ transferStokID: 1 }); // Penting untuk pencarian relasi
+PengajuanStokSchema.index({ dariLocationID: 1 });
+PengajuanStokSchema.index({ keLocationID: 1 });
 
-module.exports = mongoose.model("PermintaanStok", PermintaanStokSchema);
+module.exports = mongoose.model("PengajuanStok", PengajuanStokSchema);

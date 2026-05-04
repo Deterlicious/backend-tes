@@ -1,10 +1,10 @@
-const PermintaanStok = require("../models/permintaanStokModel");
+const PengajuanStok = require("../models/pengajuanStokModel");
 const createError = require("http-errors");
 const redis = require("../config/redis");
 
-class PermintaanStokService {
+class PengajuanStokService {
   #KEY_LIST(tenantID) {
-    return `permintaanStok:list:${tenantID}`;
+    return `pengajuanStok:list:${tenantID}`;
   }
 
   // 1. GET ALL - Untuk daftar di tabel FE
@@ -16,7 +16,7 @@ class PermintaanStokService {
     let filter = { tenantID };
 
     // 2. LOGIKA WORKFLOW (The "Security Guard")
-    const canApprove = permissions.includes("approve-permintaan-stok");
+    const canApprove = permissions.includes("approve-pengajuan-stok");
     const canCreateTransfer = permissions.includes("create-transfer-stok");
     const allowedStatuses =
       !canApprove && canCreateTransfer
@@ -36,7 +36,7 @@ class PermintaanStokService {
     }
 
     // 3. Eksekusi Kueri dengan Standarisasi Field ("nama tipe")
-    const data = await PermintaanStok.find(filter)
+    const data = await PengajuanStok.find(filter)
       .populate("dariLocationID", "nama tipe")
       .populate("keLocationID", "nama tipe")
       .populate("dimintaOleh", "nama")
@@ -50,30 +50,30 @@ class PermintaanStokService {
     // Default status jika tidak dikirim adalah DRAFT
     if (!payload.status) payload.status = "DRAFT";
 
-    if (!payload.nomorRequest) {
+    if (!payload.nomorPengajuan) {
       const date = new Date();
       const yearMonth = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, "0")}`;
-      const lastDoc = await PermintaanStok.findOne({
-        nomorRequest: new RegExp(`REQ/${yearMonth}/`),
+      const lastDoc = await PengajuanStok.findOne({
+        nomorPengajuan: new RegExp(`PGJ/${yearMonth}/`),
       })
         .sort({ createdAt: -1 })
         .lean();
 
       let counter = 1;
       if (lastDoc) {
-        const lastCounter = parseInt(lastDoc.nomorRequest.split("/")[2]);
+        const lastCounter = parseInt(lastDoc.nomorPengajuan.split("/")[2]);
         counter = lastCounter + 1;
       }
-      payload.nomorRequest = `REQ/${yearMonth}/${counter.toString().padStart(4, "0")}`;
+      payload.nomorPengajuan = `PGJ/${yearMonth}/${counter.toString().padStart(4, "0")}`;
     }
 
-    const data = await PermintaanStok.create(payload);
+    const data = await PengajuanStok.create(payload);
     await redis.del(this.#KEY_LIST(payload.tenantID));
     return data;
   }
 
   async update(id, tenantID, payload) {
-    const data = await PermintaanStok.findOne({ _id: id, tenantID });
+    const data = await PengajuanStok.findOne({ _id: id, tenantID });
 
     if (!data) throw createError(404, "Data tidak ditemukan");
 
@@ -84,13 +84,13 @@ class PermintaanStokService {
     }
 
     // 2. Jika status DRAFT, bebas edit
-    const updated = await PermintaanStok.findByIdAndUpdate(
+    const updated = await PengajuanStok.findByIdAndUpdate(
       id,
       { $set: payload },
       { new: true },
     );
 
-    await redis.del(`permintaanStok:list:${tenantID}`);
+    await redis.del(`pengajuanStok:list:${tenantID}`);
     return updated;
   }
 
@@ -99,7 +99,7 @@ class PermintaanStokService {
   // lengkap seperti tanggalApprove, tanggalReject, disetujuiOleh, dan ditolakOleh.
   //
   // async updateStatus(id, tenantID, userID, newStatus, catatanPenolakan = "") {
-  //   const permintaan = await PermintaanStok.findOne({ _id: id, tenantID });
+  //   const permintaan = await PengajuanStok.findOne({ _id: id, tenantID });
   //   if (!permintaan) throw createError(404, "Permintaan tidak ditemukan.");
   //
   //   if (permintaan.status !== "SUBMITTED") {
@@ -122,7 +122,7 @@ class PermintaanStokService {
 
   async approve(id, tenantID, userID) {
     // 1. Cari data Permintaan
-    const data = await PermintaanStok.findOne({
+    const data = await PengajuanStok.findOne({
       _id: id,
       tenantID,
       status: "SUBMITTED",
@@ -155,7 +155,7 @@ class PermintaanStokService {
 
   async submit(id, tenantID) {
     // Cari data untuk tahu status sekarang
-    const request = await PermintaanStok.findOne({ _id: id, tenantID });
+    const request = await PengajuanStok.findOne({ _id: id, tenantID });
     if (!request) throw createError(404, "Data tidak ditemukan");
 
     if (request.status !== "DRAFT") {
@@ -177,7 +177,7 @@ class PermintaanStokService {
    * Boleh reject jika status SUBMITTED
    */
   async reject(id, tenantID, userID, alasan) {
-    const data = await PermintaanStok.findOne({
+    const data = await PengajuanStok.findOne({
       _id: id,
       tenantID,
       status: "SUBMITTED",
@@ -206,4 +206,4 @@ class PermintaanStokService {
   }
 }
 
-module.exports = new PermintaanStokService();
+module.exports = new PengajuanStokService();

@@ -7,10 +7,10 @@
  *
  * Aturan stok awal:
  *   - Gudang Pusat  → DIISI stok (ini sumber stok)
- *   - Outlet        → KOSONG (supaya flow permintaan bisa ditest)
+ *   - Outlet        → KOSONG (supaya flow pengajuan bisa ditest)
  *
  * Flow yang akan bisa ditest setelah ini:
- *   Outlet (stok 0) → buat PermintaanStok → Manager approve
+ *   Outlet (stok 0) → buat PengajuanStok → Manager approve
  *   → Staf Gudang buat TransferStok → Outlet terima barang ✅
  *
  * Cara jalankan:
@@ -183,12 +183,12 @@ const runSeed = async () => {
     }
     console.log("─".repeat(55));
     console.log(`  Lokasi : ${outlet.nama}`);
-    console.log(`  Stok   : 0 (kosong — siap untuk test PermintaanStok)`);
+    console.log(`  Stok   : 0 (kosong — siap untuk test PengajuanStok)`);
     console.log("=".repeat(55));
     console.log(`
 📋 Flow yang siap ditest:
    1. Login sebagai Doni Outlet (PIN: 123456)
-   2. Buat PermintaanStok dari Outlet ke Gudang
+   2. Buat PengajuanStok dari Outlet ke Gudang
    3. Login sebagai Budi Manager → Approve
    4. Login sebagai Citra Gudang → Buat & Kirim TransferStok
    5. Login sebagai Doni Outlet → Terima barang ✅
