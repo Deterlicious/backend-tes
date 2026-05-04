@@ -11,6 +11,25 @@ const {
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+// --- UTILITY KONVERSI SATUAN ---
+const CONVERSION_RATES = {
+  "kg_to_gram": 1000,
+  "gram_to_kg": 0.001,
+  "liter_to_ml": 1000,
+  "ml_to_liter": 0.001,
+};
+
+function convertQuantity(qty, fromUnit, toUnit) {
+  if (!fromUnit || !toUnit || fromUnit.toLowerCase() === toUnit.toLowerCase()) {
+    return qty;
+  }
+  const key = `${fromUnit.toLowerCase()}_to_${toUnit.toLowerCase()}`;
+  if (CONVERSION_RATES[key]) {
+    return qty * CONVERSION_RATES[key];
+  }
+  return qty; // fallback jika tidak ada konversi yang cocok
+}
+
 class TransferStokService {
   // Helper: Menangani Error Mongoose (Termasuk Unique Index)
   handleDbError(error, defaultMessage = "Gagal memproses data Transfer Stok") {
@@ -34,7 +53,7 @@ class TransferStokService {
       return createError(400, { message: "Format ID tidak valid." });
     }
     return createError(500, error.message || defaultMessage);
-  } // --- CREATE (Hanya Membuat Draft Transfer - Status PENDING) ---
+  }
 
   // --- CREATE (Membuat Draft Transfer - Status PENDING) ---
   async create(payload) {
@@ -48,11 +67,12 @@ class TransferStokService {
       );
     }
 
+    // TAMBAHAN: Kita mempopulate bahanBakuID agar tahu satuan dasar dari master data Gudang
     const permintaan = await PermintaanStok.findOne({
       _id: payload.permintaanStokID,
       tenantID: payload.tenantID,
       status: "APPROVED",
-    });
+    }).populate("items.bahanBakuID");
 
     if (!permintaan) {
       throw createError(
@@ -89,17 +109,18 @@ class TransferStokService {
     }
 
     const requestedItems = new Map(
-      permintaan.items.map((item) => [String(item.bahanBakuID), item]),
+      permintaan.items.map((item) => [String(item.bahanBakuID._id), item]),
     );
 
     const items =
       Array.isArray(payload.items) && payload.items.length > 0
         ? payload.items
         : permintaan.items.map((item) => ({
-            bahanBakuID: item.bahanBakuID,
+            bahanBakuID: String(item.bahanBakuID._id),
             qtyKirim: item.jumlah,
           }));
 
+    const processedItems = [];
     for (const item of items) {
       const requestedItem = requestedItems.get(String(item.bahanBakuID));
       if (!requestedItem) {
@@ -109,22 +130,32 @@ class TransferStokService {
         );
       }
 
-      if (item.qtyKirim > requestedItem.jumlah) {
+      // AMBIL SATUAN
+      const requestedUnit = requestedItem.satuan;
+      const baseUnit = requestedItem.bahanBakuID.satuan;
+
+      // LAKUKAN KONVERSI (SMART CONVERTER)
+      const qtyKirimBase = convertQuantity(item.qtyKirim, requestedUnit, baseUnit);
+      const requestedQtyBase = convertQuantity(requestedItem.jumlah, requestedUnit, baseUnit);
+
+      if (qtyKirimBase > requestedQtyBase) {
         throw createError(
           400,
           "Jumlah kirim tidak boleh melebihi jumlah yang diminta.",
         );
       }
+
+      processedItems.push({
+        bahanBakuID: item.bahanBakuID,
+        qtyKirim: qtyKirimBase, // Disimpan ke DB sebagai satuan dasar Gudang
+        qtyTerima: item.qtyTerima ? convertQuantity(item.qtyTerima, requestedUnit, baseUnit) : 0,
+        catatanItem: item.catatanItem || null,
+      });
     }
 
     payload.dariLocationID = permintaan.dariLocationID;
     payload.keLocationID = permintaan.keLocationID;
-    payload.items = items.map((item) => ({
-      bahanBakuID: item.bahanBakuID,
-      qtyKirim: item.qtyKirim,
-      qtyTerima: item.qtyTerima || 0,
-      catatanItem: item.catatanItem || null,
-    }));
+    payload.items = processedItems;
 
     // 1. AUTO-GENERATE NOMOR TRANSFER dari nomor permintaan yang sudah approved
     if (!payload.nomorTransfer) {
@@ -158,15 +189,20 @@ class TransferStokService {
 
     try {
       const transfer = await TransferStok.create(payload);
-      permintaan.transferStokID = transfer._id;
-      await permintaan.save();
+      // Gunakan updateOne agar .save() tidak menyebabkan error validasi 
+      // dari objectId bahanBakuID yang sudah kita populate
+      await PermintaanStok.updateOne(
+        { _id: permintaan._id }, 
+        { $set: { transferStokID: transfer._id } }
+      );
 
       return transfer;
     } catch (error) {
       throw this.handleDbError(error, "Gagal membuat Transfer Stok.");
     }
-  } // --- READ ALL ---
+  }
 
+  // --- READ ALL ---
   async getAll(tenantID) {
     if (!tenantID || !isValidObjectId(tenantID))
       throw createError(400, "tenantID wajib disertakan dan harus valid.");
@@ -183,8 +219,9 @@ class TransferStokService {
     } catch (error) {
       throw this.handleDbError(error, "Gagal mengambil daftar Transfer Stok.");
     }
-  } // --- READ BY ID ---
+  }
 
+  // --- READ BY ID ---
   async getById(tenantID, id) {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
@@ -210,8 +247,9 @@ class TransferStokService {
     } catch (error) {
       throw this.handleDbError(error, "Gagal mengambil detail Transfer Stok.");
     }
-  } // --- LOGIKA UTAMA: UPDATE STATUS (Tanpa Transaksi) ---
+  }
 
+  // --- LOGIKA UTAMA: UPDATE STATUS (Tanpa Transaksi) ---
   async updateStatus(tenantID, id, newStatus, updates = {}) {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
@@ -392,8 +430,9 @@ class TransferStokService {
         "Gagal memperbarui status Transfer Stok.",
       );
     }
-  } // --- UPDATE DRAFT (Hanya Boleh Saat Status PENDING) ---
+  }
 
+  // --- UPDATE DRAFT (Hanya Boleh Saat Status PENDING) ---
   async updateDraft(tenantID, id, payload) {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
@@ -426,8 +465,9 @@ class TransferStokService {
     } catch (error) {
       throw this.handleDbError(error, "Gagal memperbarui draft Transfer Stok.");
     }
-  } // --- DELETE DRAFT (Hanya Boleh Saat Status PENDING) ---
+  }
 
+  // --- DELETE DRAFT (Hanya Boleh Saat Status PENDING) ---
   async deleteDraft(tenantID, id) {
     if (!isValidObjectId(id) || !isValidObjectId(tenantID))
       throw createError(
