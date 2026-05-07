@@ -26,14 +26,17 @@ class PenjualanService {
   }
 
   _generateNoReferensi(jenisTransaksi) {
-    const date = new Date();
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    const hh = String(date.getHours()).padStart(2, "0");
-    const min = String(date.getMinutes()).padStart(2, "0");
-    const ss = String(date.getSeconds()).padStart(2, "0");
-    const ms = String(date.getMilliseconds()).padStart(3, "0");
+    // Memastikan nomor referensi menggunakan zona waktu lokal, bukan UTC Server
+    const TIMEZONE_OFFSET_MINUTES = 7 * 60;
+    const date = new Date(Date.now() + TIMEZONE_OFFSET_MINUTES * 60 * 1000);
+
+    const yyyy = date.getUTCFullYear();
+    const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(date.getUTCDate()).padStart(2, "0");
+    const hh = String(date.getUTCHours()).padStart(2, "0");
+    const min = String(date.getUTCMinutes()).padStart(2, "0");
+    const ss = String(date.getUTCSeconds()).padStart(2, "0");
+    const ms = String(date.getUTCMilliseconds()).padStart(3, "0");
     const prefix = jenisTransaksi === "INVOICE" ? "INV" : "POS";
 
     return `${prefix}/TKA/${yyyy}${mm}${dd}/${hh}${min}${ss}${ms}`;
@@ -741,6 +744,9 @@ class PenjualanService {
       current.statusPenjualan = "VOID";
 
       await current.save();
+
+      await SesiBooking.updateMany({ dataPenjualan: id }, { status: "Batal" });
+      await redis.del(`booking:tenant:${tenantID}`);
 
       await redis.del(CACHE_KEY_LIST(tenantID));
       await redis.del(CACHE_KEY_DETAIL(id));

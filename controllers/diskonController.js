@@ -1,33 +1,14 @@
 const diskonService = require("../services/diskonService");
 const createError = require("http-errors");
-const Permission = require("../models/permissionModel");
 
 class DiskonController {
-  async _checkPermission(userPermissionIDs, permissionName) {
-    const permissionDoc = await Permission.findOne({ nama: permissionName });
-
-    if (!permissionDoc) return false;
-
-    return userPermissionIDs
-      .map((id) => id.toString())
-      .includes(permissionDoc._id.toString());
-  }
-
+  // Mengambil Tenant ID dari middleware autentikasi
   _getRequesterTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
 
   async getAll(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-diskon"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola diskon");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       if (!tenantID) {
@@ -44,15 +25,6 @@ class DiskonController {
 
   async getById(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-diskon"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola diskon");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await diskonService.getById(req.params.id, tenantID);
 
@@ -68,15 +40,6 @@ class DiskonController {
 
   async create(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-diskon"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola diskon");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       const payload = {
@@ -98,21 +61,15 @@ class DiskonController {
 
   async update(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-diskon"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola diskon");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
+
+      // Keamanan: Pastikan tenantID tidak bisa diubah dari body
+      delete req.body.tenantID;
 
       const result = await diskonService.update(
         req.params.id,
         req.body,
-        tenantID
+        tenantID,
       );
 
       if (result?.error) {
@@ -131,15 +88,6 @@ class DiskonController {
 
   async delete(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-diskon"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola diskon");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await diskonService.delete(req.params.id, tenantID);
 

@@ -132,7 +132,7 @@ class MetodePembayaranService {
       CACHE_KEY_DETAIL(created._id.toString()),
       JSON.stringify(formatted),
       "EX",
-      300
+      300,
     );
 
     return formatted;
@@ -165,7 +165,7 @@ class MetodePembayaranService {
     const updated = await MetodePembayaran.findOneAndUpdate(
       { _id: id, tenantID: requesterTenantID },
       payload,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     )
       .populate("akunKasID", "namaAkun nomorAkun")
       .lean();

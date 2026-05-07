@@ -22,13 +22,11 @@ const CACHE_KEY_LIST = (tenantID, dateStr) =>
 
 const CACHE_KEY_DETAIL = (id) => `booking:detail:${id}`;
 
+// Memastikan pembacaan Cache dan YMD selalu di Local Time (WIB)
 function toYMDLocal(dateObj) {
-  const d = new Date(dateObj);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-
-  return `${yyyy}-${mm}-${dd}`;
+  const TIMEZONE_OFFSET_MINUTES = 7 * 60;
+  const d = new Date(dateObj.getTime() + TIMEZONE_OFFSET_MINUTES * 60000);
+  return d.toISOString().slice(0, 10);
 }
 
 async function invalidateTenantCache(tenantID, dates = []) {
@@ -61,14 +59,15 @@ async function invalidateTenantCache(tenantID, dates = []) {
 
 class SesiBookingService {
   _generateNoReferensi() {
-    const date = new Date();
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    const hh = String(date.getHours()).padStart(2, "0");
-    const min = String(date.getMinutes()).padStart(2, "0");
-    const ss = String(date.getSeconds()).padStart(2, "0");
-    const ms = String(date.getMilliseconds()).padStart(3, "0");
+    const TIMEZONE_OFFSET_MINUTES = 7 * 60;
+    const date = new Date(Date.now() + TIMEZONE_OFFSET_MINUTES * 60000);
+    const yyyy = date.getUTCFullYear();
+    const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(date.getUTCDate()).padStart(2, "0");
+    const hh = String(date.getUTCHours()).padStart(2, "0");
+    const min = String(date.getUTCMinutes()).padStart(2, "0");
+    const ss = String(date.getUTCSeconds()).padStart(2, "0");
+    const ms = String(date.getUTCMilliseconds()).padStart(3, "0");
 
     return `INV/TKA/${yyyy}${mm}${dd}/${hh}${min}${ss}${ms}`;
   }
@@ -201,7 +200,10 @@ class SesiBookingService {
       tarif = await Tarif.findOne({ _id: dataTarif, tenantID });
 
       if (!tarif) {
-        throw createError(404, "Tarif manual tidak ditemukan atau tidak valid.");
+        throw createError(
+          404,
+          "Tarif manual tidak ditemukan atau tidak valid.",
+        );
       }
 
       const tipeList = Array.isArray(tarif.tipeAsetID)
@@ -209,13 +211,13 @@ class SesiBookingService {
         : [tarif.tipeAsetID];
 
       const isValidForAsset = tipeList.some(
-        (id) => id?.toString() === asset.tipeAsetID.toString()
+        (id) => id?.toString() === asset.tipeAsetID.toString(),
       );
 
       if (!isValidForAsset) {
         throw createError(
           400,
-          `Tarif '${tarif.namaTarif}' tidak berlaku untuk aset '${asset.namaAset}'.`
+          `Tarif '${tarif.namaTarif}' tidak berlaku untuk aset '${asset.namaAset}'.`,
         );
       }
     } else {
@@ -224,7 +226,7 @@ class SesiBookingService {
       if (!tarif) {
         throw createError(
           400,
-          `Tidak ditemukan tarif yang cocok untuk waktu: ${waktuMulai}. Hubungi admin toko.`
+          `Tidak ditemukan tarif yang cocok untuk waktu: ${waktuMulai}. Hubungi admin toko.`,
         );
       }
     }
@@ -385,6 +387,21 @@ class SesiBookingService {
       .sort({ waktuMulai: -1 })
       .lean();
 
+    const now = new Date();
+    const updatedBookings = await Promise.all(
+      bookings.map(async (b) => {
+        if (
+          b.status === "Aktif" &&
+          b.waktuSelesai &&
+          new Date(b.waktuSelesai) < now
+        ) {
+          b.status = "Selesai";
+          await SesiBooking.updateOne({ _id: b._id }, { status: "Selesai" });
+        }
+        return b;
+      }),
+    );
+
     const formatted = this._formatBookingOutput(bookings);
 
     if (formatted.length > 0) {
@@ -472,7 +489,7 @@ class SesiBookingService {
     const conflict = await this._checkConflict(
       payload.dataAset,
       payload.waktuMulai,
-      payload.waktuSelesai
+      payload.waktuSelesai,
     );
 
     if (conflict) {
@@ -488,7 +505,7 @@ class SesiBookingService {
       payload.dataAset,
       payload.dataTarif,
       durasiMenit,
-      payload.waktuMulai
+      payload.waktuMulai,
     );
 
     const hargaKotor = calc.harga;
@@ -514,7 +531,7 @@ class SesiBookingService {
     const pajakCalc = await pajakService.hitungPajakProduk(
       payload.dataAset,
       totalSetelahDiskonItem,
-      tenantID
+      tenantID,
     );
 
     const totalhargaItem = pajakCalc.grandTotal;
@@ -573,7 +590,7 @@ class SesiBookingService {
       sisaTagihan: totalTagihan,
       statusBayar: totalTagihan === 0 ? "PAID" : "UNPAID",
       keterangan: "",
-      statusPenjualan: payload.simpanFinal === true ? "FINAL" : "DRAFT",
+      statusPenjualan: "FINAL", // <--- LANGSUNG MENJADI FINAL
     });
 
     const newBooking = new SesiBooking({
@@ -646,8 +663,16 @@ class SesiBookingService {
       return null;
     }
 
-    if (currentBooking.status === "VOID") {
-      return { error: ["Sesi booking yang sudah VOID tidak dapat diubah lagi."] };
+    // 1. KUNCI STATUS TERMINAL: Batal atau Selesai tidak boleh diubah
+    if (
+      currentBooking.status === "Batal" ||
+      currentBooking.status === "Selesai"
+    ) {
+      return {
+        error: [
+          `Sesi booking yang sudah ${currentBooking.status} tidak dapat diubah lagi.`,
+        ],
+      };
     }
 
     const currentPenjualan = await Penjualan.findOne({
@@ -661,20 +686,16 @@ class SesiBookingService {
 
     if (currentPenjualan.statusPenjualan === "FINAL") {
       return {
-        error: ["Booking tidak bisa diubah karena penjualan terkait sudah FINAL."],
+        error: [
+          "Booking tidak bisa diubah karena penjualan terkait sudah FINAL.",
+        ],
       };
     }
 
     if (currentPenjualan.statusPenjualan === "VOID") {
       return {
-        error: ["Booking tidak bisa diubah karena penjualan terkait sudah VOID."],
-      };
-    }
-
-    if (payload.status === "VOID") {
-      return {
         error: [
-          "Status VOID untuk sesi booking sebaiknya dilakukan melalui proses void penjualan terkait.",
+          "Booking tidak bisa diubah karena penjualan terkait sudah VOID.",
         ],
       };
     }
@@ -695,6 +716,15 @@ class SesiBookingService {
 
     const asetToUse = payload.dataAset || currentBooking.dataAset;
 
+    // Flag penanda apakah database Penjualan perlu di-save
+    let requiresPenjualanUpdate = false;
+
+    // 2. LOGIKA PEMBATALAN OTOMATIS: Booking Batal -> Penjualan otomatis VOID
+    if (payload.status === "Batal") {
+      currentPenjualan.statusPenjualan = "VOID";
+      requiresPenjualanUpdate = true;
+    }
+
     const shouldRecalc =
       payload.waktuMulai ||
       payload.waktuSelesai ||
@@ -710,7 +740,8 @@ class SesiBookingService {
 
       const conflict = await this._checkConflict(asetToUse, start, end, id);
 
-      if (conflict) {
+      // Abaikan bentrok aset jika tujuan update ini adalah untuk membatalkan
+      if (conflict && payload.status !== "Batal") {
         return { error: ["Aset bentrok dengan jadwal lain."] };
       }
 
@@ -727,7 +758,7 @@ class SesiBookingService {
         asetToUse,
         dataTarifToUse,
         durasiMenit,
-        start
+        start,
       );
 
       const hargaKotor = calc.harga;
@@ -740,7 +771,7 @@ class SesiBookingService {
       const currentItemIndex = Array.isArray(currentPenjualan.itemPenjualan)
         ? currentPenjualan.itemPenjualan.findIndex(
             (item) =>
-              String(item.sesiBookingID || "") === String(currentBooking._id)
+              String(item.sesiBookingID || "") === String(currentBooking._id),
           )
         : -1;
 
@@ -753,13 +784,10 @@ class SesiBookingService {
       const currentItem = currentPenjualan.itemPenjualan[currentItemIndex];
 
       if (diskonItemIds === undefined || diskonGlobalIds === undefined) {
-        if (diskonItemIds === undefined) {
+        if (diskonItemIds === undefined)
           diskonItemIds = currentItem?.diskonItemIDs || [];
-        }
-
-        if (diskonGlobalIds === undefined) {
+        if (diskonGlobalIds === undefined)
           diskonGlobalIds = currentPenjualan.diskonGlobalIDs || [];
-        }
       }
 
       const diskonItemRes = await this._applyDiskonBerurutan({
@@ -769,19 +797,15 @@ class SesiBookingService {
         cakupan: "Item",
       });
 
-      if (diskonItemRes.error) {
-        return { error: diskonItemRes.error };
-      }
+      if (diskonItemRes.error) return { error: diskonItemRes.error };
 
       const jumlahDiskonItem = diskonItemRes.totalDiskon;
-
-      let totalSetelahDiskonItem = hargaKotor - jumlahDiskonItem;
-      if (totalSetelahDiskonItem < 0) totalSetelahDiskonItem = 0;
+      let totalSetelahDiskonItem = Math.max(0, hargaKotor - jumlahDiskonItem);
 
       const pajakCalc = await pajakService.hitungPajakProduk(
         asetToUse,
         totalSetelahDiskonItem,
-        requesterTenantID
+        requesterTenantID,
       );
 
       const totalhargaItem = pajakCalc.grandTotal;
@@ -793,9 +817,7 @@ class SesiBookingService {
         cakupan: "Global",
       });
 
-      if (diskonGlobalRes.error) {
-        return { error: diskonGlobalRes.error };
-      }
+      if (diskonGlobalRes.error) return { error: diskonGlobalRes.error };
 
       currentItem.hargaJual = hargaKotor;
       currentItem.subTotal = hargaKotor;
@@ -813,7 +835,6 @@ class SesiBookingService {
       for (const item of currentPenjualan.itemPenjualan) {
         totalHargaProduk += Number(item.totalharga) || 0;
       }
-
       currentPenjualan.totalHargaProduk = totalHargaProduk;
 
       let totalTagihan =
@@ -821,43 +842,37 @@ class SesiBookingService {
         (Number(currentPenjualan.jumlahDiskonTransaksi) || 0) +
         (Number(currentPenjualan.jumlahPajakTransaksi) || 0);
 
-      if (totalTagihan < 0) {
-        totalTagihan = 0;
-      }
-
+      totalTagihan = Math.max(0, totalTagihan);
       currentPenjualan.totalTagihan = totalTagihan;
 
       const totalDibayar = Number(currentPenjualan.totalDibayar) || 0;
-      let sisaTagihan = totalTagihan - totalDibayar;
-
-      if (sisaTagihan < 0) {
-        sisaTagihan = 0;
-      }
-
+      const sisaTagihan = Math.max(0, totalTagihan - totalDibayar);
       currentPenjualan.sisaTagihan = sisaTagihan;
 
-      let statusBayar = "UNPAID";
       if (totalTagihan === 0 || sisaTagihan === 0) {
-        statusBayar = "PAID";
+        currentPenjualan.statusBayar = "PAID";
       } else if (totalDibayar > 0 && sisaTagihan > 0) {
-        statusBayar = "PARTIAL";
+        currentPenjualan.statusBayar = "PARTIAL";
+      } else {
+        currentPenjualan.statusBayar = "UNPAID";
       }
 
-      currentPenjualan.statusBayar = statusBayar;
-
-      await currentPenjualan.save();
-
-      await redis.del(`penjualan:detail:${currentBooking.dataPenjualan}`);
-      await redis.del(`penjualan:tenant:${requesterTenantID}`);
-
+      requiresPenjualanUpdate = true;
       delete payload.diskonItem;
       delete payload.diskonGlobal;
+    }
+
+    // 3. EKSEKUSI PENYIMPANAN PENJUALAN JIKA ADA PERUBAHAN
+    if (requiresPenjualanUpdate) {
+      await currentPenjualan.save();
+      await redis.del(`penjualan:detail:${currentBooking.dataPenjualan}`);
+      await redis.del(`penjualan:tenant:${requesterTenantID}`);
     }
 
     const updated = await SesiBooking.findOneAndUpdate(
       { _id: id, tenantID: requesterTenantID },
       payload,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     )
       .populate("dataAset", "namaAset status")
       .populate("dataPengguna", "nama")
@@ -899,8 +914,12 @@ class SesiBookingService {
       return null;
     }
 
-    if (booking.status === "VOID") {
-      return { error: ["Sesi booking dengan status VOID tidak dapat dihapus."] };
+    if (booking.status === "Batal") {
+      return {
+        error: [
+          "Sesi booking dengan status Batal (riwayat) tidak dapat dihapus.",
+        ],
+      };
     }
 
     const penjualan = await Penjualan.findOne({
@@ -914,13 +933,17 @@ class SesiBookingService {
 
     if (penjualan.statusPenjualan === "FINAL") {
       return {
-        error: ["Booking tidak bisa dihapus karena penjualan terkait sudah FINAL."],
+        error: [
+          "Booking tidak bisa dihapus karena penjualan terkait sudah FINAL.",
+        ],
       };
     }
 
     if (penjualan.statusPenjualan === "VOID") {
       return {
-        error: ["Booking tidak bisa dihapus karena penjualan terkait sudah VOID."],
+        error: [
+          "Booking tidak bisa dihapus karena penjualan terkait sudah VOID.",
+        ],
       };
     }
 
@@ -929,7 +952,7 @@ class SesiBookingService {
       : [];
 
     const filteredItems = items.filter(
-      (item) => String(item.sesiBookingID) !== String(booking._id)
+      (item) => String(item.sesiBookingID) !== String(booking._id),
     );
 
     if (filteredItems.length === items.length) {
@@ -965,7 +988,8 @@ class SesiBookingService {
 
       penjualan.totalHargaProduk = totalHargaProduk;
 
-      const jumlahDiskonTransaksi = Number(penjualan.jumlahDiskonTransaksi) || 0;
+      const jumlahDiskonTransaksi =
+        Number(penjualan.jumlahDiskonTransaksi) || 0;
       const jumlahPajakTransaksi = Number(penjualan.jumlahPajakTransaksi) || 0;
 
       let totalTagihan =
@@ -1032,7 +1056,9 @@ class SesiBookingService {
         }
 
         if (targetAset.tenantID.toString() !== tenantID.toString()) {
-          return { error: [`Item #${index + 1}: Aset bukan milik tenant ini.`] };
+          return {
+            error: [`Item #${index + 1}: Aset bukan milik tenant ini.`],
+          };
         }
 
         if (!item.waktuSelesai) {
@@ -1042,7 +1068,7 @@ class SesiBookingService {
         const conflict = await this._checkConflict(
           item.dataAset,
           item.waktuMulai,
-          item.waktuSelesai
+          item.waktuSelesai,
         );
 
         if (conflict) {
@@ -1062,7 +1088,7 @@ class SesiBookingService {
           item.dataAset,
           item.dataTarif,
           durasiMenit,
-          item.waktuMulai
+          item.waktuMulai,
         );
 
         const hargaKotor = calc.harga;
@@ -1088,7 +1114,7 @@ class SesiBookingService {
         const pajakCalc = await pajakService.hitungPajakProduk(
           item.dataAset,
           totalSetelahDiskonItem,
-          tenantID
+          tenantID,
         );
 
         const totalhargaItem = pajakCalc.grandTotal;
@@ -1164,7 +1190,7 @@ class SesiBookingService {
         sisaTagihan: totalTagihan,
         statusBayar: totalTagihan === 0 ? "PAID" : "UNPAID",
         keterangan: "",
-        statusPenjualan: payload.simpanFinal === true ? "FINAL" : "DRAFT",
+        statusPenjualan: "FINAL", // <--- LANGSUNG MENJADI FINAL
       });
 
       await newPenjualan.save();

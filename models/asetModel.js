@@ -29,7 +29,7 @@ const asetSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 asetSchema.index({ tenantID: 1, status: 1 });

@@ -3,21 +3,13 @@ const Penjualan = require("../models/penjualanModel");
 const MetodePembayaran = require("../models/metodePembayaranModel");
 const AkunKas = require("../models/akunKasModel");
 const redis = require("../config/redis");
-const { validatePembayaranPayload } = require("../validators/pembayaranValidator");
+const {
+  validatePembayaranPayload,
+} = require("../validators/pembayaranValidator");
 const createError = require("http-errors");
 
 const CACHE_KEY_LIST = (tenantID) => `pembayaran:list:${tenantID}`;
 const CACHE_KEY_DETAIL = (id) => `pembayaran:detail:${id}`;
-
-const INDONESIA_OFFSET_MINUTES = 7 * 60;
-
-function toYMDIndonesia(dateObj) {
-  const shifted = new Date(
-    dateObj.getTime() + INDONESIA_OFFSET_MINUTES * 60 * 1000
-  );
-
-  return shifted.toISOString().slice(0, 10);
-}
 
 class PembayaranService {
   _toNumber(value) {
@@ -91,12 +83,12 @@ class PembayaranService {
     });
 
     const pembayaranSukses = semuaPembayaran.filter(
-      (item) => item.status === "PAID"
+      (item) => item.status === "PAID",
     );
 
     const totalUangMasuk = pembayaranSukses.reduce(
       (acc, curr) => acc + (curr.jumlahBayar || 0),
-      0
+      0,
     );
 
     penjualan.totalDibayar = totalUangMasuk;
@@ -113,7 +105,7 @@ class PembayaranService {
     await redis.del(`penjualan:tenant:${tenantID}`);
   }
 
-  _applyTanggalBayarRules({ payload, penjualanDoc }) {
+  _applyTanggalBayarRules({ payload }) {
     if (payload.status !== "PAID") {
       return { ok: true };
     }
@@ -145,14 +137,12 @@ class PembayaranService {
       return { ok: true };
     }
 
-    const bayarYMD = toYMDIndonesia(tglBayar);
-    const jualYMD = toYMDIndonesia(tglTransaksi);
-
-    if (bayarYMD < jualYMD) {
+    // Pengecekan milidetik akurat (menghindari bayar jam 9 untuk transaksi jam 10)
+    if (tglBayar.getTime() < tglTransaksi.getTime()) {
       return {
         ok: false,
         error: [
-          "Tanggal pembayaran tidak boleh sebelum tanggal transaksi penjualan.",
+          "Waktu pembayaran tidak boleh mendahului waktu transaksi penjualan dibuat.",
         ],
       };
     }
@@ -246,7 +236,9 @@ class PembayaranService {
 
     if (penjualanValid.statusPenjualan === "VOID") {
       return {
-        error: ["Penjualan dengan status VOID tidak dapat menerima pembayaran."],
+        error: [
+          "Penjualan dengan status VOID tidak dapat menerima pembayaran.",
+        ],
       };
     }
 
@@ -264,7 +256,9 @@ class PembayaranService {
 
     if (payload.status === "VOID") {
       return {
-        error: ["Pembayaran baru tidak boleh langsung dibuat dengan status VOID."],
+        error: [
+          "Pembayaran baru tidak boleh langsung dibuat dengan status VOID.",
+        ],
       };
     }
 
@@ -274,10 +268,7 @@ class PembayaranService {
       };
     }
 
-    const tglRule = this._applyTanggalBayarRules({
-      payload,
-      penjualanDoc: penjualanValid,
-    });
+    const tglRule = this._applyTanggalBayarRules({ payload });
 
     if (!tglRule.ok) {
       return { error: tglRule.error };
@@ -462,10 +453,7 @@ class PembayaranService {
     if (statusSetelah === "PAID") {
       const tmp = { ...payload, status: "PAID" };
 
-      const tglRule = this._applyTanggalBayarRules({
-        payload: tmp,
-        penjualanDoc: penjualanValid,
-      });
+      const tglRule = this._applyTanggalBayarRules({ payload: tmp });
 
       if (!tglRule.ok) {
         return { error: tglRule.error };
@@ -508,7 +496,7 @@ class PembayaranService {
     const updated = await Pembayaran.findOneAndUpdate(
       { _id: id, tenantID: requesterTenantID },
       payload,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).lean();
 
     if (!updated) {
