@@ -45,7 +45,7 @@ class TarifService {
     if (validAssets.length !== uniqueIds.length) {
       throw createError(
         403,
-        "Security Violation: Satu atau lebih Tipe Aset tidak ditemukan atau milik tenant lain."
+        "Security Violation: Satu atau lebih Tipe Aset tidak ditemukan atau milik tenant lain.",
       );
     }
   }
@@ -61,7 +61,7 @@ class TarifService {
       basisPerhitungan: doc.basisPerhitungan,
       harga: doc.harga,
       durasiMinimum: doc.durasiMinimum,
-      isDefault: doc.isDefault,
+      isActive: doc.isActive, // Diubah
       hariAktif: doc.hariAktif,
       jamMulai: doc.jamMulai,
       jamSelesai: doc.jamSelesai,
@@ -84,8 +84,9 @@ class TarifService {
 
     const filter = { tenantID };
 
-    if (query.isDefault !== undefined) {
-      filter.isDefault = query.isDefault === "true";
+    if (query.isActive !== undefined) {
+      // Diubah
+      filter.isActive = query.isActive === "true";
     }
 
     if (query.basisPerhitungan) {
@@ -214,7 +215,7 @@ class TarifService {
       const updated = await Tarif.findOneAndUpdate(
         { _id: id, tenantID },
         updateFields,
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       )
         .populate("tipeAsetID", "namaTipeAset")
         .lean();

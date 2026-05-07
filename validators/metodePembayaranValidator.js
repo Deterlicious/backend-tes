@@ -26,7 +26,7 @@ function validateMetodePembayaranPayload(data, isUpdate = false) {
 
     if (!data.kategori || !VALID_KATEGORI.includes(data.kategori)) {
       errors.push(
-        `Kategori tidak valid. Pilihan: ${VALID_KATEGORI.join(", ")}`
+        `Kategori tidak valid. Pilihan: ${VALID_KATEGORI.join(", ")}`,
       );
     }
   } else if (data.kategori && !VALID_KATEGORI.includes(data.kategori)) {

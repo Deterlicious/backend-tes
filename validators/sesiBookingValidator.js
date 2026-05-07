@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const VALID_STATUS = ["Aktif", "Selesai", "Batal", "VOID"];
+const VALID_STATUS = ["Aktif", "Selesai", "Batal"];
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -43,12 +43,13 @@ function validateWaktuRange(waktuMulai, waktuSelesai, errors, prefix = "") {
   const start = new Date(waktuMulai);
   const end = new Date(waktuSelesai);
 
-  if (
-    !Number.isNaN(start.getTime()) &&
-    !Number.isNaN(end.getTime()) &&
-    end <= start
-  ) {
-    errors.push(`${prefix}waktuSelesai harus lebih besar dari waktuMulai`);
+  if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+    // 1. Waktu selesai harus masuk akal (lebih besar dari waktu mulai)
+    if (end <= start) {
+      errors.push(`${prefix}waktuSelesai harus lebih besar dari waktuMulai`);
+    }
+
+    // 2. Batas 3 bulan mundur SUDAH DIHAPUS. Pengguna bebas menginput tanggal ke masa lalu.
   }
 }
 
@@ -97,7 +98,7 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     }
 
     if (data.status !== undefined && !VALID_STATUS.includes(data.status)) {
-      errors.push("status tidak valid (Aktif/Selesai/Batal/VOID)");
+      errors.push("status tidak valid (Aktif/Selesai/Batal)");
     }
 
     if (
@@ -130,11 +131,11 @@ function validateSesiBookingPayload(data, isUpdate = false) {
     }
 
     if (data.diskonGlobal !== undefined) {
-      validateIdArray(data.diskonGlobal, "diskonGlobal", errors);
+      validateIdArray(data.diskonGlobal, "diskonGlobal", errors); // Diperbaiki dari data.disglobal
     }
 
     if (data.status !== undefined && !VALID_STATUS.includes(data.status)) {
-      errors.push("status tidak valid (Aktif/Selesai/Batal/VOID)");
+      errors.push("status tidak valid (Aktif/Selesai/Batal)");
     }
   }
 

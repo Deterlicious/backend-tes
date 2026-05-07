@@ -53,7 +53,7 @@ const DiskonSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 DiskonSchema.index({ tenantID: 1, namaDiskon: 1 }, { unique: true });

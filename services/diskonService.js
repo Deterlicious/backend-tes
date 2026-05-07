@@ -156,7 +156,7 @@ class DiskonService {
       const updated = await Diskon.findOneAndUpdate(
         { _id: id, tenantID: requesterTenantID },
         payload,
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       ).lean();
 
       if (!updated) {
@@ -224,6 +224,61 @@ class DiskonService {
     }
 
     return { valid: true };
+  }
+
+  // --- FUNGSI BARU UNTUK DIGUNAKAN OLEH MODUL PENJUALAN / BOOKING ---
+  async hitungDanValidasiPotongan(
+    diskonId,
+    hargaAwal,
+    cakupanDiminta,
+    tenantID,
+  ) {
+    // Memanggil getById agar sekaligus memanfaatkan Redis Cache
+    const diskon = await this.getById(diskonId, tenantID);
+
+    if (!diskon) {
+      return {
+        valid: false,
+        error: "Diskon tidak valid atau tidak ditemukan.",
+      };
+    }
+
+    if (diskon.status !== "Aktif") {
+      return {
+        valid: false,
+        error: `Diskon '${diskon.namaDiskon}' saat ini sedang tidak aktif.`,
+      };
+    }
+
+    if (diskon.cakupan !== cakupanDiminta) {
+      return {
+        valid: false,
+        error: `Diskon '${diskon.namaDiskon}' adalah diskon ${diskon.cakupan}, tidak bisa digunakan sebagai diskon ${cakupanDiminta}.`,
+      };
+    }
+
+    let potongan = 0;
+
+    if (diskon.tipe === "persen") {
+      potongan = hargaAwal * (diskon.nilai / 100);
+    } else if (diskon.tipe === "nominal") {
+      potongan = diskon.nilai;
+    }
+
+    // Validasi krusial: Potongan tidak boleh lebih besar dari harga awal (mencegah minus)
+    if (potongan > hargaAwal) {
+      return {
+        valid: false,
+        error: `Nilai diskon (Rp ${potongan.toLocaleString("id-ID")}) melebihi total harga (Rp ${hargaAwal.toLocaleString("id-ID")}).`,
+      };
+    }
+
+    return {
+      valid: true,
+      potongan: potongan,
+      hargaAkhir: hargaAwal - potongan,
+      dataDiskon: diskon,
+    };
   }
 }
 

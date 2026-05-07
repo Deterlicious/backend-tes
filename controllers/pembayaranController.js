@@ -1,33 +1,13 @@
 const pembayaranService = require("../services/pembayaranService");
 const createError = require("http-errors");
-const Permission = require("../models/permissionModel");
 
 class PembayaranController {
-  async _checkPermission(userPermissionIDs, permissionName) {
-    const permissionDoc = await Permission.findOne({ nama: permissionName });
-
-    if (!permissionDoc) return false;
-
-    return userPermissionIDs
-      .map((id) => id.toString())
-      .includes(permissionDoc._id.toString());
-  }
-
   _getRequesterTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
 
   async getAll(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola pembayaran");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembayaranService.getAll(tenantID);
 
@@ -39,15 +19,6 @@ class PembayaranController {
 
   async getById(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola pembayaran");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembayaranService.getById(req.params.id, tenantID);
 
@@ -63,15 +34,6 @@ class PembayaranController {
 
   async create(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola pembayaran");
-      }
-
       req.body.tenantID = this._getRequesterTenantID(req);
 
       const result = await pembayaranService.create(req.body);
@@ -88,15 +50,6 @@ class PembayaranController {
 
   async update(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola pembayaran");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       delete req.body.tenantID;
@@ -106,7 +59,7 @@ class PembayaranController {
       const result = await pembayaranService.update(
         req.params.id,
         req.body,
-        tenantID
+        tenantID,
       );
 
       if (result?.error) {
@@ -125,15 +78,6 @@ class PembayaranController {
 
   async delete(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola pembayaran");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await pembayaranService.delete(req.params.id, tenantID);
 
