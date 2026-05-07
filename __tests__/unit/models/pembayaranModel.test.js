@@ -1,248 +1,152 @@
 const mongoose = require("mongoose");
 const Pembayaran = require("../../../models/pembayaranModel");
 
-function createValidPembayaran(overrides = {}) {
-  return new Pembayaran({
+describe("Unit Test — Model — Pembayaran", () => {
+  // Mock data yang valid untuk pengujian
+  const validData = {
     tenantID: new mongoose.Types.ObjectId(),
     akunKasID: new mongoose.Types.ObjectId(),
     penjualanID: new mongoose.Types.ObjectId(),
     metodePembayaranID: new mongoose.Types.ObjectId(),
-    noReferensi: "PAY-TEST-001",
-    tanggalBayar: new Date(),
-    jumlahBayar: 10000,
-    status: "PAID",
-    catatan: "Pembayaran test",
-    ...overrides,
-  });
-}
+    noReferensi: "INV-2026-05-001",
+    jumlahBayar: 234300, // Mensimulasikan harga dengan PPN
+  };
 
-describe("Pembayaran Model Validation", () => {
-  describe("field wajib", () => {
-    test("gagal jika tenantID tidak diisi", async () => {
-      const pembayaran = createValidPembayaran({ tenantID: undefined });
+  describe("Konfigurasi Skema & Default Value", () => {
+    test("Sukses membuat instance valid dengan default value", async () => {
+      const doc = new Pembayaran(validData);
+      await doc.validate();
 
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.tenantID).toBeDefined();
+      expect(doc.status).toBe("PENDING");
+      expect(doc.tanggalBayar).toBeNull();
+      expect(doc.gatewayPaymentID).toBeNull();
+      expect(doc.qrString).toBeNull();
+      expect(doc.catatan).toBeNull();
     });
 
-    test("gagal jika akunKasID tidak diisi", async () => {
-      const pembayaran = createValidPembayaran({ akunKasID: undefined });
+    test("Harus mengaktifkan timestamps dan menonaktifkan versionKey pada opsi Schema", () => {
+      const schemaOptions = Pembayaran.schema.options;
 
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.akunKasID).toBeDefined();
+      expect(schemaOptions.timestamps).toBe(true);
+      expect(schemaOptions.versionKey).toBe(false);
     });
 
-    test("gagal jika penjualanID tidak diisi", async () => {
-      const pembayaran = createValidPembayaran({ penjualanID: undefined });
-
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.penjualanID).toBeDefined();
-    });
-
-    test("gagal jika metodePembayaranID tidak diisi", async () => {
-      const pembayaran = createValidPembayaran({
-        metodePembayaranID: undefined,
+    test("Harus melakukan trim pada field string (noReferensi, gatewayPaymentID, qrString, catatan)", () => {
+      const doc = new Pembayaran({
+        ...validData,
+        noReferensi: "   INV-TRIM-01   ",
+        gatewayPaymentID: "   XND-123   ",
+        qrString: "   QR-XYZ   ",
+        catatan: "   Lunas   ",
       });
 
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.metodePembayaranID).toBeDefined();
-    });
-
-    test("gagal jika noReferensi tidak diisi", async () => {
-      const pembayaran = createValidPembayaran({ noReferensi: undefined });
-
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.noReferensi).toBeDefined();
-    });
-
-    test("gagal jika jumlahBayar tidak diisi", async () => {
-      const pembayaran = createValidPembayaran({ jumlahBayar: undefined });
-
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.jumlahBayar).toBeDefined();
+      expect(doc.noReferensi).toBe("INV-TRIM-01");
+      expect(doc.gatewayPaymentID).toBe("XND-123");
+      expect(doc.qrString).toBe("QR-XYZ");
+      expect(doc.catatan).toBe("Lunas");
     });
   });
 
-  describe("enum validation", () => {
-    test("gagal jika status bukan enum yang valid", async () => {
-      const pembayaran = createValidPembayaran({ status: "LUNAS" });
+  describe("Validasi Field Wajib & Enum", () => {
+    test("Gagal validasi jika field wajib kosong", () => {
+      const doc = new Pembayaran({});
+      const err = doc.validateSync();
 
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.status).toBeDefined();
+      expect(err.errors.tenantID).toBeDefined();
+      expect(err.errors.akunKasID).toBeDefined();
+      expect(err.errors.penjualanID).toBeDefined();
+      expect(err.errors.metodePembayaranID).toBeDefined();
+      expect(err.errors.noReferensi).toBeDefined();
+      expect(err.errors.jumlahBayar).toBeDefined();
+
+      // Memastikan pesan kustom keluar
+      expect(err.errors.akunKasID.message).toMatch(/Akun Kas wajib diisi/i);
+      expect(err.errors.noReferensi.message).toMatch(
+        /No Referensi Penjualan wajib diisi/i,
+      );
     });
 
-    test("status VOID valid", async () => {
-      const pembayaran = createValidPembayaran({
-        status: "VOID",
-        tanggalBayar: null,
+    test("Gagal validasi jika jumlahBayar bernilai negatif", () => {
+      const doc = new Pembayaran({
+        ...validData,
+        jumlahBayar: -50000,
       });
 
-      await expect(pembayaran.validate()).resolves.toBeUndefined();
-      expect(pembayaran.status).toBe("VOID");
+      const err = doc.validateSync();
+      expect(err.errors.jumlahBayar).toBeDefined();
+      expect(err.errors.jumlahBayar.message).toMatch(
+        /Jumlah bayar tidak boleh negatif/i,
+      );
     });
 
-    test("status PENDING valid", async () => {
-      const pembayaran = createValidPembayaran({
-        status: "PENDING",
-        tanggalBayar: null,
+    test("Gagal validasi jika status di luar pilihan enum", () => {
+      const doc = new Pembayaran({
+        ...validData,
+        status: "SUCCESS", // Bukan PAID, PENDING, dll
       });
 
-      await expect(pembayaran.validate()).resolves.toBeUndefined();
-      expect(pembayaran.status).toBe("PENDING");
+      const err = doc.validateSync();
+      expect(err.errors.status).toBeDefined();
+    });
+
+    test("Gagal validasi jika status menggunakan huruf kecil (case sensitive)", () => {
+      const doc = new Pembayaran({
+        ...validData,
+        status: "paid", // Harus kapital "PAID"
+      });
+
+      const err = doc.validateSync();
+      expect(err.errors.status).toBeDefined();
     });
   });
 
-  describe("nilai dan hook pre-validate", () => {
-    test("gagal jika jumlahBayar negatif", async () => {
-      const pembayaran = createValidPembayaran({ jumlahBayar: -1000 });
-
-      await expect(pembayaran.validate()).rejects.toThrow();
-      expect(pembayaran.validateSync().errors.jumlahBayar).toBeDefined();
-    });
-
-    test("jumlahBayar 0 masih valid di level model", async () => {
-      const pembayaran = createValidPembayaran({ jumlahBayar: 0 });
-
-      await expect(pembayaran.validate()).resolves.toBeUndefined();
-      expect(pembayaran.jumlahBayar).toBe(0);
-    });
-
-    test("status PAID wajib punya tanggalBayar", async () => {
-      const pembayaran = createValidPembayaran({
+  describe("Pre-validate Hook (Logika Status & Tanggal Bayar)", () => {
+    test("Sukses validasi jika status 'PAID' dan tanggalBayar telah diisi", async () => {
+      const doc = new Pembayaran({
+        ...validData,
         status: "PAID",
-        tanggalBayar: null,
+        tanggalBayar: new Date(),
       });
 
+      await doc.validate();
+      expect(doc.status).toBe("PAID");
+      expect(doc.tanggalBayar).not.toBeNull();
+    });
+
+    test("Gagal validasi jika status 'PAID' tetapi tanggalBayar dibiarkan kosong (null)", async () => {
+      const doc = new Pembayaran({
+        ...validData,
+        status: "PAID",
+        tanggalBayar: null, // Simulasi kelupaan mengisi tanggal saat pelunasan
+      });
+
+      let err;
       try {
-        await pembayaran.validate();
-        throw new Error("Seharusnya validasi gagal");
-      } catch (err) {
-        expect(err).toBeDefined();
-        expect(err.errors).toBeDefined();
-        expect(err.errors.tanggalBayar).toBeDefined();
-        expect(err.errors.tanggalBayar.message).toBe(
-          "Tanggal bayar wajib diisi jika status PAID"
-        );
+        await doc.validate();
+      } catch (e) {
+        err = e;
       }
+
+      expect(err).toBeDefined();
+      expect(err.errors.tanggalBayar).toBeDefined();
+      expect(err.errors.tanggalBayar.message).toMatch(
+        /Tanggal bayar wajib diisi jika status PAID/i,
+      );
     });
 
-    test("status selain PAID tidak wajib tanggalBayar", async () => {
-      const pembayaran = createValidPembayaran({
-        status: "FAILED",
-        tanggalBayar: null,
-      });
+    test("Sukses validasi jika status selain 'PAID' dan tanggalBayar kosong (null)", async () => {
+      const statuses = ["PENDING", "EXPIRED", "FAILED", "VOID"];
 
-      await expect(pembayaran.validate()).resolves.toBeUndefined();
-      expect(pembayaran.tanggalBayar).toBeNull();
-    });
-  });
+      for (const status of statuses) {
+        const doc = new Pembayaran({
+          ...validData,
+          status: status,
+          tanggalBayar: null,
+        });
 
-  describe("default dan trim", () => {
-    test("status default adalah PENDING", async () => {
-      const pembayaran = new Pembayaran({
-        tenantID: new mongoose.Types.ObjectId(),
-        akunKasID: new mongoose.Types.ObjectId(),
-        penjualanID: new mongoose.Types.ObjectId(),
-        metodePembayaranID: new mongoose.Types.ObjectId(),
-        noReferensi: "PAY-DEFAULT-001",
-        jumlahBayar: 10000,
-      });
-
-      await pembayaran.validate().catch(() => {});
-
-      expect(pembayaran.status).toBe("PENDING");
-    });
-
-    test("tanggalBayar default null", () => {
-      const pembayaran = new Pembayaran({
-        tenantID: new mongoose.Types.ObjectId(),
-        akunKasID: new mongoose.Types.ObjectId(),
-        penjualanID: new mongoose.Types.ObjectId(),
-        metodePembayaranID: new mongoose.Types.ObjectId(),
-        noReferensi: "PAY-DEFAULT-002",
-        jumlahBayar: 10000,
-      });
-
-      expect(pembayaran.tanggalBayar).toBeNull();
-    });
-
-    test("gatewayPaymentID default null", () => {
-      const pembayaran = new Pembayaran({
-        tenantID: new mongoose.Types.ObjectId(),
-        akunKasID: new mongoose.Types.ObjectId(),
-        penjualanID: new mongoose.Types.ObjectId(),
-        metodePembayaranID: new mongoose.Types.ObjectId(),
-        noReferensi: "PAY-DEFAULT-003",
-        jumlahBayar: 10000,
-      });
-
-      expect(pembayaran.gatewayPaymentID).toBeNull();
-    });
-
-    test("qrString default null", () => {
-      const pembayaran = new Pembayaran({
-        tenantID: new mongoose.Types.ObjectId(),
-        akunKasID: new mongoose.Types.ObjectId(),
-        penjualanID: new mongoose.Types.ObjectId(),
-        metodePembayaranID: new mongoose.Types.ObjectId(),
-        noReferensi: "PAY-DEFAULT-004",
-        jumlahBayar: 10000,
-      });
-
-      expect(pembayaran.qrString).toBeNull();
-    });
-
-    test("catatan default null", () => {
-      const pembayaran = new Pembayaran({
-        tenantID: new mongoose.Types.ObjectId(),
-        akunKasID: new mongoose.Types.ObjectId(),
-        penjualanID: new mongoose.Types.ObjectId(),
-        metodePembayaranID: new mongoose.Types.ObjectId(),
-        noReferensi: "PAY-DEFAULT-005",
-        jumlahBayar: 10000,
-      });
-
-      expect(pembayaran.catatan).toBeNull();
-    });
-
-    test("noReferensi di-trim oleh schema", async () => {
-      const pembayaran = createValidPembayaran({
-        noReferensi: "   PAY-TRIM-001   ",
-      });
-
-      await pembayaran.validate();
-
-      expect(pembayaran.noReferensi).toBe("PAY-TRIM-001");
-    });
-
-    test("gatewayPaymentID di-trim oleh schema", async () => {
-      const pembayaran = createValidPembayaran({
-        gatewayPaymentID: "   MID-001   ",
-      });
-
-      await pembayaran.validate();
-
-      expect(pembayaran.gatewayPaymentID).toBe("MID-001");
-    });
-
-    test("qrString di-trim oleh schema", async () => {
-      const pembayaran = createValidPembayaran({
-        qrString: "   QR-STRING-001   ",
-      });
-
-      await pembayaran.validate();
-
-      expect(pembayaran.qrString).toBe("QR-STRING-001");
-    });
-
-    test("catatan di-trim oleh schema", async () => {
-      const pembayaran = createValidPembayaran({
-        catatan: "   Catatan pembayaran   ",
-      });
-
-      await pembayaran.validate();
-
-      expect(pembayaran.catatan).toBe("Catatan pembayaran");
+        await doc.validate();
+        expect(doc.status).toBe(status);
+      }
     });
   });
 });
