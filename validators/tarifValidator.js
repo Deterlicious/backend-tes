@@ -60,7 +60,7 @@ function validateTarifPayload(data, isUpdate = false) {
 
       if (invalidDays) {
         errors.push(
-          "hariAktif hanya boleh berisi angka 0 (Minggu) sampai 6 (Sabtu)"
+          "hariAktif hanya boleh berisi angka 0 (Minggu) sampai 6 (Sabtu)",
         );
       }
     }
@@ -72,6 +72,15 @@ function validateTarifPayload(data, isUpdate = false) {
 
   if (data.jamSelesai && !TIME_REGEX.test(data.jamSelesai)) {
     errors.push("jamSelesai harus format HH:mm (contoh: 23:00)");
+  }
+
+  // LOGIKA BARU: Validasi Perbandingan Waktu
+  if (data.jamMulai && data.jamSelesai) {
+    if (TIME_REGEX.test(data.jamMulai) && TIME_REGEX.test(data.jamSelesai)) {
+      if (data.jamMulai >= data.jamSelesai) {
+        errors.push("jamMulai harus lebih awal dari jamSelesai");
+      }
+    }
   }
 
   if (data.tipeAsetID) {

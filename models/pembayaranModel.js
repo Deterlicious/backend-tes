@@ -69,14 +69,14 @@ const PembayaranSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 PembayaranSchema.pre("validate", function (next) {
   if (this.status === "PAID" && !this.tanggalBayar) {
     this.invalidate(
       "tanggalBayar",
-      "Tanggal bayar wajib diisi jika status PAID"
+      "Tanggal bayar wajib diisi jika status PAID",
     );
   }
 

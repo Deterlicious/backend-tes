@@ -1,39 +1,21 @@
 const metodePembayaranService = require("../services/metodePembayaranService");
 const createError = require("http-errors");
-const Permission = require("../models/permissionModel");
 
 class MetodePembayaranController {
-  async _checkPermission(userPermissionIDs, permissionName) {
-    const permissionDoc = await Permission.findOne({ nama: permissionName });
-
-    if (!permissionDoc) return false;
-
-    return userPermissionIDs
-      .map((id) => id.toString())
-      .includes(permissionDoc._id.toString());
-  }
-
+  // Mengambil Tenant ID dari middleware autentikasi
   _getRequesterTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
 
   async getAll(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-metode-pembayaran"
-      );
+      const tenantID = this._getRequesterTenantID(req);
 
-      if (!isAllowed) {
-        throw createError(
-          403,
-          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
-        );
+      if (!tenantID) {
+        throw createError(403, "Akses ditolak. Tenant tidak valid.");
       }
 
-      const tenantID = this._getRequesterTenantID(req);
       const result = await metodePembayaranService.getAll(tenantID);
-
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -42,22 +24,10 @@ class MetodePembayaranController {
 
   async getById(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-metode-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(
-          403,
-          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
-        );
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await metodePembayaranService.getById(
         req.params.id,
-        tenantID
+        tenantID,
       );
 
       if (!result) {
@@ -72,18 +42,7 @@ class MetodePembayaranController {
 
   async create(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-metode-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(
-          403,
-          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
-        );
-      }
-
+      // Menyuntikkan tenantID dari sesi login ke dalam body
       req.body.tenantID = this._getRequesterTenantID(req);
 
       const result = await metodePembayaranService.create(req.body);
@@ -100,26 +59,15 @@ class MetodePembayaranController {
 
   async update(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-metode-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(
-          403,
-          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
-        );
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
+      // Keamanan: Jangan biarkan tenantID diubah lewat body
       delete req.body.tenantID;
 
       const result = await metodePembayaranService.update(
         req.params.id,
         req.body,
-        tenantID
+        tenantID,
       );
 
       if (result?.error) {
@@ -138,22 +86,10 @@ class MetodePembayaranController {
 
   async delete(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-metode-pembayaran"
-      );
-
-      if (!isAllowed) {
-        throw createError(
-          403,
-          "Akses ditolak. Anda tidak memiliki izin kelola metode pembayaran."
-        );
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await metodePembayaranService.delete(
         req.params.id,
-        tenantID
+        tenantID,
       );
 
       if (!result) {

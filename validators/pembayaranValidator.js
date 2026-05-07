@@ -1,30 +1,8 @@
 const mongoose = require("mongoose");
 
 const VALID_STATUS = ["PAID", "PENDING", "EXPIRED", "FAILED", "VOID"];
-const INDONESIA_OFFSET_MINUTES = 7 * 60;
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-function toYMDIndonesia(dateObj) {
-  const shifted = new Date(
-    dateObj.getTime() + INDONESIA_OFFSET_MINUTES * 60 * 1000
-  );
-
-  return shifted.toISOString().slice(0, 10);
-}
-
-function getIndonesiaNowShifted() {
-  return new Date(Date.now() + INDONESIA_OFFSET_MINUTES * 60 * 1000);
-}
-
-function getMinYMDIndonesiaFor3MonthsWindow() {
-  const nowShifted = getIndonesiaNowShifted();
-  const year = nowShifted.getUTCFullYear();
-  const month = nowShifted.getUTCMonth();
-  const minShiftedUTC = new Date(Date.UTC(year, month - 3, 1));
-
-  return minShiftedUTC.toISOString().slice(0, 10);
-}
 
 function toNumber(value) {
   if (value === undefined || value === null || value === "") return NaN;
@@ -65,7 +43,7 @@ function validatePembayaranPayload(data, isUpdate = false) {
 
     if (!Number.isFinite(n) || n < 0) {
       errors.push(
-        "jumlahBayar tidak valid (harus angka dan tidak boleh negatif)"
+        "jumlahBayar tidak valid (harus angka dan tidak boleh negatif)",
       );
     }
   }
@@ -80,6 +58,7 @@ function validatePembayaranPayload(data, isUpdate = false) {
     errors.push(`Status tidak valid. Pilihan: ${VALID_STATUS.join(", ")}`);
   }
 
+  // Hanya memvalidasi apakah format tanggalnya benar (bukan teks ngawur)
   if (Object.prototype.hasOwnProperty.call(data, "tanggalBayar")) {
     if (data.tanggalBayar === "" || data.tanggalBayar === null) {
       errors.push("Format tanggal bayar tidak valid.");
@@ -88,20 +67,6 @@ function validatePembayaranPayload(data, isUpdate = false) {
 
       if (Number.isNaN(inputDate.getTime())) {
         errors.push("Format tanggal bayar tidak valid.");
-      } else {
-        const inputYMD = toYMDIndonesia(inputDate);
-        const nowYMD = toYMDIndonesia(new Date());
-        const minYMD = getMinYMDIndonesiaFor3MonthsWindow();
-
-        if (inputYMD > nowYMD) {
-          errors.push("Tanggal pembayaran tidak boleh di masa depan.");
-        }
-
-        if (inputYMD < minYMD) {
-          errors.push(
-            "Tanggal pembayaran tidak boleh lebih lama dari batas 3 bulan (berdasarkan awal bulan)."
-          );
-        }
       }
     }
   }

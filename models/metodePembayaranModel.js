@@ -41,7 +41,7 @@ const MetodePembayaranSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 MetodePembayaranSchema.pre("validate", function (next) {
@@ -49,14 +49,14 @@ MetodePembayaranSchema.pre("validate", function (next) {
     if (this.kategori !== "non-tunai") {
       this.invalidate(
         "kategori",
-        "Metode Xendit (Automated) harus berkategori non-tunai."
+        "Metode Xendit (Automated) harus berkategori non-tunai.",
       );
     }
 
     if (!this.xenditChannelCode || this.xenditChannelCode.trim() === "") {
       this.invalidate(
         "xenditChannelCode",
-        "xenditChannelCode wajib diisi jika isAutomated bernilai true."
+        "xenditChannelCode wajib diisi jika isAutomated bernilai true.",
       );
     }
   } else {

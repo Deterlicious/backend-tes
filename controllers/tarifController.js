@@ -77,7 +77,7 @@ class TarifController {
       const result = await tarifService.update(
         req.params.id,
         tenantID,
-        req.body
+        req.body,
       );
 
       if (result?.error) {

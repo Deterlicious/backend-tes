@@ -24,7 +24,7 @@ const tipeAsetSchema = new mongoose.Schema(
     versionKey: false,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  }
+  },
 );
 
 tipeAsetSchema.virtual("listTarif", {

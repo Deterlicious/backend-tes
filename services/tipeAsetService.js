@@ -1,4 +1,5 @@
 const TipeAset = require("../models/tipeAsetModel");
+const Tarif = require("../models/tarifModel"); // Import model Tarif
 const redis = require("../config/redis");
 const { validateTipeAsetPayload } = require("../validators/tipeAsetValidator");
 const createError = require("http-errors");
@@ -26,6 +27,27 @@ class TipeAsetService {
     if (id) {
       keysToDelete.push(KEY_DETAIL(id));
     }
+
+    if (keysToDelete.length > 0) {
+      await redis.del(...keysToDelete);
+    }
+  }
+
+  // FUNGSI BARU: Membersihkan cache list tarif ketika Tipe Aset diubah/dihapus
+  async _clearTarifCache(tenantID) {
+    const pattern = `tarif:list:${tenantID}:*`;
+    let cursor = "0";
+    const keysToDelete = [];
+
+    do {
+      const res = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+      cursor = res[0];
+      const keys = res[1] || [];
+
+      if (keys.length) {
+        keysToDelete.push(...keys);
+      }
+    } while (cursor !== "0");
 
     if (keysToDelete.length > 0) {
       await redis.del(...keysToDelete);
@@ -161,7 +183,7 @@ class TipeAsetService {
       const updated = await TipeAset.findOneAndUpdate(
         { _id: id, tenantID },
         payload,
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       )
         .populate("listTarif", "namaTarif harga durasiMinimum")
         .lean({ virtuals: true });
@@ -171,6 +193,9 @@ class TipeAsetService {
       }
 
       await this.clearCache(tenantID, id);
+
+      // LOGIKA BARU: Jika nama aset berubah, hapus cache list tarif agar nama aset yang di-populate sinkron
+      await this._clearTarifCache(tenantID);
 
       return this._formatOutput(updated);
     } catch (err) {
@@ -189,7 +214,16 @@ class TipeAsetService {
       return null;
     }
 
+    // LOGIKA BARU: Jika Tipe Aset dihapus, cabut ID aset tersebut dari semua Tarif
+    await Tarif.updateMany(
+      { tenantID, tipeAsetID: id },
+      { $pull: { tipeAsetID: id } },
+    );
+
     await this.clearCache(tenantID, id);
+
+    // LOGIKA BARU: Sinkronisasi Cache Tarif
+    await this._clearTarifCache(tenantID);
 
     return true;
   }

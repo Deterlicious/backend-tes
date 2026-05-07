@@ -2,22 +2,41 @@ const express = require("express");
 const router = express.Router();
 
 const tipeAsetController = require("../controllers/tipeAsetController");
-const authPengguna = require("../middleware/authPengguna"); // 1. Import middleware
+const authPengguna = require("../middleware/authPengguna");
+const { checkPermission } = require("../middleware/authorizePermission"); // Import middleware RBAC
 
 const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn.call(tipeAsetController, req, res, next)).catch(next);
 
-router.use(authPengguna); // 2. Pasang middleware agar token dibaca
+// Autentikasi wajib untuk semua rute
+router.use(authPengguna);
 
 router
   .route("/")
-  .post(wrap(tipeAsetController.create))
-  .get(wrap(tipeAsetController.getAll));
+  // GET: Terbuka untuk semua user yang login (dibutuhkan untuk dropdown tipe aset)
+  .get(wrap(tipeAsetController.getAll))
+  
+  // POST: Terkunci khusus untuk yang berwenang
+  .post(
+    checkPermission("create-tipe-aset"),
+    wrap(tipeAsetController.create)
+  );
 
 router
   .route("/:id")
+  // GET Detail: Terbuka untuk semua user yang login
   .get(wrap(tipeAsetController.getById))
-  .put(wrap(tipeAsetController.update))
-  .delete(wrap(tipeAsetController.delete));
+  
+  // PUT: Terkunci khusus untuk yang berwenang
+  .put(
+    checkPermission("update-tipe-aset"),
+    wrap(tipeAsetController.update)
+  )
+  
+  // DELETE: Terkunci khusus untuk yang berwenang
+  .delete(
+    checkPermission("delete-tipe-aset"),
+    wrap(tipeAsetController.delete)
+  );
 
 module.exports = router;

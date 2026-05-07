@@ -1,4 +1,5 @@
 const Aset = require("../models/asetModel");
+const SesiBooking = require("../models/sesiBookingModel"); // <-- Modul ini dipanggil untuk mengecek jadwal aset
 const redis = require("../config/redis");
 const { validateAsetPayload } = require("../validators/asetValidator");
 const createError = require("http-errors");
@@ -31,9 +32,22 @@ class AsetService {
     }
   }
 
-  _formatOutput(doc) {
+  _formatOutput(doc, inUseSet = new Set()) {
     if (!doc) return null;
-    if (Array.isArray(doc)) return doc.map((d) => this._formatOutput(d));
+    if (Array.isArray(doc))
+      return doc.map((d) => this._formatOutput(d, inUseSet));
+
+    let currentStatus = doc.status;
+
+    // LOGIKA STATUS DINAMIS
+    // Jika tidak sedang diperbaiki toko, kita cek apakah saat ini aset sedang disewa.
+    if (currentStatus !== "perbaikan") {
+      if (inUseSet.has(doc._id.toString())) {
+        currentStatus = "digunakan";
+      } else {
+        currentStatus = "tersedia";
+      }
+    }
 
     return {
       _id: doc._id,
@@ -46,7 +60,7 @@ class AsetService {
             deskripsi: doc.tipeAsetID.deskripsi,
           }
         : null,
-      status: doc.status,
+      status: currentStatus,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };
@@ -59,15 +73,12 @@ class AsetService {
 
     const filter = { tenantID };
 
-    if (query.status) {
-      filter.status = query.status;
-    }
-
+    // Kita JANGAN memfilter query.status ke database, karena status sebenarnya ada di waktu nyata
     if (query.tipeAsetID) {
       filter.tipeAsetID = query.tipeAsetID;
     }
 
-    const filterKey = JSON.stringify(filter);
+    const filterKey = JSON.stringify(query); // Pakai seluruh query sebagai kunci cache
     const key = KEY_LIST(tenantID, filterKey);
 
     const cached = await redis.get(key);
@@ -80,10 +91,32 @@ class AsetService {
       .sort({ createdAt: -1 })
       .lean();
 
-    const formatted = this._formatOutput(data);
+    // 1. Ambil waktu detik ini
+    const now = new Date();
+
+    // 2. Cari semua SesiBooking dari tenant ini yang sedang Aktif detik ini
+    const activeBookings = await SesiBooking.find({
+      tenantID,
+      status: "Aktif",
+      waktuMulai: { $lte: now },
+      $or: [{ waktuSelesai: null }, { waktuSelesai: { $gte: now } }],
+    })
+      .select("dataAset")
+      .lean();
+
+    // 3. Masukkan ID aset yang sedang digunakan ke dalam 'Set' agar pencariannya cepat
+    const inUseSet = new Set(activeBookings.map((b) => b.dataAset.toString()));
+
+    let formatted = this._formatOutput(data, inUseSet);
+
+    // 4. Jika pengguna mencari berdasarkan status, kita filter array hasil akhirnya
+    if (query.status) {
+      formatted = formatted.filter((item) => item.status === query.status);
+    }
 
     if (formatted.length > 0) {
-      await redis.set(key, JSON.stringify(formatted), "EX", 300);
+      // Waktu cache diturunkan jadi 60 detik agar perubahan status lebih real-time
+      await redis.set(key, JSON.stringify(formatted), "EX", 60);
     }
 
     return formatted;
@@ -114,8 +147,27 @@ class AsetService {
       return null;
     }
 
-    const formatted = this._formatOutput(data);
-    await redis.set(key, JSON.stringify(formatted), "EX", 300);
+    // Cek apakah aset INI sedang dipakai detik ini
+    const now = new Date();
+    const activeBooking = await SesiBooking.findOne({
+      tenantID: requesterTenantID,
+      dataAset: id,
+      status: "Aktif",
+      waktuMulai: { $lte: now },
+      $or: [{ waktuSelesai: null }, { waktuSelesai: { $gte: now } }],
+    })
+      .select("_id")
+      .lean();
+
+    const inUseSet = new Set();
+    if (activeBooking) {
+      inUseSet.add(data._id.toString());
+    }
+
+    const formatted = this._formatOutput(data, inUseSet);
+
+    // Waktu cache diturunkan jadi 60 detik
+    await redis.set(key, JSON.stringify(formatted), "EX", 60);
 
     return formatted;
   }
@@ -127,15 +179,17 @@ class AsetService {
       return { error: validation.errors };
     }
 
+    // Cegah kasir/admin nakal membuat aset yang langsung statusnya 'digunakan'
+    if (!payload.status || payload.status === "digunakan") {
+      payload.status = "tersedia";
+    }
+
     const aset = await Aset.create(payload);
 
     await this.clearCache(payload.tenantID);
 
-    const created = await Aset.findById(aset._id)
-      .populate("tipeAsetID", "namaTipeAset deskripsi")
-      .lean();
-
-    return this._formatOutput(created);
+    // Melempar kembali ke getById agar logikanya konsisten dan ter-cache otomatis
+    return await this.getById(aset._id, payload.tenantID);
   }
 
   async update(id, payload, requesterTenantID) {
@@ -147,13 +201,17 @@ class AsetService {
 
     delete payload.tenantID;
 
+    // Jika admin salah setting dan menembak 'digunakan', kembalikan ke 'tersedia'
+    // karena status 'digunakan' murni dari jadwal SesiBooking.
+    if (payload.status === "digunakan") {
+      payload.status = "tersedia";
+    }
+
     const updated = await Aset.findOneAndUpdate(
       { _id: id, tenantID: requesterTenantID },
       payload,
-      { new: true, runValidators: true }
-    )
-      .populate("tipeAsetID", "namaTipeAset deskripsi")
-      .lean();
+      { new: true, runValidators: true },
+    );
 
     if (!updated) {
       return null;
@@ -161,7 +219,8 @@ class AsetService {
 
     await this.clearCache(requesterTenantID, id);
 
-    return this._formatOutput(updated);
+    // Langsung ambil dengan logika pencarian waktu nyata yang terjamin akurat
+    return await this.getById(id, requesterTenantID);
   }
 
   async delete(id, requesterTenantID) {
