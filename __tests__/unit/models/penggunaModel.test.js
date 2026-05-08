@@ -25,7 +25,7 @@ describe("Unit Test Model — Pengguna", () => {
 
     expect(err).toBeUndefined();
     // Memastikan fondasi penutupan celah bypass (Default selalu 'app')
-    expect(user.aksesType).toBe("app");
+    expect(user.aksesType).toEqual(["app"]); // Harus array
     expect(user.maxPrimaryDevice).toBe(1);
     expect(user.maxDevice).toBe(1);
     expect(user.tokenVersion).toBe(0);
@@ -46,11 +46,11 @@ describe("Unit Test Model — Pengguna", () => {
   // Skenario C: Penolakan Enum aksesType Ilegal
   test("Skenario C — gagal validasi jika aksesType diisi dengan string ngawur", () => {
     // Klien memaksa memasukkan tipe akses tidak sah
-    const user = new Pengguna({ ...validData, aksesType: "desktop_ilegal" });
+    const user = new Pengguna({ ...validData, aksesType: ["desktop_ilegal"] });
     const err = user.validateSync();
 
-    expect(err.errors.aksesType).toBeDefined();
-    expect(err.errors.aksesType.message).toMatch(/is not a valid enum value/i);
+    expect(err.errors["aksesType.0"]).toBeDefined();
+    expect(err.errors["aksesType.0"].message).toMatch(/enum/i);
   });
 
   // Skenario D: Restriksi Batas Maksimal Kuota Device
@@ -122,5 +122,75 @@ describe("Unit Test Model — Pengguna", () => {
     expect(err.errors["deviceHistory.0.action"].message).toMatch(
       /is not a valid enum value/i,
     );
+  });
+
+  // Skenario H: Sanitasi Data Otomatis (Trim)
+  test("Skenario H — harus otomatis memotong spasi liar (trim) pada nama dan nomorHp", () => {
+    const user = new Pengguna({
+      ...validData,
+      nama: "   Kasir Depan   ",
+      nomorHp: "   08123456789   "
+    });
+
+    // Mongoose harus membersihkannya seketika
+    expect(user.nama).toBe("Kasir Depan");
+    expect(user.nomorHp).toBe("08123456789");
+  });
+
+  // Skenario Middleware: Hashing PIN
+  describe("Middleware Pre-save (PIN Hashing)", () => {
+    test("harus melakukan hashing PIN jika PIN diubah/baru", async () => {
+      bcrypt.genSalt.mockResolvedValue("random_salt");
+      bcrypt.hash.mockResolvedValue("hashed_pin_baru");
+
+      const user = new Pengguna({ ...validData, pin: "pin_mentah" });
+      
+      const pres = user.schema.s.hooks._pres.get('save');
+      const saveHook = pres.find(h => h.fn.toString().includes('bcrypt')).fn;
+      
+      user.isModified = jest.fn().mockReturnValue(true);
+      const mockNext = jest.fn();
+      
+      await saveHook.call(user, mockNext);
+
+      expect(user.isModified).toHaveBeenCalledWith("pin");
+      expect(bcrypt.genSalt).toHaveBeenCalledWith(10);
+      expect(bcrypt.hash).toHaveBeenCalledWith("pin_mentah", "random_salt");
+      expect(user.pin).toBe("hashed_pin_baru");
+      expect(mockNext).toHaveBeenCalled();
+    });
+
+    test("tidak boleh melakukan hashing ulang jika PIN tidak dimodifikasi", async () => {
+      const user = new Pengguna({ ...validData, pin: "hashed_lama" });
+      
+      const pres = user.schema.s.hooks._pres.get('save');
+      const saveHook = pres.find(h => h.fn.toString().includes('bcrypt')).fn;
+      
+      user.isModified = jest.fn().mockReturnValue(false);
+      const mockNext = jest.fn();
+      
+      await saveHook.call(user, mockNext);
+
+      expect(user.isModified).toHaveBeenCalledWith("pin");
+      expect(bcrypt.genSalt).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalled();
+    });
+
+    test("harus melempar error ke next() jika proses hashing gagal", async () => {
+      const mockError = new Error("Bcrypt gagal");
+      bcrypt.genSalt.mockRejectedValue(mockError);
+
+      const user = new Pengguna({ ...validData, pin: "pin_mentah" });
+      
+      const pres = user.schema.s.hooks._pres.get('save');
+      const saveHook = pres.find(h => h.fn.toString().includes('bcrypt')).fn;
+      
+      user.isModified = jest.fn().mockReturnValue(true);
+      const mockNext = jest.fn();
+      
+      await saveHook.call(user, mockNext);
+
+      expect(mockNext).toHaveBeenCalledWith(mockError);
+    });
   });
 });

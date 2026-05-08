@@ -191,9 +191,10 @@ class AkunService {
     return akun;
   }
 
-  // perbaikan: Menggunakan findById dan .save() agar middleware Mongoose untuk hashing password aktif
+  // perbaikan: Menggunakan findOne dan .save() agar middleware Mongoose untuk hashing password aktif
   async updateProfile(tenantID, payload) {
-    const user = await Akun.findById({ tenantID });
+    // FIX 1: Menggunakan findOne untuk pencarian berdasarkan kolom custom, bukan findById
+    const user = await Akun.findOne({ tenantID });
 
     if (!user) {
       throw createError(404, "Akun tidak ditemukan.");
@@ -227,7 +228,8 @@ class AkunService {
     await user.save();
 
     // Pembersihan Cache
-    await this.clearCache(userId);
+    // FIX 2: Menggunakan user._id, bukan userId yang tidak terdefinisi
+    await this.clearCache(user._id);
     if (payload.email) {
       await redis.del(KEY_ALL_USERS);
     }

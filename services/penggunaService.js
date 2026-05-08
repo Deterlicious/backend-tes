@@ -235,51 +235,51 @@ class PenggunaService {
   }
 
   async refreshToken(token) {
+    let decoded;
+
+    // 1. Try-catch untuk cek token jwt
     try {
-      const decoded = jwt.verify(token, PENGGUNA_REFRESH_TOKEN);
-      const user = await Pengguna.findById(decoded.id);
-
-      if (!user) throw createError(401, "Pengguna tidak ditemukan.");
-
-      const loginType = decoded.loginType;
-
-      let device = null;
-      if (loginType === "app") {
-        device = user.device.find((d) => d.deviceID === decoded.deviceID);
-        if (!device || device.tokenVersion !== decoded.version) {
-          throw createError(401, "Sesi perangkat tidak valid.");
-        }
-
-        // ✅ Rotate tokenVersion per device
-        device.tokenVersion = Date.now();
-        device.lastUsed = new Date();
-        user.markModified("device");
-      } else {
-        if (user.tokenVersion !== decoded.version) {
-          throw createError(401, "Sesi tidak valid.");
-        }
-
-        user.tokenVersion = Date.now();
-      }
-
-      await user.save();
-      await this.clearCache(user.tenantID, user._id); // ✅ invalidate cache
-
-      const accessToken = this.generateToken(user, device, loginType);
-      const newRefreshToken = this.generateRefreshToken(
-        user,
-        device,
-        loginType,
-      );
-
-      return { accessToken, newRefreshToken };
+      decoded = jwt.verify(token, PENGGUNA_REFRESH_TOKEN);
     } catch (err) {
-      if (createError.isHttpError(err)) throw err; // ✅ jangan wrap error yang sudah HTTP
       throw createError(401, "Refresh token tidak valid atau kedaluwarsa.");
     }
+
+    // Query ke DB dilakukan DI LUAR try-catch jwt
+    const user = await Pengguna.findById(decoded.id);
+    if (!user) throw createError(401, "Pengguna tidak ditemukan.");
+
+    const loginType = decoded.loginType;
+    let device = null;
+
+    if (loginType === "app") {
+      device = user.device.find((d) => d.deviceID === decoded.deviceID);
+      if (!device || device.tokenVersion !== decoded.version) {
+        throw createError(401, "Sesi perangkat tidak valid.");
+      }
+
+      // Rotate tokenVersion per device
+      device.tokenVersion = Date.now();
+      device.lastUsed = new Date();
+      user.markModified("device");
+    } else {
+      if (user.tokenVersion !== decoded.version) {
+        throw createError(401, "Sesi tidak valid.");
+      }
+      user.tokenVersion = Date.now();
+    }
+
+    // Jika save() gagal (misal MongoDB crash), dia akan otomatis melempar error 500
+    // tanpa dibungkam oleh catch 401 seperti sebelumnya.
+    await user.save();
+    await this.clearCache(user.tenantID, user._id); // invalidate cache
+
+    const accessToken = this.generateToken(user, device, loginType);
+    const newRefreshToken = this.generateRefreshToken(user, device, loginType);
+
+    return { accessToken, newRefreshToken };
   }
 
-  async logout(token) {
+  async logout(token, accessToken) {
     try {
       const decoded = jwt.verify(token, PENGGUNA_REFRESH_TOKEN);
       const user = await Pengguna.findById(decoded.id);
@@ -300,7 +300,26 @@ class PenggunaService {
       await user.save();
       await this.clearCache(user.tenantID, user._id);
     } catch (err) {
-      return;
+      // Abaikan error pada refresh token (silent exit bagian 1)
+    }
+
+    if (accessToken) {
+      try {
+        const decodedAccess = jwt.verify(
+          accessToken,
+          process.env.PENGGUNA_JWT_SECRET || "pengguna_secret",
+        );
+        const timeRemaining = decodedAccess.exp - Math.floor(Date.now() / 1000);
+
+        if (timeRemaining > 0) {
+          await redis.set(
+            `bl_${accessToken}`,
+            "blacklisted",
+            "EX",
+            timeRemaining,
+          );
+        }
+      } catch (ignore) {} // Diam-diam abaikan jika token sudah kedaluwarsa
     }
   }
 
@@ -369,6 +388,23 @@ class PenggunaService {
     const roleExists = await Role.findById(roleID);
     if (!roleExists) throw createError(404, "Role tidak ditemukan.");
 
+    if (String(roleExists.tenantID) !== String(tenantID)) {
+      throw createError(403, "Role tidak valid untuk tenant ini.");
+    }
+
+    if (roleExists.namaRole === "Owner") {
+      const existingOwner = await Pengguna.findOne({
+        tenantID,
+        roleID: roleExists._id,
+      });
+      if (existingOwner) {
+        throw createError(
+          400,
+          "Role Owner sudah digunakan oleh pengguna lain.",
+        );
+      }
+    }
+
     const now = Date.now();
 
     const normalizedAksesType = Array.isArray(aksesType)
@@ -422,6 +458,9 @@ class PenggunaService {
   }
 
   async update(id, payload, tenantID) {
+    if (!payload || Object.keys(payload).length === 0) {
+      throw createError(400, "Data update tidak boleh kosong.");
+    }
     if (payload.roleID) {
       const roleExists = await Role.findById(payload.roleID);
       if (!roleExists) throw createError(404, "Role tidak ditemukan.");
@@ -512,6 +551,11 @@ class PenggunaService {
   async removeDevice(id, tenantID, deviceID) {
     const user = await Pengguna.findOne({ _id: id, tenantID });
     if (!user) throw createError(404, "Pengguna tidak ditemukan");
+
+    const deviceExists = user.device.some((d) => d.deviceID === deviceID);
+    if (!deviceExists) {
+      throw createError(404, "Perangkat tidak ditemukan atau sudah dihapus.");
+    }
 
     user.device = user.device.filter((d) => d.deviceID !== deviceID);
     await user.save();

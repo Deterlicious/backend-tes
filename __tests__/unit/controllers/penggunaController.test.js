@@ -111,6 +111,18 @@ describe("Unit Test — Pengguna Controller", () => {
         }),
       );
     });
+
+    test("_ensureTenant [EDGE CASE]: Harus melempar 400 jika Akun valid tapi belum memiliki tenantID (Akun baru belum buat toko)", async () => {
+      req.akunContext = { id: "akun_tanpa_toko" }; // tenantID sengaja tidak ada
+      await penggunaController.create(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 400,
+          message: expect.stringMatching(/Tenant tidak ditemukan/i),
+        }),
+      );
+    });
   });
 
   // 2. OTENTIKASI (LOGIN, REFRESH, LOGOUT)
@@ -134,7 +146,7 @@ describe("Unit Test — Pengguna Controller", () => {
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           accessToken: "access_token_123", // di root
-          data: expect.objectContaining({ pengguna: expect.any(Object) }),
+          data: expect.objectContaining({ nama: "Kasir A" }),
         }),
       );
     });
@@ -365,6 +377,25 @@ describe("Unit Test — Pengguna Controller", () => {
       expect(next).toHaveBeenCalledWith(err);
       expect(res.cookie).not.toHaveBeenCalled();
       expect(res.json).not.toHaveBeenCalled();
+    });
+
+    test("registerOwner [EDGE CASE]: Harus throw 400 jika aksesType berupa Array ['web', 'app'] dan tidak ada deviceID", async () => {
+      req.akunContext = { tenantID: "toko_123" };
+      req.body = {
+        nama: "Owner Multi",
+        pin: "123456",
+        aksesType: ["web", "app"],
+      }; // Multi akses tanpa deviceID
+
+      await penggunaController.registerOwner(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 400,
+          message: expect.stringMatching(/device id/i),
+        }),
+      );
+      expect(penggunaService.registerOwner).not.toHaveBeenCalled();
     });
   });
 
