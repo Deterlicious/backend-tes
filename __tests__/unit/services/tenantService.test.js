@@ -257,53 +257,7 @@ describe("Unit Test Tenant Service", () => {
         expect.stringContaining("tenants:toko_mati"),
       ); // Cache ID
     });
-    test("harus hapus secara cascade (Role, Pengguna, Tenant) dan reset tenantID Akun", async () => {
-      const tenantID = "toko_mati";
 
-      await tenantService.delete(tenantID);
-
-      // FIX: Memastikan seluruh metode pembersihan relasi (Cascade Delete) benar-benar terpanggil
-      expect(Role.deleteMany).toHaveBeenCalledWith({ tenantID });
-      expect(Pengguna.deleteMany).toHaveBeenCalledWith({ tenantID });
-      expect(Tenant.findByIdAndDelete).toHaveBeenCalledWith(tenantID);
-
-      expect(Akun.updateMany).toHaveBeenCalledWith(
-        { tenantID },
-        { $set: { tenantID: null } },
-      );
-      expect(redis.del).toHaveBeenCalled(); // Cache ALL
-      expect(redis.del).toHaveBeenCalledWith(
-        expect.stringContaining("tenants:toko_mati"),
-      ); // Cache ID
-    });
-
-    test("harus memanggil Akun.updateMany dengan tenantID null untuk reset ghost data", async () => {
-      Role.deleteMany.mockResolvedValue(true);
-      Pengguna.deleteMany.mockResolvedValue(true);
-      Tenant.findByIdAndDelete.mockResolvedValue(true);
-      Akun.updateMany.mockResolvedValue(true);
-      redis.del.mockResolvedValue(true);
-
-      await tenantService.delete("tenant_123");
-
-      // verifikasi perubahan baru dari laporan — reset tenantID di Akun
-      expect(Akun.updateMany).toHaveBeenCalledWith(
-        { tenantID: "tenant_123" },
-        { $set: { tenantID: null } },
-      );
-    });
-
-    test("harus tetap menyelesaikan cascade meski tidak ada Role atau Pengguna yang dihapus", async () => {
-      Role.deleteMany.mockResolvedValue({ deletedCount: 0 });
-      Pengguna.deleteMany.mockResolvedValue({ deletedCount: 0 });
-      Tenant.findByIdAndDelete.mockResolvedValue(null); // tenant tidak ditemukan di DB
-      Akun.updateMany.mockResolvedValue(true);
-      redis.del.mockResolvedValue(true);
-
-      // harus resolve tanpa crash meski tidak ada yang dihapus
-      await expect(tenantService.delete("tenant_ghost")).resolves.not.toThrow();
-      expect(redis.del).toHaveBeenCalled();
-    });
     test("harus memanggil Akun.updateMany dengan tenantID null untuk reset ghost data", async () => {
       Role.deleteMany.mockResolvedValue(true);
       Pengguna.deleteMany.mockResolvedValue(true);

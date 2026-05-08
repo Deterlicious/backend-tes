@@ -158,6 +158,11 @@ describe("Unit Test — authAkun Middleware", () => {
       roleAkun: "admin",
       tenantID: "toko_1",
     });
+    expect(req.userDecoded).toEqual({
+      id: "123",
+      version: 1,
+      tenantID: "toko_1",
+    });
   });
 
   describe("Sub-Middleware: requireTenant", () => {
@@ -173,6 +178,18 @@ describe("Unit Test — authAkun Middleware", () => {
       req.akunContext = { tenantID: "toko_123" };
       authAkun.requireTenant(req, res, next);
       expect(next).toHaveBeenCalledWith(); // Tanpa error
+    });
+
+    test("Harus melempar 403 secara aman jika req.akunContext mutlak tidak terdefinisi", () => {
+      req.akunContext = undefined; // Simulasi bypass middleware utama
+      authAkun.requireTenant(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 403,
+          message: expect.stringMatching(/Akun belum terikat tenant/i),
+        }),
+      );
     });
   });
 

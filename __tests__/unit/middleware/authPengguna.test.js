@@ -22,7 +22,6 @@ describe("Unit Test Middleware — authPengguna", () => {
     jest.clearAllMocks();
 
     // DEFAULT BEHAVIOR: Simulasi Cache Miss (Data tidak ada di Redis)
-    // Agar skenario lama yang bergantung pada Mongoose tetap berjalan mulus
     redis.get.mockResolvedValue(null);
     redis.set.mockResolvedValue("OK");
   });
@@ -55,7 +54,7 @@ describe("Unit Test Middleware — authPengguna", () => {
   test("Skenario 3 — Menolak akses jika data pengguna sudah dihapus dari DB", async () => {
     req.headers.authorization = "Bearer token_valid";
     jwt.verify.mockReturnValue({ id: "user_123" });
-    mockPenggunaChain(null); // Simulasi DB kosong
+    mockPenggunaChain(null);
 
     await authPengguna(req, res, next);
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }));
@@ -65,8 +64,12 @@ describe("Unit Test Middleware — authPengguna", () => {
   test("Skenario 4 [CRITICAL] — Memblokir bypass jika pengguna App tidak mengirimkan deviceID", async () => {
     req.headers.authorization = "Bearer token_app_tanpa_device";
 
-    // Payload dari token sengaja tidak memuat deviceID
-    jwt.verify.mockReturnValue({ id: "user_123", version: 1 });
+    // FIX: Tambahkan loginType: "app"
+    jwt.verify.mockReturnValue({
+      id: "user_123",
+      version: 1,
+      loginType: "app",
+    });
 
     mockPenggunaChain({
       _id: "user_123",
@@ -88,10 +91,12 @@ describe("Unit Test Middleware — authPengguna", () => {
   test("Skenario 5 [CRITICAL] — Memblokir bypass jika pengguna App menggunakan device yang tidak dikenali", async () => {
     req.headers.authorization = "Bearer token_app_device_hantu";
 
+    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_123",
       deviceID: "DEV-HANTU-99",
       version: 1,
+      loginType: "app",
     });
 
     mockPenggunaChain({
@@ -114,10 +119,12 @@ describe("Unit Test Middleware — authPengguna", () => {
   test("Skenario 6 — Memblokir akses App jika tokenVersion perangkat kedaluwarsa (di-revoke)", async () => {
     req.headers.authorization = "Bearer token_app_kadaluwarsa";
 
+    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_123",
       deviceID: "DEV-SAH-01",
       version: 1,
+      loginType: "app",
     });
 
     mockPenggunaChain({
@@ -134,7 +141,13 @@ describe("Unit Test Middleware — authPengguna", () => {
   // pengujian akses web
   test("Skenario 7 — Memblokir akses Web jika tokenVersion root kedaluwarsa", async () => {
     req.headers.authorization = "Bearer token_web_kadaluwarsa";
-    jwt.verify.mockReturnValue({ id: "user_web", version: 1 });
+
+    // FIX: Tambahkan loginType: "web"
+    jwt.verify.mockReturnValue({
+      id: "user_web",
+      version: 1,
+      loginType: "web",
+    });
 
     mockPenggunaChain({
       _id: "user_web",
@@ -149,7 +162,13 @@ describe("Unit Test Middleware — authPengguna", () => {
 
   test("Skenario 8 — Lolos validasi sempurna untuk pengguna Web", async () => {
     req.headers.authorization = "Bearer token_web_valid";
-    jwt.verify.mockReturnValue({ id: "user_web", version: 2 });
+
+    // FIX: Tambahkan loginType: "web"
+    jwt.verify.mockReturnValue({
+      id: "user_web",
+      version: 2,
+      loginType: "web",
+    });
 
     mockPenggunaChain({
       _id: "user_web",
@@ -163,16 +182,18 @@ describe("Unit Test Middleware — authPengguna", () => {
     expect(next).toHaveBeenCalledWith();
     expect(req.pengguna.aksesType).toBe("web");
     expect(req.pengguna.permissions).toContain("read-laporan");
-    // Karena ini Cache Miss, pastikan sistem mencoba menyimpannya ke Redis
     expect(redis.set).toHaveBeenCalled();
   });
 
   test("Skenario 9 — Lolos validasi sempurna untuk pengguna App dengan device valid", async () => {
     req.headers.authorization = "Bearer token_app_valid";
+
+    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_app",
       deviceID: "DEV-SAH-01",
       version: 3,
+      loginType: "app",
     });
 
     mockPenggunaChain({
@@ -210,7 +231,11 @@ describe("Unit Test Middleware — authPengguna", () => {
 
   test("Skenario 11 — Menolak akses (401) jika role pengguna telah dihapus dari database", async () => {
     req.headers.authorization = "Bearer token_web_valid";
-    jwt.verify.mockReturnValue({ id: "user_yatim_role", version: 1 });
+    jwt.verify.mockReturnValue({
+      id: "user_yatim_role",
+      version: 1,
+      loginType: "web",
+    });
 
     mockPenggunaChain({
       _id: "user_yatim_role",
@@ -221,7 +246,6 @@ describe("Unit Test Middleware — authPengguna", () => {
 
     await authPengguna(req, res, next);
 
-    // Di middleware baru, ketiadaan role dianggap sesi tidak valid (401)
     expect(next).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 401,
@@ -240,7 +264,11 @@ describe("Unit Test Middleware — authPengguna", () => {
 
   test("Skenario 13 — Meneruskan error ke next() jika terjadi kegagalan fatal pada database", async () => {
     req.headers.authorization = "Bearer token_valid_tapi_db_mati";
-    jwt.verify.mockReturnValue({ id: "user_123", version: 1 });
+    jwt.verify.mockReturnValue({
+      id: "user_123",
+      version: 1,
+      loginType: "web",
+    });
 
     const dbError = new Error("Koneksi MongoDB terputus total!");
     Pengguna.findById.mockReturnValue({
@@ -256,10 +284,13 @@ describe("Unit Test Middleware — authPengguna", () => {
   // pengujian performa
   test("Skenario 14 [CRITICAL] — Lolos validasi CEPAT menggunakan Cache Redis (Tanpa menyentuh MongoDB)", async () => {
     req.headers.authorization = "Bearer token_app_valid";
+
+    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_redis",
       deviceID: "DEV-01",
       version: 2,
+      loginType: "app",
     });
 
     // Simulasi: Data SUDAH ADA di dalam memori Redis (Cache Hit)
@@ -284,28 +315,31 @@ describe("Unit Test Middleware — authPengguna", () => {
 
   test("Skenario 15 [DEFENSIF] — Meneruskan error ke next() jika server Redis mati/crash mendadak", async () => {
     req.headers.authorization = "Bearer token_redis_mati";
-    jwt.verify.mockReturnValue({ id: "user_123", version: 1 });
+    jwt.verify.mockReturnValue({
+      id: "user_123",
+      version: 1,
+      loginType: "web",
+    });
 
     const redisError = new Error("Redis connection to 127.0.0.1:6379 failed");
     redis.get.mockRejectedValue(redisError);
 
     await authPengguna(req, res, next);
-
-    // Sistem tidak boleh hang, harus dilempar ke error handler global (Error 500)
     expect(next).toHaveBeenCalledWith(redisError);
   });
 
   test("Skenario 16 [DEFENSIF] — Mengamankan sistem dari data Cache Redis yang korup (JSON Parse Error)", async () => {
     req.headers.authorization = "Bearer token_redis_korup";
-    jwt.verify.mockReturnValue({ id: "user_123", version: 1 });
+    jwt.verify.mockReturnValue({
+      id: "user_123",
+      version: 1,
+      loginType: "web",
+    });
 
-    // Simulasi: Data di Redis terpotong atau tersisipi karakter ilegal sehingga bukan JSON valid
+    // Simulasi: Data di Redis terpotong atau tersisipi karakter ilegal
     redis.get.mockResolvedValue("{ data_rusak: tidak_bisa_di_parse");
 
     await authPengguna(req, res, next);
-
-    // JSON.parse akan gagal dan melempar SyntaxError.
-    // Middleware harus menangkapnya di blok catch dan mengopernya ke next()
     expect(next).toHaveBeenCalledWith(expect.any(SyntaxError));
   });
 
@@ -314,8 +348,92 @@ describe("Unit Test Middleware — authPengguna", () => {
     delete req.headers;
 
     await authPengguna(req, res, next);
-
-    // Harus tertahan oleh Optional Chaining (?.) yang baru kita pasang
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }));
+  });
+
+  test("Skenario 18 [BUSINESS] — Menolak akses jika status Pengguna sedang dinonaktifkan (Suspended)", async () => {
+    req.headers.authorization = "Bearer valid_token";
+    jwt.verify.mockReturnValue({ id: "user123", version: 1 });
+
+    // Mock DB: Pengguna isActive false
+    Pengguna.findById.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      populate: jest.fn().mockReturnThis(), // Harus di-mock karena middleware menggunakannya
+      lean: jest.fn().mockResolvedValue({
+        _id: "user123",
+        tokenVersion: 1,
+        isActive: false, // DIBLOKIR DI SINI
+        roleID: { permissions: [] },
+      }),
+    });
+
+    await authPengguna(req, res, next);
+
+    // Verifikasi error dilempar ke next() dengan status 403
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const errorArg = next.mock.calls[0][0];
+    expect(errorArg.status).toBe(403);
+    expect(errorArg.message).toMatch(/dinonaktifkan/i);
+  });
+
+  test("Skenario 19 [BUSINESS] — Menolak akses jika Toko/Tenant terkait sedang dibekukan", async () => {
+    req.headers.authorization = "Bearer valid_token";
+    jwt.verify.mockReturnValue({ id: "user123", version: 1 });
+
+    // Mock DB: Pengguna aktif, tapi Tenant dibekukan
+    Pengguna.findById.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue({
+        _id: "user123",
+        tokenVersion: 1,
+        isActive: true,
+        tenantID: { _id: "tenant123", isActive: false }, // DIBLOKIR DI SINI
+        roleID: { permissions: [] },
+      }),
+    });
+
+    await authPengguna(req, res, next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const errorArg = next.mock.calls[0][0];
+    expect(errorArg.status).toBe(403);
+    expect(errorArg.message).toMatch(/dibekukan/i);
+  });
+
+  test('Skenario 20 [EDGE CASE] — Menolak akses jika header berisi "Bearer " tanpa token JWT', async () => {
+    req.headers.authorization = "Bearer "; // Spasi tanpa token
+
+    await authPengguna(req, res, next);
+
+    expect(jwt.verify).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    expect(next.mock.calls[0][0].status).toBe(401);
+  });
+
+  test("Skenario 21 [INTEGRITY] — Memastikan middleware menempelkan req.pengguna TANPA field sensitif (pin)", async () => {
+    req.headers.authorization = "Bearer valid_token";
+    jwt.verify.mockReturnValue({ id: "user123", version: 1 });
+
+    // Mock DB LENGKAP dengan populate agar tidak TypeError
+    const safeUser = {
+      _id: "user123",
+      nama: "Kasir",
+      tokenVersion: 1,
+      isActive: true,
+      roleID: { permissions: [{ nama: "baca_laporan" }] }, // Perlu ini untuk mapping permissions
+    };
+
+    Pengguna.findById.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(safeUser),
+    });
+
+    await authPengguna(req, res, next);
+
+    expect(next).toHaveBeenCalledWith(); // Next tanpa argumen berarti lolos
+    expect(req.pengguna).toBeDefined();
+    expect(req.pengguna.pin).toBeUndefined(); // Memastikan PIN tidak bocor
   });
 });

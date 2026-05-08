@@ -1,8 +1,29 @@
 module.exports = (err, req, res, next) => {
-  // 1. Tentukan status dasar TERLEBIH DAHULU
+  if (res.headersSent) {
+    return next(err);
+  }
+  // 0. Tentukan status dasar TERLEBIH DAHULU
   let status = err.status || 500;
   let message = err.message || "Terjadi kesalahan internal pada server.";
   let errors = err.errors || null;
+
+  // 1. LOGGING & DATA LEAK PREVENTION (REVISI KRITIS)
+  if (status === 500) {
+    // Selalu catat error fatal ke konsol/logger
+    console.error("Critical Error Log:", {
+      name: err.name,
+      message: err.message,
+      stack: process.env.NODE_ENV === "development" ? err.stack : "HIDDEN",
+    });
+
+    // MASKING: Sembunyikan pesan teknis jika di Production
+    if (process.env.NODE_ENV === "production") {
+      message = "Terjadi kesalahan internal pada server.";
+    }
+  } else if (process.env.NODE_ENV === "development") {
+    // Opsional: Log error operasional ringan hanya saat development
+    console.error("Operational Error:", err.message);
+  }
 
   // 2. Evaluasi log MENGGUNAKAN variabel 'status' yang sudah distandarisasi
   if (status === 500 || process.env.NODE_ENV === "development") {
@@ -13,18 +34,14 @@ module.exports = (err, req, res, next) => {
     });
   }
 
-  // ==========================================
   // 1. MONGOOSE VALIDATION ERROR
-  // ==========================================
   if (err.name === "ValidationError") {
     status = 400;
     message = "Data yang dikirim tidak valid.";
     errors = Object.values(err.errors).map((el) => el.message);
   }
 
-  // ==========================================
   // 2. MONGODB DUPLICATE KEY (11000)
-  // ==========================================
   if (err.code === 11000) {
     status = 400;
     const key = Object.keys(err.keyValue || {})[0];
@@ -33,15 +50,13 @@ module.exports = (err, req, res, next) => {
       username: "Nama pengguna",
       nomorTelepon: "Nomor telepon",
       namaRole: "Nama role",
-      namaProduk: "Nama produk"
+      namaProduk: "Nama produk",
     };
     const fieldName = fieldMapping[key] || key;
     message = `${fieldName} sudah terdaftar dalam sistem. Gunakan yang lain.`;
   }
 
-  // ==========================================
   // 3. JWT & SYNTAX ERROR
-  // ==========================================
   if (err.name === "JsonWebTokenError") {
     status = 401;
     message = "Token tidak valid atau telah dimanipulasi.";
@@ -61,9 +76,7 @@ module.exports = (err, req, res, next) => {
     message = "Terjadi kegagalan sinkronisasi data (Internal Data Corruption).";
   }
 
-  // ==========================================
   // 4. MONGOSE CAST ERROR
-  // ==========================================
   if (err.name === "CastError") {
     status = 404;
     message = `Resource dengan ID '${err.value}' tidak ditemukan atau format ID salah.`;

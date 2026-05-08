@@ -16,6 +16,12 @@ module.exports = async (req, res, next) => {
     }
 
     const token = authHeader.split(" ")[1];
+
+    // Token tidak boleh kosong
+    if (!token) {
+      throw createError(401, "Akses ditolak. Token pengguna tidak ditemukan.");
+    }
+
     let decoded;
 
     try {
@@ -36,34 +42,49 @@ module.exports = async (req, res, next) => {
     } else {
       // CACHE MISS: Ambil dari MongoDB jika tidak ada di Redis
       const dbPengguna = await Pengguna.findById(decoded.id)
-        .select("tokenVersion roleID nama tenantID aksesType device")
+        // TAMBAHAN: Select field isActive
+        .select("tokenVersion roleID nama tenantID aksesType device isActive")
         .populate({
           path: "roleID",
           select: "namaRole permissions",
-          populate: {
-            path: "permissions",
-            select: "nama",
-          },
+          populate: { path: "permissions", select: "nama" },
         })
+        // TAMBAHAN: Populate tenantID untuk mengambil status aktif toko
+        .populate("tenantID", "isActive")
         .lean();
 
       if (!dbPengguna || !dbPengguna.roleID) {
-        throw createError(401, "Sesi tidak valid atau role telah dihapus."); // FIX 401
+        throw createError(401, "Sesi tidak valid atau role telah dihapus.");
       }
 
       // Transformasi data agar ringan disimpan di Redis
       sessionData = {
         _id: dbPengguna._id,
         nama: dbPengguna.nama,
-        tenantID: dbPengguna.tenantID,
+        tenantID: dbPengguna.tenantID?._id || dbPengguna.tenantID,
         aksesType: dbPengguna.aksesType,
         tokenVersion: dbPengguna.tokenVersion,
         device: dbPengguna.device || [],
         permissions: dbPengguna.roleID.permissions.map((p) => p.nama),
+        isActive: dbPengguna.isActive,
+        tenantIsActive: dbPengguna.tenantID?.isActive !== false,
       };
 
       // Simpan ke Redis (Expire dalam 1 jam)
       await redis.set(cacheKey, JSON.stringify(sessionData), "EX", 3600);
+    }
+
+    if (sessionData.isActive === false) {
+      throw createError(
+        403,
+        "Akses ditolak. Akun pengguna sedang dinonaktifkan.",
+      );
+    }
+    if (sessionData.tenantIsActive === false) {
+      throw createError(
+        403,
+        "Akses ditolak. Toko/Tenant terkait sedang dibekukan.",
+      );
     }
 
     // VALIDASI SESI (Multi-Device & Revocation)
