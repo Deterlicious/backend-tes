@@ -26,9 +26,9 @@ function validateTarifPayload(data, isUpdate = false) {
       errors.push("harga wajib diisi");
     }
 
-    if (!data.durasiMinimum) {
-      errors.push("durasiMinimum wajib diisi");
-    }
+    if (data.durasiMinimum === undefined) {
+      errors.push("durasiMinimum wajib diisi");
+    }
   }
 
   if (
