@@ -416,6 +416,11 @@ class TransferStokService {
 
       await transfer.save();
 
+      // FIX: Populate setelah save agar response mengandung nama pengirim/penerima,
+      // bukan hanya raw ObjectID. Konsisten dengan response di GET endpoint.
+      await transfer.populate('pengirimID', 'nama');
+      await transfer.populate('penerimaID', 'nama');
+
       // --- TAMBAHAN: Invalidate Redis Cache ---
       const redis = require("../config/redis");
       if (redis.del) {
