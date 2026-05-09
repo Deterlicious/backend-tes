@@ -88,12 +88,15 @@ function validateTransferPayload(data, isUpdate = false) {
         // Pengecekan Items
         if (key === "items" && Array.isArray(data.items)) {
           data.items.forEach((item, index) => {
+            // Pakai `!== undefined` — bukan falsy guard — agar qtyKirim = 0 ikut diperiksa
+            // Bug lama: `item.qtyKirim && ...` melewati 0 karena 0 falsy di JS
             if (
-              item.qtyKirim &&
+              item.qtyKirim !== undefined &&
               (typeof item.qtyKirim !== "number" || item.qtyKirim <= 0)
             )
               errors.push(`Item ${index + 1}: qtyKirim harus positif.`);
-            if (item.qtyTerima && typeof item.qtyTerima !== "number")
+            // qtyTerima = 0 valid (tidak ada yang diterima), jadi cukup cek !== undefined
+            if (item.qtyTerima !== undefined && typeof item.qtyTerima !== "number")
               errors.push(`Item ${index + 1}: qtyTerima harus berupa angka.`);
           });
           updates[key] = data[key];
