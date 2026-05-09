@@ -1,6 +1,8 @@
 const PengajuanStok = require("../models/pengajuanStokModel");
+const BahanBaku = require("../models/bahanBakuModel");
 const createError = require("http-errors");
 const redis = require("../config/redis");
+const { convertToBaseUnit } = require("../utils/unitConverter");
 
 class PengajuanStokService {
   #KEY_LIST(tenantID) {
@@ -70,6 +72,26 @@ class PengajuanStokService {
       payload.nomorPengajuan = `PGJ/${yearMonth}/${counter.toString().padStart(4, "0")}`;
     }
 
+    // ── KONVERSI SATUAN ──────────────────────────────────────────────────────
+    // Mengapa di sini? Frontend hanya mengirim jumlah + satuan yang user pilih
+    // (misal: 500 gram). Backend wajib menyimpan dalam satuan base BahanBaku
+    // (misal: kg) agar seluruh kalkulasi stok konsisten.
+    if (payload.items && Array.isArray(payload.items)) {
+      for (const item of payload.items) {
+        const bahanBaku = await BahanBaku.findById(item.bahanBakuID);
+        if (!bahanBaku)
+          throw createError(400, `BahanBaku ID ${item.bahanBakuID} tidak ditemukan.`);
+
+        const baseUnit = bahanBaku.satuan; // satuan base dari master data (kg, liter, dll)
+        const userUnit = item.satuan;      // satuan yang user pilih (gram, ml, dll)
+
+        // Convert ke base unit sebelum masuk database
+        item.jumlah = convertToBaseUnit(item.jumlah, userUnit, baseUnit);
+        item.satuan = baseUnit;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const data = await PengajuanStok.create(payload);
     await redis.del(this.#KEY_LIST(payload.tenantID));
     return data;
@@ -85,6 +107,25 @@ class PengajuanStokService {
     if (statusTerlarang.includes(data.status)) {
       throw createError(400, "Data sudah diproses dan tidak dapat diubah.");
     }
+
+    // ── KONVERSI SATUAN (sama seperti create) ────────────────────────────────
+    // Jika user mengedit items (misal: ganti jumlah atau satuan),
+    // konversi harus dijalankan ulang agar data tetap konsisten.
+    if (payload.items && Array.isArray(payload.items)) {
+      for (const item of payload.items) {
+        const bahanBaku = await BahanBaku.findById(item.bahanBakuID);
+        if (!bahanBaku)
+          throw createError(400, `BahanBaku ID ${item.bahanBakuID} tidak ditemukan.`);
+
+        const baseUnit = bahanBaku.satuan;
+        const userUnit = item.satuan;
+
+        // Convert ke base unit sebelum masuk database
+        item.jumlah = convertToBaseUnit(item.jumlah, userUnit, baseUnit);
+        item.satuan = baseUnit;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // 2. Jika status DRAFT, bebas edit
     const updated = await PengajuanStok.findByIdAndUpdate(

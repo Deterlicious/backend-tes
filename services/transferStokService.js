@@ -213,6 +213,7 @@ class TransferStokService {
         .populate("keLocationID", "nama tipe")
         .populate("pengirimID", "nama")
         .populate("penerimaID", "nama")
+        .populate("items.bahanBakuID", "namaBahan satuan") // Konsisten dengan getById()
         .sort({ tanggalKirim: -1, createdAt: -1 });
 
       return transfer;

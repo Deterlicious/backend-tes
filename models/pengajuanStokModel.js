@@ -45,8 +45,8 @@ const PengajuanStokSchema = new mongoose.Schema(
           ref: "BahanBaku",
           required: true,
         },
-        jumlah: { type: Number, required: true },
-        satuan: { type: String, required: true },
+        jumlah: { type: Number, required: true }, // Nilai tersimpan dalam satuan base (kg, liter, dll)
+        satuan: { type: String, required: true },  // Satuan base BahanBaku
       },
     ],
 
