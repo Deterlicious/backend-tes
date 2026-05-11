@@ -3,6 +3,7 @@ const Diskon = require("../models/diskonModel");
 const Produk = require("../models/produkModel");
 const Pajak = require("../models/pajakModel");
 const SesiBooking = require("../models/sesiBookingModel");
+const Aset = require("../models/asetModel");
 const pajakService = require("./pajakService");
 const diskonService = require("./diskonService");
 const redis = require("../config/redis");
