@@ -324,6 +324,28 @@ const permissionsList = [
     deskripsi: "Hapus pembayaran",
   },
 
+  // Akun Kas
+  {
+    nama: "read-akunkas",
+    grup: "Pengaturan Toko",
+    deskripsi: "Lihat akun kas/bank",
+  },
+  {
+    nama: "create-akunkas",
+    grup: "Pengaturan Toko",
+    deskripsi: "Tambah akun kas/bank",
+  },
+  {
+    nama: "update-akunkas",
+    grup: "Pengaturan Toko",
+    deskripsi: "Edit akun kas/bank",
+  },
+  {
+    nama: "delete-akunkas",
+    grup: "Pengaturan Toko",
+    deskripsi: "Hapus akun kas/bank",
+  },
+
   // Inventory
   { nama: "read-inventory", grup: "Inventory", deskripsi: "Lihat stok" },
   {

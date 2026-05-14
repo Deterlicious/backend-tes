@@ -30,19 +30,23 @@ function validateAkunKasPayload(data, isUpdate = false) {
     errors.push("status tidak valid");
   }
 
-  if (data.saldo !== undefined && (typeof data.saldo !== 'number' || data.saldo < 0)) {
+  if (
+    data.saldo !== undefined &&
+    (typeof data.saldo !== "number" || data.saldo < 0)
+  ) {
     errors.push("saldo harus berupa angka dan tidak boleh negatif");
   }
 
-  if (errors.length > 0) return {
-    valid: false,
-    errors
-  };
+  if (errors.length > 0)
+    return {
+      valid: false,
+      errors,
+    };
   return {
-    valid: true
+    valid: true,
   };
 }
 
 module.exports = {
-  validateAkunKasPayload
+  validateAkunKasPayload,
 };
