@@ -193,6 +193,24 @@
 
 ---
 
+### 📄 9. Program `akunKasModel.test.js`
+
+#### 🔍 A. Konfigurasi Skema & Default Value
+- ✅ **1.** Sukses membuat instance valid dan memastikan default value (saldo, status, keterangan)
+- ✅ **2.** Memastikan opsi Schema (timestamps & versionKey) dikonfigurasi dengan benar
+- ✅ **3.** Harus melakukan trim (menghapus spasi berlebih) pada namaAkun dan nomorAkun
+
+#### 🔍 B. Validasi Field Wajib (Required) & Tipe Data
+- ✅ **1.** Gagal validasi jika field wajib dikosongkan (namaAkun, tipeAkun, nomorAkun, tenantID)
+- ✅ **2.** Gagal validasi jika tenantID diisi dengan format ObjectId yang tidak valid (CastError)
+
+#### 🔍 C. Validasi Enum & Batasan Angka (Min)
+- ✅ **1.** Gagal validasi jika tipeAkun diisi di luar Enum ('Kas Fisik', 'Rekening Bank')
+- ✅ **2.** Gagal validasi jika status diisi di luar Enum ('aktif', 'non-aktif')
+- ✅ **3.** Gagal validasi jika saldo bernilai negatif (kurang dari 0)
+
+---
+
 # 🛡️ Pengujian Bagian 2: Validator
 ### 📄 1. Program `metodePembayaranValidator.test.js`
 
@@ -424,6 +442,27 @@
 
 ---
 
+### 📄 9. Program `akunKasValidator.test.js`
+
+#### 🔍 A. Mode Create (!isUpdate)
+- ✅ **1.** Sukses (Valid) untuk payload yang lengkap dan sesuai aturan
+- ✅ **2.** Gagal jika field wajib (tenantID, namaAkun, nomorAkun, tipeAkun) kosong atau tidak ada
+- ✅ **3.** Gagal jika tenantID memiliki format ObjectId yang tidak valid
+- ✅ **4.** Gagal jika namaAkun atau nomorAkun hanya berisi string kosong
+- ✅ **5.** Gagal jika tipeAkun diisi dengan nilai di luar Enum
+
+#### 🔍 B. Mode Update (isUpdate = true)
+- ✅ **1.** Sukses (Valid) untuk payload kosong (update parsial opsional)
+- ✅ **2.** Sukses (Valid) untuk update dengan data yang valid
+- ✅ **3.** Gagal jika mengirim tipeAkun di luar Enum saat update
+
+#### 🔍 C. Validasi Field Opsional/Umum (Status & Saldo)
+- ✅ **1.** Gagal jika status di luar Enum ('aktif', 'non-aktif')
+- ✅ **2.** Gagal jika saldo bukan tipe number (misal: string angka)
+- ✅ **3.** Gagal jika saldo bernilai negatif
+
+---
+
 # ⚙️ Pengujian Bagian 3: Service
 ### 📄 1. Program `metodePembayaranService.test.js`
 
@@ -598,6 +637,43 @@
 
 ---
 
+### 📄 9. Program `akunKasService.test.js`
+
+#### 🔍 A. Fungsi Cache: clearCache
+- ✅ **1.** Hanya menghapus key list jika parameter ID tidak dikirim
+- ✅ **2.** Menghapus key list dan key detail jika parameter ID dikirim
+
+#### 🔍 B. Method: getAll
+- ✅ **1.** Gagal (Throw Error 400) jika tenantID tidak disertakan
+- ✅ **2.** Sukses (Cache Hit) mengembalikan data langsung dari Redis
+- ✅ **3.** Sukses (Cache Miss) mengambil dari DB dan menyimpan ke Redis jika data ada
+- ✅ **4.** Sukses (Cache Miss) mengambil dari DB namun TIDAK simpan ke Redis jika data kosong
+
+#### 🔍 C. Method: getById
+- ✅ **1.** Sukses (Cache Hit) jika tenantID pada cache cocok dengan requester
+- ✅ **2.** Gagal (Cache Hit) mengembalikan null jika tenantID pada cache TIDAK cocok (Isolasi Tenant)
+- ✅ **3.** Sukses (Cache Miss) mengambil dari DB dan menyimpan ke Redis
+- ✅ **4.** Gagal (Cache Miss) mengembalikan null jika data tidak ditemukan di DB
+
+#### 🔍 D. Method: create
+- ✅ **1.** Gagal jika payload tidak lolos validator
+- ✅ **2.** Sukses membuat akun kas baru dan menghapus list cache
+- ✅ **3.** Gagal (Throw Error 400) jika ada konflik Duplicate Key (error 11000 Mongoose)
+- ✅ **4.** Meneruskan Error sistem selain dari error duplikat
+
+#### 🔍 E. Method: update
+- ✅ **1.** Gagal jika payload tidak lolos validator update
+- ✅ **2.** Mengembalikan null jika data yang ingin diupdate tidak ditemukan
+- ✅ **3.** Sukses update data, menghapus tenantID dari payload update, dan memanggil clearCache
+- ✅ **4.** Gagal (Throw Error 400) jika update memicu konflik Duplicate Key (error 11000 Mongoose)
+- ✅ **5.** Meneruskan Error sistem selain dari error duplikat saat update
+
+#### 🔍 F. Method: delete
+- ✅ **1.** Mengembalikan null jika tidak ada data yang terhapus (deletedCount: 0)
+- ✅ **2.** Sukses menghapus data dan memanggil clearCache (deletedCount > 0)
+
+---
+
 # 🎮 Pengujian Bagian 4: Controller
 ### 📄 1. Program `metodePembayaranController.test.js`
 
@@ -751,6 +827,40 @@
 
 ---
 
+### 📄 9. Program `akunKasController.test.js`
+
+#### 🔍 A. Internal Method: _getRequesterTenantID
+- ✅ **1.** Sukses mengembalikan tenantID jika objek pengguna tersedia
+- ✅ **2.** Mengembalikan null jika objek pengguna kosong atau tidak valid
+
+#### 🔍 B. Method: getAll
+- ✅ **1.** Sukses (200) mengambil data dari service
+- ✅ **2.** Gagal (Next 403) jika tenantID tidak tersedia di req.pengguna
+- ✅ **3.** Meneruskan error (Next) jika service mengalami kegagalan
+
+#### 🔍 C. Method: getById
+- ✅ **1.** Sukses (200) mengambil detail dari service
+- ✅ **2.** Gagal (Next 404) jika data tidak ditemukan oleh service
+- ✅ **3.** Meneruskan error (Next) jika service gagal
+
+#### 🔍 D. Method: create
+- ✅ **1.** Sukses (201) membuat data baru, tenantID di-inject otomatis
+- ✅ **2.** Gagal (400) jika ada error validasi bisnis dari service
+- ✅ **3.** Meneruskan error (Next) jika service mengalami crash
+
+#### 🔍 E. Method: update
+- ✅ **1.** Sukses (200) memperbarui data, dan mencegah manipulasi tenantID dari body
+- ✅ **2.** Gagal (400) jika ada error validasi bisnis saat update dari service
+- ✅ **3.** Gagal (Next 404) jika data yang diupdate tidak ditemukan oleh service
+- ✅ **4.** Meneruskan error (Next) jika service gagal
+
+#### 🔍 F. Method: delete
+- ✅ **1.** Sukses (200) menghapus data dari service
+- ✅ **2.** Gagal (Next 404) jika data yang akan dihapus tidak ditemukan
+- ✅ **3.** Meneruskan error (Next) jika service gagal
+
+---
+
 # 🛣️ Pengujian Bagian 5: Route
 ### 📄 1. Program `metodePembayaranRoute.test.js`
 
@@ -857,5 +967,29 @@
 
 - ✅ **1.** Sukses melakukan pemanggilan API tarif dan mendapat response yang tepat
 - ✅ **2.** Pengujian integrasi proteksi izin untuk rute tarif sukses
+
+---
+### 📄 9. Program `akunKasRoute.test.js`
+
+#### 🔍 A. Middleware Otentikasi (authPengguna)
+- ✅ **1.** Ditolak (401) jika pengguna belum login (Missing/Invalid Token)
+
+#### 🔍 B. Verifikasi Proteksi Izin Spesifik (checkPermission / RBAC)
+- ✅ **1.** GET / — Harus ditolak (403) jika tidak punya izin 'read-akunkas'
+- ✅ **2.** POST / — Harus ditolak (403) jika tidak punya izin 'create-akunkas'
+- ✅ **3.** GET /:id — Harus ditolak (403) jika tidak punya izin 'read-akunkas'
+- ✅ **4.** PUT /:id — Harus ditolak (403) jika tidak punya izin 'update-akunkas'
+- ✅ **5.** DELETE /:id — Harus ditolak (403) jika tidak punya izin 'delete-akunkas'
+
+#### 🔍 C. Endpoint Success Path & Controller Binding
+- ✅ **1.** GET / — Sukses memanggil controller.getAll
+- ✅ **2.** POST / — Sukses memanggil controller.create
+- ✅ **3.** GET /:id — Sukses memanggil controller.getById
+- ✅ **4.** PUT /:id — Sukses memanggil controller.update
+- ✅ **5.** DELETE /:id — Sukses memanggil controller.delete
+
+#### 🔍 D. Validasi String RBAC & Error Wrapper (wrap)
+- ✅ **1.** Memastikan semua endpoints diikat dengan parameter izin (RBAC) yang tepat
+- ✅ **2.** Membuktikan fungsi wrap() bekerja menangkap error asinkron dari controller
 
 ---
