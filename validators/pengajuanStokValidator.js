@@ -83,7 +83,7 @@ function validatePengajuanStokPayload(data, isUpdate = false) {
         if (key === "items" && Array.isArray(data.items)) {
           data.items.forEach((item, index) => {
             if (
-              item.qtyApproved &&
+              item.qtyApproved !== undefined &&
               (typeof item.qtyApproved !== "number" || item.qtyApproved < 0)
             )
               errors.push(
@@ -103,7 +103,7 @@ function validatePengajuanStokPayload(data, isUpdate = false) {
       ) {
         errors.push(`Field '${key}' tidak diizinkan untuk diubah.`);
       } else {
-        updates[key] = data[key];
+        errors.push(`Field tidak dikenal: ${key}.`);
       }
     });
 
