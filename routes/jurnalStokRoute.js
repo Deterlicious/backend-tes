@@ -36,4 +36,11 @@ router
     wrap(jurnalStokController.delete),
   );
 
+// WMS Audit Trail Events
+router.patch("/wms/kirim",    checkPermission("kelola-jurnal-stok"), wrap(jurnalStokController.kirimBarang));
+router.patch("/wms/terima",   checkPermission("kelola-jurnal-stok"), wrap(jurnalStokController.terimaBarang));
+router.patch("/wms/rollback", checkPermission("kelola-jurnal-stok"), wrap(jurnalStokController.rollbackBarang));
+router.patch("/wms/opname",   checkPermission("kelola-jurnal-stok"), wrap(jurnalStokController.opnameBarang));
+
 module.exports = router;
+
