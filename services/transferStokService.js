@@ -71,13 +71,13 @@ class TransferStokService {
     const pengajuan = await PengajuanStok.findOne({
       _id: payload.pengajuanStokID,
       tenantID: payload.tenantID,
-      status: "APPROVED",
+      status: { $in: ["APPROVED", "PENDING"] }, // 🎯 Izinkan pembuatan SJ dari APPROVED & PENDING
     }).populate("items.bahanBakuID");
 
     if (!pengajuan) {
       throw createError(
         400,
-        "Pengajuan Stok tidak ditemukan atau belum berstatus APPROVED.",
+        "Pengajuan Stok tidak ditemukan atau belum berstatus APPROVED / PENDING.",
       );
     }
 
@@ -414,12 +414,12 @@ class TransferStokService {
         }
         transfer.status = "BATAL";
 
-        // 🎯 LOGIKA JEMBATAN: Kembalikan status pengajuan ke DISETUJUI agar bisa diproses ulang
+        // 🎯 LOGIKA JEMBATAN: Set status pengajuan ke PENDING (pengiriman tertunda)
         if (transfer.pengajuanStokID) {
           const PengajuanStok = require("../models/pengajuanStokModel");
           await PengajuanStok.findOneAndUpdate(
             { _id: transfer.pengajuanStokID, tenantID },
-            { status: "DISETUJUI" },
+            { status: "PENDING" },
           );
         }
       }

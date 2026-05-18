@@ -6,6 +6,7 @@ const VALID_STATUS = [
   "DRAFT",
   "SUBMITTED",
   "APPROVED",
+  "PENDING",
   "REJECTED",
   "COMPLETED",
 ];

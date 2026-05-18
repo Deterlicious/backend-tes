@@ -52,7 +52,7 @@ const PengajuanStokSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "COMPLETED"],
+      enum: ["DRAFT", "SUBMITTED", "APPROVED", "PENDING", "REJECTED", "COMPLETED"],
       default: "DRAFT",
     },
 
