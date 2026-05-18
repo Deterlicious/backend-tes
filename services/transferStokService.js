@@ -413,6 +413,15 @@ class TransferStokService {
           }
         }
         transfer.status = "BATAL";
+
+        // 🎯 LOGIKA JEMBATAN: Kembalikan status pengajuan ke DISETUJUI agar bisa diproses ulang
+        if (transfer.pengajuanStokID) {
+          const PengajuanStok = require("../models/pengajuanStokModel");
+          await PengajuanStok.findOneAndUpdate(
+            { _id: transfer.pengajuanStokID, tenantID },
+            { status: "DISETUJUI" },
+          );
+        }
       }
 
       await transfer.save();
@@ -426,6 +435,7 @@ class TransferStokService {
       const redis = require("../config/redis");
       if (redis.del) {
         await redis.del(`inventory:list:${tenantID}`);
+        await redis.del(`jurnalstok:list:${tenantID}`); // FIX: Clear jurnal cache
       }
 
       return transfer;
