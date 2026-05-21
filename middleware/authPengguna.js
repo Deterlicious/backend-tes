@@ -3,9 +3,9 @@ const jwt = require("jsonwebtoken");
 const Pengguna = require("../models/penggunaModel");
 const redis = require("../config/redis");
 const createError = require("http-errors");
+const Device = require("../models/deviceModel");
 
-const PENGGUNA_JWT_SECRET =
-  process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
+const PENGGUNA_JWT_SECRET = process.env.PENGGUNA_ACCESS_TOKEN; // samakan
 
 module.exports = async (req, res, next) => {
   try {
@@ -41,36 +41,43 @@ module.exports = async (req, res, next) => {
       sessionData = JSON.parse(sessionData);
     } else {
       // CACHE MISS: Ambil dari MongoDB jika tidak ada di Redis
-      const dbPengguna = await Pengguna.findById(decoded.id)
-        // TAMBAHAN: Select field isActive
-        .select("tokenVersion roleID nama tenantID aksesType device isActive")
-        .populate({
-          path: "roleID",
-          select: "namaRole permissions",
-          populate: { path: "permissions", select: "nama" },
+      // CACHE MISS
+      const [dbPengguna, dbDevices] = await Promise.all([
+        Pengguna.findById(decoded.id)
+          .select("tokenVersion roleID nama tenantID aksesType isActive")
+          // hapus 'device' dari select — sudah tidak perlu
+          .populate({
+            path: "roleID",
+            select: "namaRole permissions",
+            populate: { path: "permissions", select: "nama" },
+          })
+          .populate("tenantID", "isActive")
+          .lean(),
+
+        Device.find({
+          penggunaID: decoded.id,
+          status: "trusted", // langsung filter hanya yang trusted
         })
-        // TAMBAHAN: Populate tenantID untuk mengambil status aktif toko
-        .populate("tenantID", "isActive")
-        .lean();
+          .select("installationId status")
+          .lean(),
+      ]);
 
       if (!dbPengguna || !dbPengguna.roleID) {
         throw createError(401, "Sesi tidak valid atau role telah dihapus.");
       }
 
-      // Transformasi data agar ringan disimpan di Redis
       sessionData = {
         _id: dbPengguna._id,
         nama: dbPengguna.nama,
         tenantID: dbPengguna.tenantID?._id || dbPengguna.tenantID,
         aksesType: dbPengguna.aksesType,
         tokenVersion: dbPengguna.tokenVersion,
-        device: dbPengguna.device || [],
+        device: dbDevices, // ← sekarang berisi data real dari Device collection
         permissions: dbPengguna.roleID.permissions.map((p) => p.nama),
         isActive: dbPengguna.isActive,
         tenantIsActive: dbPengguna.tenantID?.isActive !== false,
       };
 
-      // Simpan ke Redis (Expire dalam 1 jam)
       await redis.set(cacheKey, JSON.stringify(sessionData), "EX", 3600);
     }
 
@@ -124,15 +131,15 @@ module.exports = async (req, res, next) => {
     // }
 
     if (decoded.loginType === "app") {
-      if (!decoded.deviceID) {
+      if (!decoded.installationId) {
         throw createError(
           401,
-          "Device ID tidak ditemukan pada token. Silakan login ulang.",
+          "Installation ID tidak ditemukan pada token. Silakan login ulang.",
         );
       }
 
       const currentDevice = sessionData.device.find(
-        (d) => d.deviceID === decoded.deviceID,
+        (d) => d.installationId === decoded.installationId,
       );
 
       if (!currentDevice) {
@@ -142,17 +149,14 @@ module.exports = async (req, res, next) => {
         );
       }
 
-      if (
-        decoded.version === undefined ||
-        currentDevice.tokenVersion !== decoded.version
-      ) {
+      if (currentDevice.status !== "trusted") {
         throw createError(
-          401,
-          "Sesi telah berakhir di perangkat ini. Silakan login ulang.",
+          403,
+          "Perangkat belum disetujui atau telah diblokir.",
         );
       }
     } else {
-      // WEB
+      // WEB — tokenVersion tetap relevan
       if (sessionData.tokenVersion !== decoded.version) {
         throw createError(401, "Sesi tidak valid. Silakan login kembali.");
       }

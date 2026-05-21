@@ -1,46 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
-// Skema Perangkat (Device) — dipindah dari akunModel
-const deviceSchema = new mongoose.Schema(
-  {
-    deviceID: {
-      type: String,
-      required: true,
-      index: true,
-    },
-    type: {
-      type: String,
-      enum: ["primary", "secondary"],
-      required: true,
-    },
-    tokenVersion: {
-      type: Number,
-      default: 0,
-    },
-    lastUsed: {
-      type: Date,
-      default: Date.now,
-    },
-  },
-  { _id: false },
-);
-
-// Skema Riwayat Perangkat (Device History) — dipindah dari akunModel
-const deviceHistorySchema = new mongoose.Schema(
-  {
-    deviceID: { type: String, required: true },
-    type: { type: String, required: true },
-    action: {
-      type: String,
-      enum: ["added", "removed", "promoted", "demoted"],
-      required: true,
-    },
-    timestamp: { type: Date, default: Date.now },
-  },
-  { _id: false },
-);
-
 const penggunaSchema = new mongoose.Schema(
   {
     nama: {
@@ -80,34 +40,33 @@ const penggunaSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Tipe akses: web = tidak perlu device binding, app = wajib device binding
-    // aksesType: {
-    //   type: String,
-    //   enum: ["web", "app"],
-    //   default: "app",
-    // },
-
     aksesType: {
-      type: [String], // ← ubah jadi array
+      type: [String],
       enum: ["web", "app"],
       default: ["app"],
+      validate: {
+        validator: function (v) {
+          return v.length > 0;
+        },
+        message: "aksesType tidak boleh kosong",
+      },
     },
 
     // Device management — hanya relevan untuk aksesType "app"
-    device: [deviceSchema],
-    maxPrimaryDevice: {
-      type: Number,
-      min: 1,
-      max: 3,
-      default: 1,
-    },
-    maxDevice: {
-      type: Number,
-      min: 1,
-      max: 6,
-      default: 1,
-    },
-    deviceHistory: [deviceHistorySchema],
+    // device: [deviceSchema],
+    // maxPrimaryDevice: {
+    //   type: Number,
+    //   min: 1,
+    //   max: 3,
+    //   default: 1,
+    // },
+    // maxDevice: {
+    //   type: Number,
+    //   min: 1,
+    //   max: 6,
+    //   default: 1,
+    // },
+    // deviceHistory: [deviceHistorySchema],
 
     // tokenVersion untuk pengguna web (revoke sesi)
     // untuk pengguna app, tokenVersion ada di dalam device object
