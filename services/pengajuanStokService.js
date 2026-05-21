@@ -25,7 +25,7 @@ class PengajuanStokService {
     const canCreateTransfer = permissions.includes("create-transfer-stok");
     const allowedStatuses =
       !canApprove && canCreateTransfer
-        ? ["SUBMITTED", "APPROVED", "COMPLETED"]
+        ? ["SUBMITTED", "APPROVED", "PENDING", "COMPLETED"]
         : null;
 
     // Jika user HANYA punya izin buat transfer (Staf Gudang) dan BUKAN manager

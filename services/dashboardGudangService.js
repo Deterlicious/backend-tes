@@ -18,7 +18,7 @@ class DashboardGudangService {
       jurnalTerbaru,
     ] = await Promise.all([
       PengajuanStok.countDocuments({ tenantID, status: "SUBMITTED" }),
-      PengajuanStok.countDocuments({ tenantID, status: "APPROVED" }),
+      PengajuanStok.countDocuments({ tenantID, status: { $in: ["APPROVED", "PENDING"] } }),
       TransferStok.countDocuments({ tenantID, status: "PENDING" }),
       TransferStok.countDocuments({ tenantID, status: "DIKIRIM" }),
       Inventory.countDocuments({
@@ -64,7 +64,7 @@ class DashboardGudangService {
     ] = await Promise.all([
       PengajuanStok.countDocuments({ tenantID, status: "DRAFT" }),
       PengajuanStok.countDocuments({ tenantID, status: "SUBMITTED" }),
-      PengajuanStok.countDocuments({ tenantID, status: "APPROVED" }),
+      PengajuanStok.countDocuments({ tenantID, status: { $in: ["APPROVED", "PENDING"] } }),
       TransferStok.countDocuments({ tenantID, status: "DIKIRIM" }),
       TransferStok.countDocuments({ tenantID, status: "DITERIMA" }),
       JurnalStok.find({ tenantID })

@@ -49,13 +49,13 @@ describe("PengajuanStokService — Unit Test", () => {
       expect(result).toEqual(mockData);
     });
 
-    test("2. Staf Gudang (hanya create-transfer-stok) hanya bisa melihat SUBMITTED, APPROVED, COMPLETED", async () => {
+    test("2. Staf Gudang (hanya create-transfer-stok) hanya bisa melihat SUBMITTED, APPROVED, PENDING, COMPLETED", async () => {
       const user = { tenantID, permissions: ["create-transfer-stok"] };
       await PengajuanStokService.getAll({}, user);
 
       expect(PengajuanStok.find).toHaveBeenCalledWith({
         tenantID,
-        status: { $in: ["SUBMITTED", "APPROVED", "COMPLETED"] },
+        status: { $in: ["SUBMITTED", "APPROVED", "PENDING", "COMPLETED"] },
       });
     });
 
