@@ -41,15 +41,10 @@ function validateIzinCutiPayload(data, isUpdate = false) {
     errors.push("dicatatOleh tidak valid");
   }
 
-  if (errors.length > 0) return {
-    valid: false,
-    errors
-  };
-  return {
-    valid: true
-  };
+  // Catatan: data.catatan dilewati karena boleh string, boleh null
+
+  if (errors.length > 0) return { valid: false, errors };
+  return { valid: true };
 }
 
-module.exports = {
-  validateIzinCutiPayload
-};
+module.exports = { validateIzinCutiPayload };

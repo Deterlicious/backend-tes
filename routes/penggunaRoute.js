@@ -66,7 +66,7 @@ router.get(
 
 router.put(
   "/:id",
-  checkPermission("update-pengguna"),
+  // checkPermission("update-pengguna"),
   wrap(penggunaController.update),
 );
 

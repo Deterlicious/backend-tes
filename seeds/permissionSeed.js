@@ -346,6 +346,23 @@ const permissionsList = [
     deskripsi: "Menghapus data kontrak kerja staf",
   },
 
+  // Izin Cuti
+  {
+    nama: "read-izin-cuti",
+    grup: "Manajemen Izin Cuti",
+    deskripsi: "Melihat daftar histori dan detail izin/cuti staf",
+  },
+  {
+    nama: "create-izin-cuti",
+    grup: "Manajemen Izin Cuti",
+    deskripsi: "Mencatat pengajuan izin atau cuti baru untuk staf",
+  },
+  {
+    nama: "update-izin-cuti",
+    grup: "Manajemen Izin Cuti",
+    deskripsi: "Mengubah status atau data pengajuan izin/cuti staf",
+  },
+
   // Inventory
   { nama: "read-inventory", grup: "Inventory", deskripsi: "Lihat stok" },
   {
