@@ -23,6 +23,11 @@ describe("Unit Test — Pengguna Controller", () => {
       body: {},
       params: {},
       cookies: {},
+      headers: {
+        authorization: null,
+      },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
     };
     res = {
       status: jest.fn().mockReturnThis(),
@@ -37,25 +42,29 @@ describe("Unit Test — Pengguna Controller", () => {
   describe("Register Owner & Context Checker", () => {
     test("registerOwner: Harus sukses jika context adalah AKUN (SaaS)", async () => {
       req.akunContext = { tenantID: "toko_123" };
-      // ✅ set req.body dengan field yang benar
       req.body = {
         nama: "Owner Baru",
         pin: "123456",
         aksesType: "app",
-        deviceID: "DEV-001",
+        installationId: "OWNER-DEVICE-001",
+        deviceName: "iPad Pro",
+        appVersion: "1.0.0",
+        osVersion: "iOS 17.4",
       };
-      penggunaService.registerOwner.mockResolvedValue({ id: "user_1" });
+      penggunaService.registerOwner.mockResolvedValue({
+        pengguna: { nama: "Owner Baru" },
+        accessToken: "token_mock",
+        refreshToken: "refresh_mock",
+        device: null,
+      });
 
       await penggunaController.registerOwner(req, res, next);
 
       expect(penggunaService.registerOwner).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           nama: "Owner Baru",
-          pin: "123456",
-          aksesType: "app",
-          deviceID: "DEV-001",
-          deviceType: undefined,
-        },
+          installationId: "OWNER-DEVICE-001",
+        }),
         "toko_123",
       );
       expect(res.status).toHaveBeenCalledWith(201);
@@ -129,11 +138,21 @@ describe("Unit Test — Pengguna Controller", () => {
   describe("Otentikasi & Manajemen Cookie", () => {
     test("loginPin: Harus set cookie 'refreshToken' dan mengembalikan accessToken", async () => {
       req.akunContext = { tenantID: "toko_123" };
-      req.body = { nama: "kasir", pin: "123456", deviceID: "DEV-1" };
-      penggunaService.login.mockResolvedValue({
+      req.body = {
+        nama: "kasir",
+        pin: "123456",
+        loginType: "app",
+        installationId: "BUDI-HP-001",
+        deviceName: "Samsung Galaxy A54",
+        appVersion: "1.0.0",
+        osVersion: "Android 14",
+      };
+      penggunaService.loginPin.mockResolvedValue({
+        status: "trusted",
         accessToken: "access_token_123",
         refreshToken: "refresh_token_123",
         pengguna: { nama: "Kasir A" },
+        device: { installationId: "BUDI-HP-001", status: "trusted" },
       });
 
       await penggunaController.loginPin(req, res, next);
@@ -145,14 +164,15 @@ describe("Unit Test — Pengguna Controller", () => {
       );
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          accessToken: "access_token_123", // di root
-          data: expect.objectContaining({ nama: "Kasir A" }),
+          accessToken: "access_token_123",
+          success: true,
         }),
       );
     });
 
     test("refreshToken: Harus sukses membaca cookie dan menerbitkan token baru", async () => {
       req.cookies.refreshToken = "old_refresh_token";
+      req.headers.authorization = null;
       penggunaService.refreshToken.mockResolvedValue({
         accessToken: "new_access",
         newRefreshToken: "new_refresh",
@@ -173,8 +193,9 @@ describe("Unit Test — Pengguna Controller", () => {
     });
 
     test("refreshToken [SKENARIO BARU]: Harus bisa membaca token dari req.body jika cookie kosong (Fallback)", async () => {
-      req.cookies = {}; // Cookie kosong
-      req.body.refreshToken = "token_dari_body"; // Mengandalkan body
+      req.cookies = {};
+      req.body.refreshToken = "token_dari_body";
+      req.headers.authorization = null;
 
       penggunaService.refreshToken.mockResolvedValue({
         accessToken: "new_access",
@@ -184,14 +205,13 @@ describe("Unit Test — Pengguna Controller", () => {
       await penggunaController.refreshToken(req, res, next);
 
       expect(penggunaService.refreshToken).toHaveBeenCalledWith(
-        "token_dari_body",
+        expect.objectContaining({ token: "token_dari_body" }),
       );
       expect(res.cookie).toHaveBeenCalledWith(
         "refreshToken",
         "new_refresh",
         expect.any(Object),
       );
-      expect(res.status).not.toHaveBeenCalledWith(401);
     });
 
     test("refreshToken: Harus melempar 401 jika cookie dan body tidak memiliki token", async () => {
@@ -203,18 +223,57 @@ describe("Unit Test — Pengguna Controller", () => {
       );
     });
 
+    test("refreshToken [ALUR APP]: Harus memanggil refreshTokenApp dan return token baru via body jika installationId disertakan", async () => {
+      req.body = {
+        refreshToken: "opaque_token_lama",
+        installationId: "BUDI-HP-001",
+      };
+      req.headers.authorization = "Bearer expired_access_token";
+
+      penggunaService.refreshToken.mockResolvedValue({
+        accessToken: "new_access_token",
+        newRefreshToken: "new_opaque_token",
+      });
+
+      await penggunaController.refreshToken(req, res, next);
+
+      expect(penggunaService.refreshToken).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token: "opaque_token_lama",
+          installationId: "BUDI-HP-001",
+          expiredAccessToken: "expired_access_token",
+        }),
+      );
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            accessToken: "new_access_token",
+            refreshToken: "new_opaque_token",
+          }),
+        }),
+      );
+      // Cookie tidak di-set untuk alur app
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
     test("logout: Harus clearCookie 'refreshToken' dan sukses memanggil service", async () => {
       req.cookies.refreshToken = "token_to_revoke";
+      req.headers.authorization = "Bearer access_token_mock";
+      req.body = {};
       penggunaService.logout.mockResolvedValue(true);
 
       await penggunaController.logout(req, res, next);
 
-      expect(penggunaService.logout).toHaveBeenCalledWith("token_to_revoke");
+      expect(penggunaService.logout).toHaveBeenCalledWith(
+        expect.objectContaining({ token: "token_to_revoke" }),
+      );
       expect(res.clearCookie).toHaveBeenCalledWith(
         "refreshToken",
         expect.objectContaining({ path: "/" }),
       );
-      expect(res.json).toHaveBeenCalledWith({ message: "Logout berhasil." });
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: "Logout berhasil." }),
+      );
     });
 
     test("logout [SKENARIO BARU]: Harus tetap clearCookie dan merespons 200 meskipun tidak ada token yang dikirim (Idempotent)", async () => {
@@ -230,11 +289,15 @@ describe("Unit Test — Pengguna Controller", () => {
         "refreshToken",
         expect.any(Object),
       );
-      expect(res.json).toHaveBeenCalledWith({ message: "Logout berhasil." });
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, message: "Logout berhasil." }),
+      );
     });
 
     test("logout [DEFENSIF]: Harus tetap clearCookie meskipun Service melempar error", async () => {
       req.cookies.refreshToken = "token_to_revoke";
+      req.headers.authorization = "Bearer access_token_mock";
+      req.body = {};
 
       const dbError = new Error("Database timeout");
       penggunaService.logout.mockRejectedValue(dbError);
@@ -248,7 +311,29 @@ describe("Unit Test — Pengguna Controller", () => {
       expect(next).toHaveBeenCalledWith(dbError);
     });
 
-    test("registerOwner: Harus sukses dengan aksesType 'web' tanpa deviceID", async () => {
+    test("logout [ALUR APP]: Harus memanggil service dengan userId dan installationId jika request dari mobile", async () => {
+      req.body = { installationId: "BUDI-HP-001" };
+      req.headers.authorization = "Bearer access_token_mock";
+      req.cookies.refreshToken = "opaque_token";
+      req.user = { id: "user_123" };
+
+      penggunaService.logout.mockResolvedValue(true);
+
+      await penggunaController.logout(req, res, next);
+
+      expect(penggunaService.logout).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: "user_123",
+          installationId: "BUDI-HP-001",
+        }),
+      );
+      expect(res.clearCookie).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true }),
+      );
+    });
+
+    test("registerOwner: Harus sukses dengan aksesType 'web' tanpa installationId", async () => {
       req.akunContext = { tenantID: "toko_123" };
       req.body = { nama: "Owner Web", pin: "123456", aksesType: "web" };
 
@@ -262,18 +347,18 @@ describe("Unit Test — Pengguna Controller", () => {
 
       await penggunaController.registerOwner(req, res, next);
 
-      // Service dipanggil tanpa deviceID
+      // Service dipanggil tanpa installationId
       expect(penggunaService.registerOwner).toHaveBeenCalledWith(
-        expect.objectContaining({ aksesType: "web", deviceID: undefined }),
+        expect.objectContaining({ aksesType: ["web"] }),
         "toko_123",
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(next).not.toHaveBeenCalled();
     });
 
-    test("registerOwner: Harus throw 400 jika aksesType 'app' tapi tidak ada deviceID", async () => {
+    test("registerOwner: Harus throw 400 jika aksesType 'app' tapi tidak ada installationId", async () => {
       req.akunContext = { tenantID: "toko_123" };
-      // deviceID sengaja tidak dikirim, aksesType app
+      // installationId sengaja tidak dikirim, aksesType app
       req.body = { nama: "Owner App", pin: "123456", aksesType: "app" };
 
       await penggunaController.registerOwner(req, res, next);
@@ -282,15 +367,15 @@ describe("Unit Test — Pengguna Controller", () => {
       expect(next).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 400,
-          message: expect.stringMatching(/device id/i),
+          message: expect.stringMatching(/installationId wajib/i),
         }),
       );
       expect(penggunaService.registerOwner).not.toHaveBeenCalled();
     });
 
-    test("registerOwner: Harus throw 400 jika tidak ada deviceID dan aksesType tidak dikirim (default app)", async () => {
+    test("registerOwner: Harus throw 400 jika tidak ada installationId dan aksesType tidak dikirim (default app)", async () => {
       req.akunContext = { tenantID: "toko_123" };
-      // aksesType tidak dikirim → default "app" → wajib deviceID
+      // aksesType tidak dikirim → default "app" → wajib installationId
       req.body = { nama: "Owner Default", pin: "123456" };
 
       await penggunaController.registerOwner(req, res, next);
@@ -298,24 +383,22 @@ describe("Unit Test — Pengguna Controller", () => {
       expect(next).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 400,
-          message: expect.stringMatching(/device id/i),
+          message: expect.stringMatching(/installationId wajib/i),
         }),
       );
       expect(penggunaService.registerOwner).not.toHaveBeenCalled();
     });
 
-    // --- Tambahkan di dalam describe("Otentikasi & Manajemen Cookie") ---
-
-    test("loginPin: Harus throw 400 jika aksesType 'app' tapi tidak ada deviceID", async () => {
+    test("loginPin: Harus throw 400 jika aksesType 'app' tapi tidak ada installationId", async () => {
       req.akunContext = { tenantID: "toko_123" };
-      // deviceID sengaja tidak dikirim
+      // installationId sengaja tidak dikirim
       req.body = { nama: "kasir", pin: "123456" };
 
-      // Service throw 400 karena tidak ada deviceID untuk pengguna app
+      // Service throw 400 karena tidak ada installationId untuk pengguna app
       const err = Object.assign(new Error("Device ID wajib disertakan."), {
         status: 400,
       });
-      penggunaService.login.mockRejectedValue(err);
+      penggunaService.loginPin.mockRejectedValue(err);
 
       await penggunaController.loginPin(req, res, next);
 
@@ -326,11 +409,11 @@ describe("Unit Test — Pengguna Controller", () => {
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
-    test("loginPin: Harus sukses untuk aksesType 'web' tanpa deviceID", async () => {
+    test("loginPin: Harus sukses untuk aksesType 'web' tanpa installationId", async () => {
       req.akunContext = { tenantID: "toko_123" };
-      req.body = { nama: "kasir web", pin: "123456" }; // Tidak ada deviceID
+      req.body = { nama: "kasir web", pin: "123456" }; // Tidak ada installationId
 
-      penggunaService.login.mockResolvedValue({
+      penggunaService.loginPin.mockResolvedValue({
         accessToken: "access_web_token",
         refreshToken: "refresh_web_token",
         pengguna: { nama: "Kasir Web", aksesType: "web" },
@@ -338,13 +421,13 @@ describe("Unit Test — Pengguna Controller", () => {
 
       await penggunaController.loginPin(req, res, next);
 
-      // Service dipanggil tanpa deviceID
-      expect(penggunaService.login).toHaveBeenCalledWith(
+      // Service dipanggil tanpa installationId
+      expect(penggunaService.loginPin).toHaveBeenCalledWith(
         expect.objectContaining({
           nama: "kasir web",
           pin: "123456",
           tenantID: "toko_123",
-          deviceID: undefined,
+          installationId: undefined,
         }),
       );
 
@@ -370,7 +453,7 @@ describe("Unit Test — Pengguna Controller", () => {
       const err = Object.assign(new Error("Nama atau PIN salah."), {
         status: 401,
       });
-      penggunaService.login.mockRejectedValue(err);
+      penggunaService.loginPin.mockRejectedValue(err);
 
       await penggunaController.loginPin(req, res, next);
 
@@ -379,20 +462,91 @@ describe("Unit Test — Pengguna Controller", () => {
       expect(res.json).not.toHaveBeenCalled();
     });
 
-    test("registerOwner [EDGE CASE]: Harus throw 400 jika aksesType berupa Array ['web', 'app'] dan tidak ada deviceID", async () => {
+    test("loginPin: Harus return 200 dengan success false dan code DEVICE_PENDING_APPROVAL jika device masih pending", async () => {
+      req.akunContext = { tenantID: "toko_123" };
+      req.body = {
+        nama: "kasir",
+        pin: "123456",
+        loginType: "app",
+        installationId: "BUDI-TABLET-002",
+        deviceName: "iPad Mini",
+        appVersion: "1.0.0",
+        osVersion: "iPadOS 17",
+      };
+      penggunaService.loginPin.mockResolvedValue({
+        success: false,
+        code: "DEVICE_PENDING_APPROVAL",
+        status: "pending",
+        pengguna: { nama: "kasir" },
+        device: {
+          installationId: "BUDI-TABLET-002",
+          pendingExpiresAt: new Date("2026-05-26"),
+        },
+      });
+
+      await penggunaController.loginPin(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          code: "DEVICE_PENDING_APPROVAL",
+          message: expect.stringMatching(/menunggu persetujuan/i),
+        }),
+      );
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    test("loginPin: Harus menyertakan device.installationId dan device.status di response jika device TRUSTED", async () => {
+      req.akunContext = { tenantID: "toko_123" };
+      req.body = {
+        nama: "kasir",
+        pin: "123456",
+        loginType: "app",
+        installationId: "BUDI-HP-001",
+        deviceName: "Samsung Galaxy A54",
+        appVersion: "1.0.0",
+        osVersion: "Android 14",
+      };
+      penggunaService.loginPin.mockResolvedValue({
+        status: "trusted",
+        accessToken: "access_token_123",
+        refreshToken: "refresh_token_123",
+        pengguna: { nama: "kasir" },
+        device: {
+          installationId: "BUDI-HP-001",
+          status: "trusted",
+        },
+      });
+
+      await penggunaController.loginPin(req, res, next);
+
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            device: expect.objectContaining({
+              installationId: "BUDI-HP-001",
+              status: "trusted",
+            }),
+          }),
+        }),
+      );
+    });
+
+    test("registerOwner [EDGE CASE]: Harus throw 400 jika aksesType berupa Array ['web', 'app'] dan tidak ada installationId", async () => {
       req.akunContext = { tenantID: "toko_123" };
       req.body = {
         nama: "Owner Multi",
         pin: "123456",
         aksesType: ["web", "app"],
-      }; // Multi akses tanpa deviceID
+      }; // Multi akses tanpa installationId
 
       await penggunaController.registerOwner(req, res, next);
 
       expect(next).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 400,
-          message: expect.stringMatching(/device id/i),
+          message: expect.stringMatching(/installationId wajib/i),
         }),
       );
       expect(penggunaService.registerOwner).not.toHaveBeenCalled();
@@ -438,31 +592,6 @@ describe("Unit Test — Pengguna Controller", () => {
 
       await penggunaController.delete(req, res, next);
       expect(penggunaService.delete).toHaveBeenCalledWith(
-        "user_99",
-        "toko_123",
-      );
-    });
-
-    test("Device Management: add, promote, demote, remove, history harus memanggil service", async () => {
-      req.params.id = "user_99";
-      req.body = { deviceID: "DEV-A" };
-
-      await penggunaController.addDevice(req, res, next);
-      expect(penggunaService.addDevice).toHaveBeenCalledWith(
-        "user_99",
-        "toko_123",
-        req.body,
-      );
-
-      await penggunaController.promoteDevice(req, res, next);
-      expect(penggunaService.promoteDevice).toHaveBeenCalledWith(
-        "user_99",
-        "toko_123",
-        "DEV-A",
-      );
-
-      await penggunaController.getDeviceHistory(req, res, next);
-      expect(penggunaService.getDeviceHistory).toHaveBeenCalledWith(
         "user_99",
         "toko_123",
       );

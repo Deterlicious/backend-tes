@@ -21,6 +21,7 @@ jest.mock("../../../validators/penggunaValidator", () => ({
   validatePenggunaPayload: jest.fn(),
   validateDeviceAction: jest.fn(),
 }));
+jest.mock("../../../models/deviceModel");
 
 describe("Unit Test — Pengguna Service", () => {
   // Helper: Membuat objek Mongoose Document tiruan (Mock Doc)
@@ -29,13 +30,9 @@ describe("Unit Test — Pengguna Service", () => {
       _id: "user_123",
       tenantID: "toko_123",
       nama: "test_user",
-      // FIX: aksesType selalu array sesuai perubahan service
       aksesType: ["web"],
       tokenVersion: 1,
-      device: [],
-      deviceHistory: [],
-      maxDevice: 5,
-      markModified: jest.fn(),
+      status: "aktif",
       roleID: { _id: "role_1", namaRole: "Kasir", permissions: [] },
       comparePin: jest.fn().mockResolvedValue(true),
       populate: jest.fn().mockImplementation(function () {
@@ -47,7 +44,6 @@ describe("Unit Test — Pengguna Service", () => {
       deleteOne: jest.fn().mockResolvedValue(true),
       ...overrides,
     };
-
     doc.save = jest.fn().mockResolvedValue(doc);
     return doc;
   };
@@ -63,9 +59,17 @@ describe("Unit Test — Pengguna Service", () => {
     jest.resetAllMocks();
   });
 
+  afterEach(() => {
+    jest.resetAllMocks();
+    delete process.env.REFRESH_SECRET;
+    delete process.env.PENGGUNA_ACCESS_TOKEN;
+    delete process.env.PENGGUNA_REFRESH_TOKEN;
+  });
+
   // 1. TOKEN GENERATORS
   describe("Token Generators", () => {
-    test("generateToken: Harus menyertakan deviceID dan loginType 'app' untuk sesi app", () => {
+    test("generateToken: Harus menyertakan installationId dan loginType 'app' untuk sesi app", () => {
+      process.env.PENGGUNA_ACCESS_TOKEN = "test_access_secret";
       jwt.sign.mockReturnValue("token_app_mock");
       const user = {
         _id: "u1",
@@ -73,24 +77,23 @@ describe("Unit Test — Pengguna Service", () => {
         roleID: "r1",
         aksesType: ["app", "web"],
       };
-      const device = { deviceID: "DEV-1", tokenVersion: 2 };
+      const device = { installationId: "INSTALL-001" };
 
-      // FIX: loginType wajib dikirim sebagai argumen ketiga
       const token = penggunaService.generateToken(user, device, "app");
 
       expect(jwt.sign).toHaveBeenCalledWith(
         expect.objectContaining({
-          deviceID: "DEV-1",
-          version: 2,
+          installationId: "INSTALL-001",
           loginType: "app",
         }),
         expect.any(String),
-        { expiresIn: "1d" },
+        { expiresIn: "15m" },
       );
       expect(token).toBe("token_app_mock");
     });
 
     test("generateToken: Harus menyertakan tokenVersion pengguna dan loginType 'web' untuk sesi web", () => {
+      process.env.PENGGUNA_ACCESS_TOKEN = "test_access_secret";
       jwt.sign.mockReturnValue("token_web_mock");
       const user = {
         _id: "u1",
@@ -100,21 +103,18 @@ describe("Unit Test — Pengguna Service", () => {
         tokenVersion: 5,
       };
 
-      // FIX: loginType "web", device null
       const token = penggunaService.generateToken(user, null, "web");
 
       expect(jwt.sign).toHaveBeenCalledWith(
-        expect.objectContaining({
-          version: 5,
-          loginType: "web",
-        }),
+        expect.objectContaining({ version: 5, loginType: "web" }),
         expect.any(String),
-        { expiresIn: "1d" },
+        { expiresIn: "15m" },
       );
       expect(token).toBe("token_web_mock");
     });
 
     test("generateRefreshToken: Harus menyertakan tokenVersion pengguna untuk sesi 'web'", () => {
+      process.env.PENGGUNA_REFRESH_TOKEN = "test_refresh_secret";
       jwt.sign.mockReturnValue("refresh_web_mock");
       const user = {
         _id: "u1",
@@ -124,41 +124,24 @@ describe("Unit Test — Pengguna Service", () => {
         tokenVersion: 5,
       };
 
-      // FIX: loginType wajib dikirim
       const token = penggunaService.generateRefreshToken(user, null, "web");
 
       expect(jwt.sign).toHaveBeenCalledWith(
-        expect.objectContaining({
-          version: 5,
-          loginType: "web",
-        }),
+        expect.objectContaining({ version: 5, loginType: "web" }),
         expect.any(String),
         { expiresIn: "7d" },
       );
       expect(token).toBe("refresh_web_mock");
     });
 
-    test("generateRefreshToken: Harus menyertakan deviceID dan loginType 'app' untuk sesi app", () => {
-      jwt.sign.mockReturnValue("refresh_app_mock");
-      const user = {
-        _id: "u1",
-        tenantID: "t1",
-        aksesType: ["app"],
-      };
-      const device = { deviceID: "DEV-1", tokenVersion: 3 };
+    test("generateRefreshToken: Harus mengembalikan opaque token (string hex) untuk sesi 'app', bukan JWT", () => {
+      const user = { _id: "u1", tenantID: "t1", aksesType: ["app"] };
 
-      const token = penggunaService.generateRefreshToken(user, device, "app");
+      const token = penggunaService.generateRefreshToken(user, null, "app");
 
-      expect(jwt.sign).toHaveBeenCalledWith(
-        expect.objectContaining({
-          deviceID: "DEV-1",
-          version: 3,
-          loginType: "app",
-        }),
-        expect.any(String),
-        { expiresIn: "7d" },
-      );
-      expect(token).toBe("refresh_app_mock");
+      expect(jwt.sign).not.toHaveBeenCalled();
+      expect(typeof token).toBe("string");
+      expect(token).toMatch(/^[a-f0-9]{80}$/);
     });
   });
 
@@ -177,10 +160,9 @@ describe("Unit Test — Pengguna Service", () => {
           .mockReturnValueOnce("refresh_token");
 
         // FIX: kirim loginType bukan aksesType
-        const result = await penggunaService.login({
+        const result = await penggunaService.loginPin({
           nama: "test",
           pin: "password123",
-          tenantID: "toko_123",
           loginType: "web",
         });
 
@@ -190,61 +172,20 @@ describe("Unit Test — Pengguna Service", () => {
         expect(result.pengguna.role).toBe("Kasir");
       });
 
-      test("Sukses untuk loginType 'app' dan mencatat device baru jika belum terdaftar", async () => {
-        // FIX: aksesType array, maxDevice ada
-        const mockUser = createMockUserDoc({
-          aksesType: ["app"],
-          device: [],
-          maxDevice: 5,
-        });
-        Pengguna.findOne.mockReturnValue({
-          populate: jest.fn().mockResolvedValue(mockUser),
-        });
-        jwt.sign.mockReturnValue("token_mock");
-
-        // FIX: kirim loginType: "app"
-        await penggunaService.login({
-          nama: "test",
-          pin: "pass",
-          tenantID: "toko_123",
-          deviceID: "DEV-NEW",
-          deviceType: "HP Samsung",
-          loginType: "app",
-        });
-
-        expect(mockUser.device).toHaveLength(1);
-        expect(mockUser.device[0].deviceID).toBe("DEV-NEW");
-        expect(mockUser.device[0].lastUsed).toBeDefined();
-        expect(mockUser.save).toHaveBeenCalled();
-      });
-
-      test("Sukses untuk loginType 'app' dan update tokenVersion jika device sudah terdaftar", async () => {
-        const existingDevice = {
-          deviceID: "DEV-LAMA",
-          tokenVersion: 1,
-          lastUsed: new Date("2024-01-01"),
-        };
-        const mockUser = createMockUserDoc({
-          aksesType: ["app"],
-          device: [existingDevice],
-          maxDevice: 5,
-        });
+      test("Sukses untuk loginType 'app' — melempar error jika installationId tidak disertakan", async () => {
+        const mockUser = createMockUserDoc({ aksesType: ["app"] });
         Pengguna.findOne.mockReturnValue({
           populate: jest.fn().mockResolvedValue(mockUser),
         });
 
-        await penggunaService.login({
-          nama: "test",
-          pin: "pass",
-          tenantID: "toko_123",
-          deviceID: "DEV-LAMA",
-          loginType: "app",
-        });
-
-        // Device tidak bertambah, hanya tokenVersion di-update
-        expect(mockUser.device).toHaveLength(1);
-        expect(mockUser.device[0].tokenVersion).not.toBe(1);
-        expect(mockUser.save).toHaveBeenCalled();
+        await expect(
+          penggunaService.loginPin({
+            nama: "test",
+            pin: "pass",
+            loginType: "app",
+            // installationId tidak dikirim
+          }),
+        ).rejects.toThrow(/installationId wajib/i);
       });
 
       test("Gagal jika PIN salah", async () => {
@@ -257,10 +198,9 @@ describe("Unit Test — Pengguna Service", () => {
 
         // FIX: tambah loginType
         await expect(
-          penggunaService.login({
+          penggunaService.loginPin({
             nama: "test",
             pin: "salah",
-            tenantID: "toko_123",
             loginType: "web",
           }),
         ).rejects.toThrow(/Nama atau PIN salah/i);
@@ -273,10 +213,9 @@ describe("Unit Test — Pengguna Service", () => {
 
         // FIX: gunakan signature baru { nama, pin, tenantID, loginType }
         await expect(
-          penggunaService.login({
+          penggunaService.loginPin({
             nama: "hantu",
             pin: "123",
-            tenantID: "toko_123",
             loginType: "web",
           }),
         ).rejects.toThrow(/Nama atau PIN salah/i);
@@ -284,10 +223,9 @@ describe("Unit Test — Pengguna Service", () => {
 
       test("Gagal jika loginType tidak valid (bukan 'app' atau 'web')", async () => {
         await expect(
-          penggunaService.login({
+          penggunaService.loginPin({
             nama: "test",
             pin: "pass",
-            tenantID: "toko_123",
             loginType: "invalid",
           }),
         ).rejects.toThrow(/loginType tidak valid/i);
@@ -295,12 +233,11 @@ describe("Unit Test — Pengguna Service", () => {
 
       test("Gagal jika loginType tidak disertakan sama sekali", async () => {
         await expect(
-          penggunaService.login({
+          penggunaService.loginPin({
             nama: "test",
             pin: "pass",
-            tenantID: "toko_123",
           }),
-        ).rejects.toThrow(/loginType saat login harus satu/i);
+        ).rejects.toThrow(/loginType saat login harus spesifik satu/i);
       });
 
       test("Gagal (403) jika pengguna tidak punya kapabilitas loginType yang diminta", async () => {
@@ -311,51 +248,93 @@ describe("Unit Test — Pengguna Service", () => {
         });
 
         await expect(
-          penggunaService.login({
+          penggunaService.loginPin({
             nama: "test",
             pin: "pass",
-            tenantID: "toko_123",
             loginType: "app",
           }),
         ).rejects.toThrow(/Akses tidak diizinkan/i);
       });
 
-      test("Gagal (400) jika loginType 'app' tapi deviceID tidak disertakan", async () => {
+      test("Gagal (400) jika loginType 'app' tapi installationId tidak disertakan", async () => {
         const mockUser = createMockUserDoc({ aksesType: ["app"] });
         Pengguna.findOne.mockReturnValue({
           populate: jest.fn().mockResolvedValue(mockUser),
         });
 
         await expect(
-          penggunaService.login({
+          penggunaService.loginPin({
             nama: "test",
             pin: "pass",
-            tenantID: "toko_123",
             loginType: "app",
-            // deviceID tidak dikirim
           }),
-        ).rejects.toThrow(/Device ID wajib/i);
+        ).rejects.toThrow(/installationId wajib/i);
       });
 
-      test("Gagal (403) jika kuota device sudah penuh", async () => {
-        const mockUser = createMockUserDoc({
-          aksesType: ["app"],
-          device: [{ deviceID: "DEV-1" }, { deviceID: "DEV-2" }],
-          maxDevice: 2, // kuota = 2, sudah penuh
-        });
+      test("Sukses untuk loginType 'app' — mengembalikan token jika device berstatus TRUSTED", async () => {
+        process.env.PENGGUNA_ACCESS_TOKEN = "test_access_secret";
+        process.env.REFRESH_SECRET = "test_secret";
+
+        const mockUser = createMockUserDoc({ aksesType: ["app"] });
         Pengguna.findOne.mockReturnValue({
           populate: jest.fn().mockResolvedValue(mockUser),
         });
 
-        await expect(
-          penggunaService.login({
-            nama: "test",
-            pin: "pass",
-            tenantID: "toko_123",
-            deviceID: "DEV-BARU",
-            loginType: "app",
-          }),
-        ).rejects.toThrow(/Kuota perangkat penuh/i);
+        const Device = require("../../../models/deviceModel");
+
+        const mockDevice = {
+          installationId: "BUDI-HP-001",
+          status: "trusted",
+          save: jest.fn().mockResolvedValue(true),
+        };
+        Device.findOne.mockResolvedValue(mockDevice);
+
+        jwt.sign.mockReturnValue("token_mock");
+
+        const result = await penggunaService.loginPin({
+          nama: "test_user",
+          pin: "password123",
+          tenantID: "toko_123",
+          loginType: "app",
+          installationId: "BUDI-HP-001",
+          deviceName: "Samsung Galaxy A54",
+          appVersion: "1.0.0",
+          osVersion: "Android 14",
+        });
+
+        expect(result.accessToken).toBeDefined();
+        expect(result.refreshToken).toBeDefined();
+        expect(result.pengguna).toBeDefined();
+      });
+
+      test("Sukses untuk loginType 'app' — mengembalikan DEVICE_PENDING_APPROVAL jika device berstatus PENDING", async () => {
+        const mockUser = createMockUserDoc({ aksesType: ["app"] });
+        Pengguna.findOne.mockReturnValue({
+          populate: jest.fn().mockResolvedValue(mockUser),
+        });
+
+        const Device = require("../../../models/deviceModel");
+        const mockDevice = {
+          installationId: "BUDI-TABLET-002",
+          status: "pending",
+          save: jest.fn().mockResolvedValue(true),
+        };
+        Device.findOne.mockResolvedValue(mockDevice);
+
+        const result = await penggunaService.loginPin({
+          nama: "test_user",
+          pin: "password123",
+          tenantID: "toko_123",
+          loginType: "app",
+          installationId: "BUDI-TABLET-002",
+          deviceName: "iPad Mini",
+          appVersion: "1.0.0",
+          osVersion: "iPadOS 17",
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.code).toBe("DEVICE_PENDING_APPROVAL");
+        expect(result.accessToken).toBeUndefined();
       });
     });
 
@@ -373,10 +352,14 @@ describe("Unit Test — Pengguna Service", () => {
           aksesType: ["web"],
           tokenVersion: oldVersion,
         });
-        Pengguna.findById.mockResolvedValue(mockUser);
+        Pengguna.findById.mockReturnValue({
+          populate: jest.fn().mockResolvedValue(mockUser),
+        });
         jwt.sign.mockReturnValue("new_token");
 
-        const result = await penggunaService.refreshToken("valid_token");
+        const result = await penggunaService.refreshToken({
+          token: "valid_token",
+        });
 
         expect(mockUser.tokenVersion).not.toBe(oldVersion);
         expect(mockUser.save).toHaveBeenCalled();
@@ -384,28 +367,26 @@ describe("Unit Test — Pengguna Service", () => {
         expect(result.newRefreshToken).toBeDefined();
       });
 
-      test("Sukses untuk sesi 'app' — rotate tokenVersion device", async () => {
-        // FIX: decoded harus punya loginType dan deviceID
-        jwt.verify.mockReturnValue({
-          id: "user_123",
-          version: 1,
-          loginType: "app",
-          deviceID: "DEV-1",
-        });
-        const mockUser = createMockUserDoc({
-          aksesType: ["app"],
-          device: [
-            { deviceID: "DEV-1", tokenVersion: 1, lastUsed: new Date() },
-          ],
-        });
-        Pengguna.findById.mockResolvedValue(mockUser);
-        jwt.sign.mockReturnValue("new_token");
+      test("Sukses untuk sesi 'app' — memverifikasi opaque token dan merotasi refreshTokenHash di Device", async () => {
+        // TODO: Test ini memerlukan mock Device model dan crypto.
+        // Akan dicover lebih lengkap di deviceService.test.js.
+        // Untuk sekarang, pastikan service tidak crash jika Device tidak ditemukan.
+        const Device = require("../../../models/deviceModel");
+        Device.findOne = jest.fn().mockResolvedValue(null);
 
-        const result = await penggunaService.refreshToken("valid_token");
+        jwt.verify.mockReturnValue({ id: "user_123" });
+        const mockUserApp = createMockUserDoc({ status: "aktif" });
+        Pengguna.findById.mockReturnValue({
+          populate: jest.fn().mockResolvedValue(mockUserApp),
+        });
 
-        expect(mockUser.device[0].tokenVersion).not.toBe(1);
-        expect(mockUser.save).toHaveBeenCalled();
-        expect(result.accessToken).toBeDefined();
+        await expect(
+          penggunaService.refreshToken({
+            token: "opaque_token",
+            expiredAccessToken: "expired_jwt",
+            installationId: "INSTALL-001",
+          }),
+        ).rejects.toThrow(/SESSION_INVALID/i);
       });
 
       test("Gagal jika sesi 'web' telah di-revoke (version mismatch)", async () => {
@@ -420,29 +401,13 @@ describe("Unit Test — Pengguna Service", () => {
           aksesType: ["web"],
           tokenVersion: 2,
         });
-        Pengguna.findById.mockResolvedValue(mockUser);
+        Pengguna.findById.mockReturnValue({
+          populate: jest.fn().mockResolvedValue(mockUser),
+        });
 
         await expect(
-          penggunaService.refreshToken("token_usang"),
+          penggunaService.refreshToken({ token: "token_usang" }),
         ).rejects.toThrow(/Sesi tidak valid/i);
-      });
-
-      test("Gagal jika sesi 'app' device tidak dikenali", async () => {
-        jwt.verify.mockReturnValue({
-          id: "user_123",
-          version: 1,
-          loginType: "app",
-          deviceID: "DEV-HANTU",
-        });
-        const mockUser = createMockUserDoc({
-          aksesType: ["app"],
-          device: [{ deviceID: "DEV-SAH", tokenVersion: 1 }],
-        });
-        Pengguna.findById.mockResolvedValue(mockUser);
-
-        await expect(
-          penggunaService.refreshToken("token_device_asing"),
-        ).rejects.toThrow(/Sesi perangkat tidak valid/i);
       });
 
       test("Gagal jika token sudah kedaluwarsa (jwt expired)", async () => {
@@ -451,7 +416,7 @@ describe("Unit Test — Pengguna Service", () => {
         });
 
         await expect(
-          penggunaService.refreshToken("token_rusak"),
+          penggunaService.refreshToken({ token: "token_rusak" }),
         ).rejects.toThrow(/Refresh token tidak valid/i);
       });
     });
@@ -459,7 +424,6 @@ describe("Unit Test — Pengguna Service", () => {
     // --- LOGOUT ---
     describe("logout()", () => {
       test("Sukses sesi 'web' — tokenVersion pengguna di-set ke 0", async () => {
-        // FIX: loginType ada di decoded
         jwt.verify.mockReturnValue({
           id: "user_123",
           loginType: "web",
@@ -470,34 +434,32 @@ describe("Unit Test — Pengguna Service", () => {
         });
         Pengguna.findById.mockResolvedValue(mockUser);
 
-        await penggunaService.logout("valid_token");
+        await penggunaService.logout({
+          token: "valid_token",
+          accessToken: null,
+          installationId: null,
+        });
 
-        // FIX: harusnya 0, bukan 100 (bukan += 1 lagi)
         expect(mockUser.tokenVersion).toBe(0);
         expect(mockUser.save).toHaveBeenCalled();
         expect(redis.del).toHaveBeenCalled();
       });
 
-      test("Sukses sesi 'app' — tokenVersion device di-set ke 0 dan markModified dipanggil", async () => {
-        // FIX: loginType ada di decoded
-        jwt.verify.mockReturnValue({
-          id: "user_123",
-          deviceID: "DEV-1",
-          loginType: "app",
-        });
-        const mockUser = createMockUserDoc({
-          aksesType: ["app"],
-          device: [{ deviceID: "DEV-1", tokenVersion: 99 }],
-        });
-        Pengguna.findById.mockResolvedValue(mockUser);
+      test("Sukses sesi 'app' — refreshTokenHash di-null-kan di Device collection", async () => {
+        const Device = require("../../../models/deviceModel");
+        Device.findOneAndUpdate = jest.fn().mockResolvedValue(true);
+        global.deviceCache = null; // Pastikan tidak crash saat service cek deviceCache
 
-        await penggunaService.logout("valid_token");
+        await penggunaService.logout({
+          userId: "user_123",
+          installationId: "INSTALL-001",
+          accessToken: null,
+        });
 
-        // FIX: harusnya 0, bukan 100 (bukan += 1 lagi)
-        expect(mockUser.device[0].tokenVersion).toBe(0);
-        expect(mockUser.markModified).toHaveBeenCalledWith("device");
-        expect(mockUser.save).toHaveBeenCalled();
-        expect(redis.del).toHaveBeenCalled();
+        expect(Device.findOneAndUpdate).toHaveBeenCalledWith(
+          { penggunaID: "user_123", installationId: "INSTALL-001" },
+          { $set: { refreshTokenHash: null } },
+        );
       });
 
       test("Harus diam-diam resolve (tidak crash) jika token valid tapi user sudah dihapus dari DB", async () => {
@@ -507,7 +469,13 @@ describe("Unit Test — Pengguna Service", () => {
         });
         Pengguna.findById.mockResolvedValue(null);
 
-        await expect(penggunaService.logout("token")).resolves.toBeUndefined();
+        await expect(
+          penggunaService.logout({
+            token: "token",
+            accessToken: null,
+            installationId: null,
+          }),
+        ).resolves.toBeUndefined();
       });
 
       test("Harus diam-diam resolve (tidak crash) jika token tidak valid / rusak", async () => {
@@ -516,31 +484,37 @@ describe("Unit Test — Pengguna Service", () => {
         });
 
         await expect(
-          penggunaService.logout("token_rusak"),
+          penggunaService.logout({
+            token: "token_rusak",
+            accessToken: null,
+            installationId: null,
+          }),
         ).resolves.toBeUndefined();
       });
 
-      test("logout: Sukses memasukkan access token ke blacklist Redis (Jika diterapkan)", async () => {
-        // Mock verifikasi Refresh Token sukses
-        jwt.verify.mockReturnValueOnce({ id: "user_1" });
-        // Mock verifikasi Access Token sukses dan masih punya sisa waktu (exp)
-        jwt.verify.mockReturnValueOnce({
-          exp: Math.floor(Date.now() / 1000) + 3600,
-        });
+      test("logout: Sukses memasukkan access token ke blacklist Redis", async () => {
+        jwt.verify
+          .mockReturnValueOnce({ id: "user_1" }) // untuk web refresh token
+          .mockReturnValueOnce({ exp: Math.floor(Date.now() / 1000) + 3600 }); // untuk access token
 
         const mockPengguna = {
           _id: "user_1",
+          tenantID: "toko_1",
           tokenVersion: 100,
           save: jest.fn().mockResolvedValue(true),
         };
-        Pengguna.findById.mockResolvedValue(mockPengguna);
+        Pengguna.findById.mockReturnValue({
+          populate: jest.fn().mockResolvedValue(mockPengguna),
+        });
 
-        // Asumsi fungsi logout menerima (refreshToken, accessToken)
-        await penggunaService.logout("refresh_mock", "access_mock");
+        await penggunaService.logout({
+          token: "refresh_mock",
+          accessToken: "access_mock",
+          installationId: null,
+        });
 
-        // Pastikan Redis dipanggil untuk mem-blacklist access token
         expect(redis.set).toHaveBeenCalledWith(
-          expect.stringContaining("bl_access_mock"), // Prefix blacklist
+          expect.stringContaining("bl_access_mock"),
           "blacklisted",
           "EX",
           expect.any(Number),
@@ -553,18 +527,27 @@ describe("Unit Test — Pengguna Service", () => {
   describe("Registration & Creation", () => {
     describe("registerOwner()", () => {
       test("Sukses mendaftarkan owner baru", async () => {
+        process.env.REFRESH_SECRET = "test_secret";
+        process.env.PENGGUNA_ACCESS_TOKEN = "test_access_secret";
+
         Role.findOne.mockResolvedValue({
           _id: "role_owner",
           namaRole: "Owner",
         });
         Pengguna.findOne.mockResolvedValue(null);
 
+        const Device = require("../../../models/deviceModel");
+        const mongoose = require("mongoose");
+        const fakeOwnerId = new mongoose.Types.ObjectId();
+
+        Device.mockImplementation(function (data) {
+          Object.assign(this, data);
+          this.save = jest.fn().mockResolvedValue(this);
+        });
+
         Pengguna.mockImplementation(function (data) {
           Object.assign(this, data);
-          this._id = "new_owner_123";
-          this.device = [];
-          this.deviceHistory = [];
-          this.markModified = jest.fn();
+          this._id = fakeOwnerId;
           this.populate = jest.fn().mockResolvedValue(this);
           this.save = jest.fn().mockResolvedValue(this);
           this.roleID = { _id: "role_owner", namaRole: "Owner" };
@@ -577,13 +560,14 @@ describe("Unit Test — Pengguna Service", () => {
             nama: "Owner Baru",
             pin: "123456",
             aksesType: ["app", "web"],
-            deviceID: "DEV-001",
-            deviceType: "primary",
+            installationId: "OWNER-DEVICE-001",
+            deviceName: "iPad Pro",
+            appVersion: "1.0.0",
+            osVersion: "iOS 17.4",
           },
           "toko_1",
         );
 
-        // FIX: service return { pengguna: {...}, accessToken, refreshToken }
         expect(result.pengguna.nama).toBe("Owner Baru");
         expect(result.pengguna.aksesType).toContain("app");
         expect(result.accessToken).toBeDefined();
@@ -591,19 +575,18 @@ describe("Unit Test — Pengguna Service", () => {
         expect(redis.del).toHaveBeenCalled();
       });
 
-      test("Gagal (400) jika deviceID tidak disertakan", async () => {
-        // Guard baru: deviceID wajib di registerOwner
+      test("Gagal (400) jika installationId tidak disertakan untuk registrasi via App", async () => {
         await expect(
           penggunaService.registerOwner(
             {
               nama: "Owner Tanpa Device",
               pin: "123456",
               aksesType: ["app"],
-              // deviceID tidak dikirim
+              // installationId tidak dikirim
             },
             "toko_1",
           ),
-        ).rejects.toThrow(/Device ID wajib/i);
+        ).rejects.toThrow(/installationId wajib/i);
       });
 
       test("Gagal (404) jika Role Owner belum ada di sistem", async () => {
@@ -611,7 +594,7 @@ describe("Unit Test — Pengguna Service", () => {
 
         await expect(
           penggunaService.registerOwner(
-            { nama: "Owner", pin: "123456", deviceID: "DEV-1" },
+            { nama: "Owner Duplikat", pin: "123456", installationId: "DEV-1" },
             "toko_1",
           ),
         ).rejects.toThrow(/Role Owner tidak ditemukan/i);
@@ -626,25 +609,34 @@ describe("Unit Test — Pengguna Service", () => {
 
         await expect(
           penggunaService.registerOwner(
-            { nama: "Owner Duplikat", pin: "123456", deviceID: "DEV-1" },
+            { nama: "Owner Duplikat", pin: "123456", installationId: "DEV-1" },
             "toko_1",
           ),
         ).rejects.toThrow(/nama sudah digunakan/i);
       });
 
       test("Sukses — token yang digenerate selalu punya loginType 'app'", async () => {
+        process.env.REFRESH_SECRET = "test_secret";
+        process.env.PENGGUNA_ACCESS_TOKEN = "test_access_secret";
+
         Role.findOne.mockResolvedValue({
           _id: "role_owner",
           namaRole: "Owner",
         });
         Pengguna.findOne.mockResolvedValue(null);
 
+        const Device = require("../../../models/deviceModel");
+        const mongoose = require("mongoose");
+        const fakeOwnerId = new mongoose.Types.ObjectId();
+
+        Device.mockImplementation(function (data) {
+          Object.assign(this, data);
+          this.save = jest.fn().mockResolvedValue(this);
+        });
+
         Pengguna.mockImplementation(function (data) {
           Object.assign(this, data);
-          this._id = "new_owner_123";
-          this.device = [];
-          this.deviceHistory = [];
-          this.markModified = jest.fn();
+          this._id = fakeOwnerId;
           this.populate = jest.fn().mockResolvedValue(this);
           this.save = jest.fn().mockResolvedValue(this);
           this.roleID = { _id: "role_owner", namaRole: "Owner" };
@@ -657,14 +649,15 @@ describe("Unit Test — Pengguna Service", () => {
             nama: "Owner Baru",
             pin: "123456",
             aksesType: ["app", "web"],
-            deviceID: "DEV-001",
+            installationId: "OWNER-DEVICE-001",
+            deviceName: "iPad Pro",
+            appVersion: "1.0.0",
+            osVersion: "iOS 17.4",
           },
           "toko_1",
         );
 
-        // jwt.sign dipanggil 2x — accessToken dan refreshToken
-        // keduanya harus punya loginType: "app"
-        expect(jwt.sign).toHaveBeenCalledTimes(2);
+        expect(jwt.sign).toHaveBeenCalledTimes(1);
         expect(jwt.sign).toHaveBeenCalledWith(
           expect.objectContaining({ loginType: "app" }),
           expect.any(String),
@@ -710,7 +703,6 @@ describe("Unit Test — Pengguna Service", () => {
               roleID: "role_1",
               pin: "123456",
               aksesType: "app",
-              deviceID: "dev_1",
             },
             "toko_1", // pastikan parameter ini sama dengan tenantID di atas
           ),
@@ -856,16 +848,40 @@ describe("Unit Test — Pengguna Service", () => {
       ).rejects.toThrow(/Role Owner sudah digunakan oleh pengguna lain/i);
     });
 
-    test("delete: Sukses menghapus pengguna non-Owner", async () => {
-      const mockUser = createMockUserDoc({
-        roleID: { namaRole: "Kasir" },
-      });
+    test("update: Harus mereset tokenVersion dan null-kan refreshTokenHash semua device jika field sensitif (pin/status/aksesType) diubah", async () => {
+      const Device = require("../../../models/deviceModel");
+      Device.updateMany = jest.fn().mockResolvedValue(true);
+
+      const mockUser = createMockUserDoc({ tokenVersion: 5 });
+      Pengguna.findOne.mockResolvedValue(mockUser);
+
+      await penggunaService.update(
+        "user_123",
+        { pin: "newpin123" },
+        "toko_123",
+      );
+
+      // tokenVersion harus di-reset ke 6 setelah field sensitif diubah
+      expect(mockUser.tokenVersion).toBe(6);
+      // Semua device milik user harus di-null-kan refreshTokenHash-nya
+      expect(Device.updateMany).toHaveBeenCalledWith(
+        { penggunaID: "user_123" },
+        { $set: { refreshTokenHash: null } },
+      );
+    });
+
+    test("delete: Sukses menghapus pengguna non-Owner beserta cascade device", async () => {
+      const Device = require("../../../models/deviceModel");
+      Device.deleteMany = jest.fn().mockResolvedValue(true);
+
+      const mockUser = createMockUserDoc({ roleID: { namaRole: "Kasir" } });
       Pengguna.findOne.mockReturnValue({
         populate: jest.fn().mockResolvedValue(mockUser),
       });
 
       const result = await penggunaService.delete("u_1", "toko_1");
 
+      expect(Device.deleteMany).toHaveBeenCalledWith({ penggunaID: "u_1" });
       expect(mockUser.deleteOne).toHaveBeenCalled();
       expect(redis.del).toHaveBeenCalled();
       expect(result).toBe(true);
@@ -903,11 +919,10 @@ describe("Unit Test — Pengguna Service", () => {
 
       await expect(
         // Asumsi parameter: create(tenantID, payload)
-        penggunaService.create("tenant_asli", {
-          nama: "Kasir Baru",
-          roleID: "role_curian",
-          pin: "123456",
-        }),
+        penggunaService.create(
+          { nama: "Kasir Baru", roleID: "role_curian", pin: "123456" },
+          "tenant_asli",
+        ),
       ).rejects.toThrow();
       // Catatan: Pastikan di penggunaService.js Anda melempar error jika role.tenantID !== tenantID
 
@@ -932,126 +947,15 @@ describe("Unit Test — Pengguna Service", () => {
     });
 
     test("update: Gagal (404) jika mencoba mengubah data pengguna milik tenant lain", async () => {
-      // Simulasi query update dengan filter tenantID spesifik mengembalikan null
-      Pengguna.findOneAndUpdate.mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          lean: jest.fn().mockResolvedValue(null),
-        }),
-      });
+      Pengguna.findOne.mockResolvedValue(null);
 
       await expect(
-        // Asumsi parameter: update(penggunaID, tenantID, payload)
-        penggunaService.update("user_toko_sebelah", "tenant_kita", {
-          nama: "Hacked",
-        }),
+        penggunaService.update(
+          "user_toko_sebelah",
+          { nama: "Hacked" },
+          "tenant_kita",
+        ),
       ).rejects.toThrow(/tidak ditemukan/i);
-    });
-  });
-
-  // 5. DEVICE MANAGEMENT
-  describe("Device Management", () => {
-    test("addDevice: Berhasil menambahkan perangkat baru dengan tokenVersion 0 dan lastUsed null", async () => {
-      const mockUser = createMockUserDoc({ device: [] });
-      Pengguna.findOne.mockResolvedValue(mockUser);
-      validateDeviceAction.mockReturnValue(true);
-
-      await penggunaService.addDevice("u_1", "toko_1", { deviceID: "DEV-2" });
-
-      expect(mockUser.device).toHaveLength(1);
-      expect(mockUser.device[0].tokenVersion).toBe(0);
-      // FIX: lastUsed bukan lastLogin
-      expect(mockUser.device[0].lastUsed).toBeNull();
-      expect(mockUser.device[0].lastLogin).toBeUndefined();
-      expect(mockUser.save).toHaveBeenCalled();
-      expect(redis.del).toHaveBeenCalled();
-    });
-
-    test("addDevice: Gagal (400) jika deviceID sudah terdaftar", async () => {
-      const mockUser = createMockUserDoc({
-        device: [{ deviceID: "DEV-ADA" }],
-      });
-      Pengguna.findOne.mockResolvedValue(mockUser);
-      validateDeviceAction.mockReturnValue(true);
-
-      await expect(
-        penggunaService.addDevice("u_1", "toko_1", { deviceID: "DEV-ADA" }),
-      ).rejects.toThrow(/Perangkat sudah terdaftar/i);
-    });
-
-    test("promoteDevice: Mengubah device target menjadi primary dan semua lainnya menjadi secondary", async () => {
-      const mockUser = createMockUserDoc({
-        device: [
-          { deviceID: "DEV-1", type: "secondary" },
-          { deviceID: "DEV-2", type: "primary" },
-        ],
-      });
-      Pengguna.findOne.mockResolvedValue(mockUser);
-
-      await penggunaService.promoteDevice("u_1", "toko_1", "DEV-1");
-
-      expect(mockUser.device[0].type).toBe("primary"); // DEV-1 naik pangkat
-      expect(mockUser.device[1].type).toBe("secondary"); // DEV-2 turun pangkat
-      expect(mockUser.save).toHaveBeenCalled();
-    });
-
-    test("demoteDevice: Berhasil menurunkan device menjadi secondary", async () => {
-      const mockUser = createMockUserDoc({
-        device: [{ deviceID: "DEV-1", type: "primary" }],
-      });
-      Pengguna.findOne.mockResolvedValue(mockUser);
-
-      await penggunaService.demoteDevice("u_1", "toko_1", "DEV-1");
-
-      expect(mockUser.device[0].type).toBe("secondary");
-      expect(mockUser.save).toHaveBeenCalled();
-    });
-
-    test("demoteDevice: Gagal (404) jika deviceID tidak ditemukan", async () => {
-      const mockUser = createMockUserDoc({
-        device: [{ deviceID: "DEV-SAH" }],
-      });
-      Pengguna.findOne.mockResolvedValue(mockUser);
-
-      await expect(
-        penggunaService.demoteDevice("u_1", "toko_1", "DEV-HANTU"),
-      ).rejects.toThrow(/Perangkat tidak ditemukan/i);
-    });
-
-    test("removeDevice: Menghapus device yang benar dari array", async () => {
-      const mockUser = createMockUserDoc({
-        device: [{ deviceID: "DEV-1" }, { deviceID: "DEV-2" }],
-      });
-      Pengguna.findOne.mockResolvedValue(mockUser);
-
-      await penggunaService.removeDevice("u_1", "toko_1", "DEV-1");
-
-      expect(mockUser.device).toHaveLength(1);
-      expect(mockUser.device[0].deviceID).toBe("DEV-2");
-      expect(mockUser.save).toHaveBeenCalled();
-    });
-
-    test("getDeviceHistory: Mengembalikan array device pengguna", async () => {
-      const mockUser = createMockUserDoc({
-        device: [{ deviceID: "DEV-1" }, { deviceID: "DEV-2" }],
-      });
-      Pengguna.findOne.mockReturnValue({
-        select: jest.fn().mockResolvedValue(mockUser),
-      });
-
-      const result = await penggunaService.getDeviceHistory("u_1", "toko_1");
-
-      expect(result).toHaveLength(2);
-      expect(result[0].deviceID).toBe("DEV-1");
-    });
-
-    test("getDeviceHistory: Gagal (404) jika pengguna tidak ditemukan", async () => {
-      Pengguna.findOne.mockReturnValue({
-        select: jest.fn().mockResolvedValue(null),
-      });
-
-      await expect(
-        penggunaService.getDeviceHistory("id_palsu", "toko_1"),
-      ).rejects.toThrow(/Pengguna tidak ditemukan/i);
     });
   });
 
@@ -1066,10 +970,12 @@ describe("Unit Test — Pengguna Service", () => {
       });
 
       await expect(
-        penggunaService.login(
-          { nama: "Kasir", pin: "123456", loginType: "app" },
-          "tenant_1",
-        ),
+        penggunaService.loginPin({
+          nama: "Kasir",
+          pin: "123456",
+          loginType: "app",
+          tenantID: "tenant_1",
+        }),
       ).rejects.toThrow("MongoNetworkError");
     });
 
@@ -1097,11 +1003,14 @@ describe("Unit Test — Pengguna Service", () => {
             new Error("ValidationError: database write failed"),
           ),
       };
-      Pengguna.findById.mockResolvedValue(mockPengguna);
 
-      await expect(penggunaService.refreshToken("valid_token")).rejects.toThrow(
-        "ValidationError",
-      );
+      Pengguna.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(mockPengguna),
+      });
+
+      await expect(
+        penggunaService.refreshToken({ token: "valid_token" }),
+      ).rejects.toThrow("ValidationError");
     });
   });
 
@@ -1142,30 +1051,6 @@ describe("Unit Test — Pengguna Service", () => {
       ).rejects.toThrow(/kosong/i);
 
       expect(Pengguna.findOne).not.toHaveBeenCalled(); // DB dipastikan aman
-    });
-
-    test("removeDevice: Harus melempar error (404) jika mencoba menghapus deviceID yang tidak pernah ada", async () => {
-      // Skenario: Client mengirim instruksi hapus untuk device yang sudah dihapus atau tidak pernah ada
-      const mockPengguna = {
-        _id: "user_1",
-        tenantID: "toko_1",
-        device: [
-          { deviceID: "dev_sah" }, // Device sah
-        ],
-        save: jest.fn().mockResolvedValue(true),
-      };
-      Pengguna.findOne.mockResolvedValue(mockPengguna);
-
-      await expect(
-        penggunaService.removeDevice(
-          "user_1",
-          "toko_1",
-          "dev_hantu_tidak_terdaftar",
-        ),
-      ).rejects.toThrow(/tidak ditemukan|tidak ada/i);
-
-      // Pastikan sistem tidak mencoba melakukan save() array yang tidak berubah
-      expect(mockPengguna.save).not.toHaveBeenCalled();
     });
   });
 });

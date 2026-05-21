@@ -16,8 +16,8 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
   });
 
   test("Menolak akses jika 'nama' tidak dicantumkan atau kosong", () => {
-    // Skenario: Kasir mencoba login hanya pakai PIN dan deviceID (Skenario cacat dokumentasi)
-    const payloadTanpaNama = { pin: "123456", deviceID: "DEV-001" };
+    // Skenario: Kasir mencoba login hanya pakai PIN dan installationId (Skenario cacat dokumentasi)
+    const payloadTanpaNama = { pin: "123456", loginType: "web" };
     const result = validatePenggunaLogin(payloadTanpaNama);
 
     expect(result.valid).toBe(false);
@@ -29,7 +29,10 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
   });
 
   test("Menolak akses jika 'pin' tidak dicantumkan", () => {
-    const payloadTanpaPin = { nama: "Kasir Andalan", deviceID: "DEV-001" };
+    const payloadTanpaPin = {
+      nama: "Kasir Andalan",
+      installationId: "DEV-001",
+    };
     const result = validatePenggunaLogin(payloadTanpaPin);
 
     expect(result.valid).toBe(false);
@@ -42,7 +45,7 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
     const payloadValid = {
       nama: "Kasir Andalan",
       pin: "123456",
-      deviceID: "DEV-001",
+      loginType: "web",
     };
     const result = validatePenggunaLogin(payloadValid);
 
@@ -51,7 +54,7 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
   });
 
   test("Menolak akses jika 'nama' atau 'pin' hanya berisi spasi kosong (Whitespace)", () => {
-    const payloadSpasi = { nama: "   ", pin: "   ", deviceID: "DEV-001" };
+    const payloadSpasi = { nama: "   ", pin: "   ", loginType: "web" };
     const result = validatePenggunaLogin(payloadSpasi);
 
     expect(result.valid).toBe(false);
@@ -68,7 +71,7 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
     const payloadHacker = {
       nama: { $ne: null },
       pin: { $gt: "0" },
-      deviceID: "DEV-001",
+      loginType: "web",
     };
 
     const result = validatePenggunaLogin(payloadHacker);
@@ -132,27 +135,13 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
       expect(res.errors[0]).toMatch(/Format nomor HP tidak valid/i);
     });
 
-    test("Memvalidasi aturan aksesType dan kewajiban mutlak deviceID untuk 'app'", () => {
-      const resAppTanpaDevice = validatePenggunaPayload(
-        { aksesType: "app" },
-        true,
-      );
-      expect(resAppTanpaDevice.valid).toBe(false);
-      expect(resAppTanpaDevice.errors).toContain(
-        "Device ID wajib disertakan untuk akses aplikasi.",
-      );
+    test("Memvalidasi aturan aksesType (Tanpa mempedulikan installationId)", () => {
+      // Sesuai Roadmap V1, create/update pengguna tidak perlu tahu soal device
+      const resApp = validatePenggunaPayload({ aksesType: "app" }, true);
+      expect(resApp.valid).toBe(true);
 
-      const resAppDenganDevice = validatePenggunaPayload(
-        { aksesType: "app", deviceID: "DEV-123" },
-        true,
-      );
-      expect(resAppDenganDevice.valid).toBe(true);
-
-      const resWebTanpaDevice = validatePenggunaPayload(
-        { aksesType: "web" },
-        true,
-      );
-      expect(resWebTanpaDevice.valid).toBe(true); // Web tidak wajib deviceID
+      const resWeb = validatePenggunaPayload({ aksesType: "web" }, true);
+      expect(resWeb.valid).toBe(true);
     });
 
     test("Memvalidasi format Mongoose ObjectId pada tenantID dan roleID", () => {
@@ -177,16 +166,12 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
       expect(resultUpdate.errors).toContain("ID Role tidak valid");
     });
 
-    test("Menolak input status yang di luar ketentuan (enum ilegal)", () => {
-      const result = validatePenggunaPayload({ status: "cuti" }, true);
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain("Status harus 'aktif' atau 'non-aktif'");
-    });
-
     test("Menolak input aksesType yang di luar ketentuan (enum ilegal)", () => {
       const result = validatePenggunaPayload({ aksesType: "desktop" }, true);
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain("aksesType harus 'web' atau 'app'");
+      expect(result.errors).toContain(
+        "aksesType hanya boleh berisi 'web' atau 'app'",
+      );
     });
 
     test("Lolos validasi 100% jika payload Create disi dengan sempurna", () => {
@@ -203,14 +188,14 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
   });
 
   describe("Unit Test Validator — validateDeviceAction", () => {
-    test("Menolak jika deviceID tidak disertakan", () => {
+    test("Menolak jika installationId tidak disertakan", () => {
       const result = validateDeviceAction({});
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain("Device ID wajib diisi.");
+      expect(result.errors).toContain("installationId wajib diisi.");
     });
 
-    test("Lolos validasi jika deviceID dikirim", () => {
-      const result = validateDeviceAction({ deviceID: "DEV-123" });
+    test("Lolos validasi jika installationId dikirim", () => {
+      const result = validateDeviceAction({ installationId: "DEV-123" });
       expect(result.valid).toBe(true);
     });
   });

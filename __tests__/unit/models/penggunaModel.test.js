@@ -21,15 +21,14 @@ describe("Unit Test Model — Pengguna", () => {
   // Skenario A: Validasi Struktur Default
   test("Skenario A — sukses membuat instance pengguna dengan nilai default yang benar", () => {
     const user = new Pengguna(validData);
-    const err = user.validateSync(); // Validasi skema tanpa save() ke DB
+    const err = user.validateSync();
 
     expect(err).toBeUndefined();
-    // Memastikan fondasi penutupan celah bypass (Default selalu 'app')
-    expect(user.aksesType).toEqual(["app"]); // Harus array
-    expect(user.maxPrimaryDevice).toBe(1);
-    expect(user.maxDevice).toBe(1);
+    expect(user.aksesType).toEqual(["app"]);
     expect(user.tokenVersion).toBe(0);
-    expect(user.device).toHaveLength(0); // Array device harus kosong saat pertama kali dibuat
+    expect(user.status).toBe("aktif");
+    expect(user.nomorHp).toBeNull();
+    expect(user.fotoKaryawan).toBeNull();
   });
 
   // Skenario B: Perlindungan Mandatory Fields
@@ -45,7 +44,6 @@ describe("Unit Test Model — Pengguna", () => {
 
   // Skenario C: Penolakan Enum aksesType Ilegal
   test("Skenario C — gagal validasi jika aksesType diisi dengan string ngawur", () => {
-    // Klien memaksa memasukkan tipe akses tidak sah
     const user = new Pengguna({ ...validData, aksesType: ["desktop_ilegal"] });
     const err = user.validateSync();
 
@@ -53,38 +51,20 @@ describe("Unit Test Model — Pengguna", () => {
     expect(err.errors["aksesType.0"].message).toMatch(/enum/i);
   });
 
-  // Skenario D: Restriksi Batas Maksimal Kuota Device
-  test("Skenario D — menolak input yang melanggar batas maksimal device (maxDevice & maxPrimary)", () => {
-    const user = new Pengguna({
-      ...validData,
-      maxPrimaryDevice: 4, // Melebihi max 3 dari skema
-      maxDevice: 10, // Melebihi max 6 dari skema
-    });
+  // Skenario D: Penolakan Enum Status Ilegal
+  test("Skenario D — gagal validasi jika status diisi dengan nilai di luar enum", () => {
+    const user = new Pengguna({ ...validData, status: "dibekukan" });
     const err = user.validateSync();
 
-    expect(err.errors.maxPrimaryDevice).toBeDefined();
-    expect(err.errors.maxDevice).toBeDefined();
+    expect(err.errors.status).toBeDefined();
+    expect(err.errors.status.message).toMatch(/enum/i);
   });
 
-  // Skenario E: Restriksi Batas Minimal Kuota Device
-  test("Skenario E — menolak input jika batas device disetel kurang dari 1 (0 atau minus)", () => {
-    const user = new Pengguna({
-      ...validData,
-      maxPrimaryDevice: 0,
-      maxDevice: -1,
-    });
-    const err = user.validateSync();
-
-    expect(err.errors.maxPrimaryDevice).toBeDefined();
-    expect(err.errors.maxDevice).toBeDefined();
-  });
-
-  // Skenario F: Fungsi Komparasi PIN (Method Testing)
-  test("Skenario F — method comparePin mengeksekusi bcrypt.compare dengan benar", async () => {
+  // Skenario E: Fungsi Komparasi PIN (Method Testing)
+  test("Skenario E — method comparePin mengeksekusi bcrypt.compare dengan benar", async () => {
     const user = new Pengguna(validData);
     user.pin = "hashed_pin_simulasi";
 
-    // Simulasikan bcrypt mereturn true
     bcrypt.compare.mockResolvedValue(true);
 
     const isMatch = await user.comparePin("123456");
@@ -96,45 +76,67 @@ describe("Unit Test Model — Pengguna", () => {
     expect(isMatch).toBe(true);
   });
 
-  // Skenario G: Validasi Ketat Sub-dokumen (Device & History)
-  test("Skenario G — gagal validasi jika sub-dokumen device atau riwayat disusupi format ilegal", () => {
-    const user = new Pengguna({
-      ...validData,
-      device: [
-        { type: "primary" }, // Sengaja mengosongkan deviceID (padahal wajib)
-      ],
-      deviceHistory: [
-        {
-          deviceID: "DEV-999",
-          type: "primary",
-          action: "hacked", // 'hacked' tidak ada di enum ["added", "removed", "promoted", "demoted"]
-        },
-      ],
-    });
-
-    const err = user.validateSync();
-
-    // Memastikan Mongoose mendeteksi ketiadaan deviceID di index ke-0
-    expect(err.errors["device.0.deviceID"]).toBeDefined();
-
-    // Memastikan Mongoose mendeteksi enum yang salah di riwayat index ke-0
-    expect(err.errors["deviceHistory.0.action"]).toBeDefined();
-    expect(err.errors["deviceHistory.0.action"].message).toMatch(
-      /is not a valid enum value/i,
-    );
-  });
-
-  // Skenario H: Sanitasi Data Otomatis (Trim)
-  test("Skenario H — harus otomatis memotong spasi liar (trim) pada nama dan nomorHp", () => {
+  // Skenario F: Sanitasi Data Otomatis (Trim)
+  test("Skenario F — harus otomatis memotong spasi liar (trim) pada nama dan nomorHp", () => {
     const user = new Pengguna({
       ...validData,
       nama: "   Kasir Depan   ",
-      nomorHp: "   08123456789   "
+      nomorHp: "   08123456789   ",
     });
 
-    // Mongoose harus membersihkannya seketika
     expect(user.nama).toBe("Kasir Depan");
     expect(user.nomorHp).toBe("08123456789");
+  });
+
+  // Skenario G: Validasi aksesType Kombinasi Sah
+  test("Skenario G — sukses jika aksesType diisi kombinasi web dan app sekaligus", () => {
+    const user = new Pengguna({ ...validData, aksesType: ["app", "web"] });
+    const err = user.validateSync();
+
+    expect(err).toBeUndefined();
+    expect(user.aksesType).toEqual(["app", "web"]);
+  });
+
+  // Skenario H: Penolakan aksesType Array Kosong
+  test("Skenario H — gagal validasi jika aksesType dikirim sebagai array kosong", () => {
+    const user = new Pengguna({ ...validData, aksesType: [] });
+    const err = user.validateSync();
+
+    expect(err).toBeDefined();
+    expect(err.errors.aksesType).toBeDefined();
+    expect(err.errors.aksesType.message).toBe("aksesType tidak boleh kosong");
+  });
+
+  // Skenario I: Penolakan roleID Format Ilegal
+  test("Skenario I — gagal validasi jika roleID bukan ObjectId yang valid", () => {
+    const user = new Pengguna({ ...validData, roleID: "bukan-object-id" });
+    const err = user.validateSync();
+
+    expect(err.errors.roleID).toBeDefined();
+    expect(err.errors.roleID.name).toBe("CastError");
+  });
+
+  // Skenario K: Compound unique index terdefinisi di skema
+  test("Skenario K — compound index { tenantID, nama } harus terdaftar di skema", () => {
+    const indexes = Pengguna.schema.indexes();
+    const hasCompoundUnique = indexes.some(
+      ([fields, options]) =>
+        fields.tenantID === 1 && fields.nama === 1 && options.unique === true,
+    );
+
+    expect(hasCompoundUnique).toBe(true);
+  });
+
+  // Skenario J: tokenVersion bisa di-increment
+  test("Skenario J — tokenVersion harus bisa dinaikkan nilainya secara programatik", () => {
+    const user = new Pengguna(validData);
+
+    expect(user.tokenVersion).toBe(0);
+    user.tokenVersion += 1;
+    expect(user.tokenVersion).toBe(1);
+
+    const err = user.validateSync();
+    expect(err).toBeUndefined();
   });
 
   // Skenario Middleware: Hashing PIN
@@ -144,13 +146,13 @@ describe("Unit Test Model — Pengguna", () => {
       bcrypt.hash.mockResolvedValue("hashed_pin_baru");
 
       const user = new Pengguna({ ...validData, pin: "pin_mentah" });
-      
-      const pres = user.schema.s.hooks._pres.get('save');
-      const saveHook = pres.find(h => h.fn.toString().includes('bcrypt')).fn;
-      
+
+      const pres = user.schema.s.hooks._pres.get("save");
+      const saveHook = pres.find((h) => h.fn.toString().includes("bcrypt")).fn;
+
       user.isModified = jest.fn().mockReturnValue(true);
       const mockNext = jest.fn();
-      
+
       await saveHook.call(user, mockNext);
 
       expect(user.isModified).toHaveBeenCalledWith("pin");
@@ -162,13 +164,13 @@ describe("Unit Test Model — Pengguna", () => {
 
     test("tidak boleh melakukan hashing ulang jika PIN tidak dimodifikasi", async () => {
       const user = new Pengguna({ ...validData, pin: "hashed_lama" });
-      
-      const pres = user.schema.s.hooks._pres.get('save');
-      const saveHook = pres.find(h => h.fn.toString().includes('bcrypt')).fn;
-      
+
+      const pres = user.schema.s.hooks._pres.get("save");
+      const saveHook = pres.find((h) => h.fn.toString().includes("bcrypt")).fn;
+
       user.isModified = jest.fn().mockReturnValue(false);
       const mockNext = jest.fn();
-      
+
       await saveHook.call(user, mockNext);
 
       expect(user.isModified).toHaveBeenCalledWith("pin");
@@ -181,13 +183,13 @@ describe("Unit Test Model — Pengguna", () => {
       bcrypt.genSalt.mockRejectedValue(mockError);
 
       const user = new Pengguna({ ...validData, pin: "pin_mentah" });
-      
-      const pres = user.schema.s.hooks._pres.get('save');
-      const saveHook = pres.find(h => h.fn.toString().includes('bcrypt')).fn;
-      
+
+      const pres = user.schema.s.hooks._pres.get("save");
+      const saveHook = pres.find((h) => h.fn.toString().includes("bcrypt")).fn;
+
       user.isModified = jest.fn().mockReturnValue(true);
       const mockNext = jest.fn();
-      
+
       await saveHook.call(user, mockNext);
 
       expect(mockNext).toHaveBeenCalledWith(mockError);

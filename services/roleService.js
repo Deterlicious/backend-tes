@@ -4,15 +4,14 @@ const redis = require("../config/redis");
 const { validateRolePayload } = require("../validators/roleValidator");
 const createError = require("http-errors");
 const mongoose = require("mongoose");
+const Pengguna = require("../models/penggunaModel");
 
 // CACHE KEYS
 const KEY_LIST = (tenantID) => `role:list:${tenantID}`;
 const KEY_DETAIL = (id) => `role:detail:${id}`;
 
 class RoleService {
-  // ==========================================
-  // 🔥 STRICT PERMISSION PROCESSOR
-  // ==========================================
+  // STRICT PERMISSION PROCESSOR
   async _processPermissions(permissionsArray) {
     if (!Array.isArray(permissionsArray)) {
       throw createError(400, "Field 'permissions' harus berupa array");
@@ -26,9 +25,7 @@ class RoleService {
     const slugs = [];
 
     for (const item of permissionsArray) {
-      // ==========================================
       // OBJECT ID VALIDATION + EXISTENCE CHECK (FIX)
-      // ==========================================
       if (mongoose.Types.ObjectId.isValid(item)) {
         const exists = await Permission.findById(item).lean();
 
@@ -39,9 +36,7 @@ class RoleService {
         objectIds.push(item.toString());
       }
 
-      // ==========================================
       // SLUG / NAME VALIDATION
-      // ==========================================
       else if (typeof item === "string" && item.trim() !== "") {
         slugs.push(item.trim());
       } else {
@@ -51,9 +46,7 @@ class RoleService {
 
     let foundIds = [];
 
-    // ==========================================
     // LOOKUP BY NAME (SLUG)
-    // ==========================================
     if (slugs.length > 0) {
       const foundPermissions = await Permission.find(
         { nama: { $in: slugs } },
@@ -73,15 +66,11 @@ class RoleService {
       foundIds = foundPermissions.map((p) => p._id.toString());
     }
 
-    // ==========================================
     // FINAL UNIQUE RESULT
-    // ==========================================
     return [...new Set([...objectIds, ...foundIds])];
   }
 
-  // ==========================================
   // GET ALL
-  // ==========================================
   async getAll(tenantID) {
     if (!tenantID) throw createError(400, "tenantID required");
 
@@ -98,9 +87,7 @@ class RoleService {
     return roles;
   }
 
-  // ==========================================
   // GET BY ID
-  // ==========================================
   async getById(id, tenantID) {
     const cached = await redis.get(KEY_DETAIL(id));
 
@@ -125,9 +112,7 @@ class RoleService {
     return role;
   }
 
-  // ==========================================
   // CREATE ROLE (STRICT)
-  // ==========================================
   async create(payload, tenantID) {
     payload.tenantID = tenantID;
 
@@ -136,9 +121,17 @@ class RoleService {
       throw createError(400, validation.errors[0]);
     }
 
-    // 🔥 STRICT CHECK
+    // STRICT CHECK
     if (!Array.isArray(payload.permissions) || payload.permissions.length < 1) {
       throw createError(400, "Field 'permissions' wajib diisi minimal 1");
+    }
+
+    // PROTEKSI RESERVED KEYWORD
+    if (payload.namaRole.trim().toLowerCase() === "owner") {
+      throw createError(
+        403,
+        "Nama role 'Owner' dilindungi oleh sistem dan tidak dapat dibuat secara manual.",
+      );
     }
 
     payload.permissions = await this._processPermissions(payload.permissions);
@@ -150,10 +143,15 @@ class RoleService {
     return role;
   }
 
-  // ==========================================
   // OWNER ROLE
-  // ==========================================
   async createOwnerRole(tenantID) {
+    const existingOwner = await Role.findOne({
+      tenantID,
+      namaRole: "Owner",
+    }).lean();
+    if (existingOwner) {
+      return existingOwner; // Langsung kembalikan data lama tanpa membuat baru
+    }
     const allPermissions = await Permission.find().select("_id").lean();
 
     if (!allPermissions.length) {
@@ -172,9 +170,7 @@ class RoleService {
     return role;
   }
 
-  // ==========================================
   // UPDATE ROLE
-  // ==========================================
   async update(id, payload, tenantID) {
     delete payload.tenantID;
 
@@ -186,6 +182,18 @@ class RoleService {
     const currentRole = await Role.findOne({ _id: id, tenantID });
     if (!currentRole) {
       throw createError(404, "Role tidak ditemukan");
+    }
+
+    // 🔥 PROTEKSI HIJACKING NAMA ROLE
+    if (
+      payload.namaRole &&
+      payload.namaRole.trim().toLowerCase() === "owner" &&
+      currentRole.namaRole !== "Owner"
+    ) {
+      throw createError(
+        403,
+        "Tidak dapat menggunakan nama 'Owner' karena dilindungi oleh sistem.",
+      );
     }
 
     if (
@@ -212,12 +220,24 @@ class RoleService {
     await redis.del(KEY_LIST(tenantID));
     await redis.del(KEY_DETAIL(id));
 
+    // Invalidate cache otorisasi milik semua pengguna yang memakai role ini
+    const affectedUsers = await Pengguna.find({ roleID: id, tenantID })
+      .select("_id")
+      .lean();
+    if (affectedUsers.length > 0) {
+      const cacheKeys = affectedUsers.map(
+        (user) => `auth:pengguna:${user._id}`,
+      );
+      // Hapus semua cache sesi pengguna yang terpengaruh agar mereka dipaksa
+      // mengambil data permission terbaru dari database pada request berikutnya
+      const deletePromises = cacheKeys.map((key) => redis.del(key));
+      await Promise.all(deletePromises);
+    }
+
     return updated;
   }
 
-  // ==========================================
   // DELETE ROLE
-  // ==========================================
   async delete(id, tenantID) {
     const role = await Role.findOne({ _id: id, tenantID });
 
@@ -225,6 +245,14 @@ class RoleService {
 
     if (role.namaRole === "Owner") {
       throw createError(403, "Owner tidak dapat dihapus");
+    }
+
+    const isUsed = await Pengguna.exists({ roleID: id, tenantID });
+    if (isUsed) {
+      throw createError(
+        409,
+        "Role tidak dapat dihapus karena masih terikat pada pengguna aktif.",
+      );
     }
 
     await role.deleteOne();

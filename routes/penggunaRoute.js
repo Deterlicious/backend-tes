@@ -76,38 +76,4 @@ router.delete(
   wrap(penggunaController.delete),
 );
 
-// Device Management (pindahan dari akunRoute) - pakai permission "update-pengguna" karena ini bagian dari manajemen pengguna
-
-// Semua route device pakai permission "update-pengguna"
-// karena hanya Owner/Manager yang boleh kelola device staff
-router.post(
-  "/:id/device/add",
-  checkPermission("update-pengguna"),
-  wrap(penggunaController.addDevice),
-);
-
-router.put(
-  "/:id/device/promote",
-  checkPermission("update-pengguna"),
-  wrap(penggunaController.promoteDevice),
-);
-
-router.put(
-  "/:id/device/demote",
-  checkPermission("update-pengguna"),
-  wrap(penggunaController.demoteDevice),
-);
-
-router.delete(
-  "/:id/device/remove",
-  checkPermission("update-pengguna"),
-  wrap(penggunaController.removeDevice),
-);
-
-router.get(
-  "/:id/device/history",
-  checkPermission("read-pengguna"),
-  wrap(penggunaController.getDeviceHistory),
-);
-
 module.exports = router;

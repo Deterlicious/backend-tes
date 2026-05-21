@@ -8,6 +8,8 @@ const errorHandler = require("./middleware/errorHandler"); // error handler
 
 const app = express();
 
+app.set("trust proxy", 1); // jika di belakang proxy (misal: Nginx, Heroku, dll)
+
 // CORS (tune origin in production)
 app.use(
   cors({
