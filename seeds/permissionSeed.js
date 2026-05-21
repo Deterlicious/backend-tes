@@ -324,26 +324,26 @@ const permissionsList = [
     deskripsi: "Hapus pembayaran",
   },
 
-  // Akun Kas
+  // Kontrak Kompensasi
   {
-    nama: "read-akunkas",
-    grup: "Pengaturan Toko",
-    deskripsi: "Lihat akun kas/bank",
+    nama: "read-kontrak-kompensasi",
+    grup: "Manajemen Kontrak",
+    deskripsi: "Melihat daftar dan detail kontrak kerja staf",
   },
   {
-    nama: "create-akunkas",
-    grup: "Pengaturan Toko",
-    deskripsi: "Tambah akun kas/bank",
+    nama: "create-kontrak-kompensasi",
+    grup: "Manajemen Kontrak",
+    deskripsi: "Membuat kontrak kerja baru untuk staf",
   },
   {
-    nama: "update-akunkas",
-    grup: "Pengaturan Toko",
-    deskripsi: "Edit akun kas/bank",
+    nama: "update-kontrak-kompensasi",
+    grup: "Manajemen Kontrak",
+    deskripsi: "Mengubah data kontrak kerja staf",
   },
   {
-    nama: "delete-akunkas",
-    grup: "Pengaturan Toko",
-    deskripsi: "Hapus akun kas/bank",
+    nama: "delete-kontrak-kompensasi",
+    grup: "Manajemen Kontrak",
+    deskripsi: "Menghapus data kontrak kerja staf",
   },
 
   // Inventory
