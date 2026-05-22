@@ -8,27 +8,9 @@ const {
   validateTransferPayload,
   VALID_STATUS,
 } = require("../validators/transferStokValidator");
+const { convertToBaseUnit } = require("../utils/unitConverter");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-// --- UTILITY KONVERSI SATUAN ---
-const CONVERSION_RATES = {
-  "kg_to_gram": 1000,
-  "gram_to_kg": 0.001,
-  "liter_to_ml": 1000,
-  "ml_to_liter": 0.001,
-};
-
-function convertQuantity(qty, fromUnit, toUnit) {
-  if (!fromUnit || !toUnit || fromUnit.toLowerCase() === toUnit.toLowerCase()) {
-    return qty;
-  }
-  const key = `${fromUnit.toLowerCase()}_to_${toUnit.toLowerCase()}`;
-  if (CONVERSION_RATES[key]) {
-    return qty * CONVERSION_RATES[key];
-  }
-  return qty; // fallback jika tidak ada konversi yang cocok
-}
 
 class TransferStokService {
   // Helper: Menangani Error Mongoose (Termasuk Unique Index)
@@ -135,8 +117,8 @@ class TransferStokService {
       const baseUnit = requestedItem.bahanBakuID.satuan;
 
       // LAKUKAN KONVERSI (SMART CONVERTER)
-      const qtyKirimBase = convertQuantity(item.qtyKirim, requestedUnit, baseUnit);
-      const requestedQtyBase = convertQuantity(requestedItem.jumlah, requestedUnit, baseUnit);
+      const qtyKirimBase = convertToBaseUnit(item.qtyKirim, requestedUnit, baseUnit);
+      const requestedQtyBase = convertToBaseUnit(requestedItem.jumlah, requestedUnit, baseUnit);
 
       if (qtyKirimBase > requestedQtyBase) {
         throw createError(
@@ -148,7 +130,7 @@ class TransferStokService {
       processedItems.push({
         bahanBakuID: item.bahanBakuID,
         qtyKirim: qtyKirimBase, // Disimpan ke DB sebagai satuan dasar Gudang
-        qtyTerima: item.qtyTerima ? convertQuantity(item.qtyTerima, requestedUnit, baseUnit) : 0,
+        qtyTerima: item.qtyTerima ? convertToBaseUnit(item.qtyTerima, requestedUnit, baseUnit) : 0,
         catatanItem: item.catatanItem || null,
       });
     }

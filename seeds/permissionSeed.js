@@ -96,6 +96,14 @@ const permissionsList = [
   },
 
   // =====================
+  // LOKASI GUDANG / OUTLET
+  // =====================
+  { nama: "create-location", grup: "Location", deskripsi: "Tambah lokasi/gudang baru" },
+  { nama: "read-location", grup: "Location", deskripsi: "Lihat daftar lokasi/gudang" },
+  { nama: "update-location", grup: "Location", deskripsi: "Edit informasi lokasi/gudang" },
+  { nama: "delete-location", grup: "Location", deskripsi: "Hapus lokasi/gudang" },
+
+  // =====================
   // JURNAL STOK
   // =====================
   {

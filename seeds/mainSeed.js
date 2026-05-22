@@ -161,6 +161,10 @@ const runSeed = async () => {
           "read-jurnal-stok",
           "read-dashboard-gudang",
           "read-dashboard-outlet",
+          "create-location",
+          "read-location",
+          "update-location",
+          "delete-location",
         ],
       },
       {
@@ -178,6 +182,9 @@ const runSeed = async () => {
           "cancel-transfer-stok",
           "read-jurnal-stok",
           "read-dashboard-gudang",
+          "create-location",
+          "read-location",
+          "update-location",
         ],
       },
       {
@@ -191,6 +198,7 @@ const runSeed = async () => {
           "read-transfer-stok",
           "receive-transfer-stok",
           "read-dashboard-outlet",
+          "read-location",
         ],
       },
     ];
