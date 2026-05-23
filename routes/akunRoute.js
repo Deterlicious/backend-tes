@@ -29,7 +29,7 @@ router.post("/auth/refreshtoken", wrap(akunController.refreshToken));
 router.post("/auth/logout", wrap(akunController.logout));
 
 // rute khusus owner
-router.use("/owner", authAkun);
+// router.use("/owner", authAkun);
 // router.post("/owner/create-tenant", wrap(tenantController.create));
 
 // admin sistem (level saas)

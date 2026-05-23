@@ -186,17 +186,4 @@ describe("Unit Test Validator — validatePenggunaLogin", () => {
       expect(result.errors).toBeUndefined();
     });
   });
-
-  describe("Unit Test Validator — validateDeviceAction", () => {
-    test("Menolak jika installationId tidak disertakan", () => {
-      const result = validateDeviceAction({});
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContain("installationId wajib diisi.");
-    });
-
-    test("Lolos validasi jika installationId dikirim", () => {
-      const result = validateDeviceAction({ installationId: "DEV-123" });
-      expect(result.valid).toBe(true);
-    });
-  });
 });

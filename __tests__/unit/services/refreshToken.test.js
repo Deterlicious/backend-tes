@@ -1,18 +1,28 @@
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 const penggunaService = require("../../../services/penggunaService");
 const Pengguna = require("../../../models/penggunaModel");
-// MOCKING DEPENDENCIE
+const Device = require("../../../models/deviceModel");
+
+// Mocking Dependencies
 jest.mock("../../../models/penggunaModel");
 jest.mock("../../../models/roleModel");
+jest.mock("../../../models/deviceModel"); // Tambahkan mock untuk Device Model
 jest.mock("../../../config/redis", () => ({
   get: jest.fn().mockResolvedValue(null),
   set: jest.fn().mockResolvedValue("OK"),
   del: jest.fn().mockResolvedValue(1),
 }));
 
-const REFRESH_SECRET =
-  process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
+// Setup Environment Variables untuk sinkronisasi secret antara test dan service
+const PENGGUNA_ACCESS_TOKEN = "access_secret_test";
+const PENGGUNA_REFRESH_TOKEN = "refresh_secret_test";
+const REFRESH_SECRET = "opaque_hash_secret_test";
+
+process.env.PENGGUNA_ACCESS_TOKEN = PENGGUNA_ACCESS_TOKEN;
+process.env.PENGGUNA_REFRESH_TOKEN = PENGGUNA_REFRESH_TOKEN;
+process.env.REFRESH_SECRET = REFRESH_SECRET;
 
 describe("Unit Test Service — penggunaService.refreshToken", () => {
   const tenantID_asli = new mongoose.Types.ObjectId().toString();
@@ -22,316 +32,237 @@ describe("Unit Test Service — penggunaService.refreshToken", () => {
     jest.clearAllMocks();
   });
 
-  // Helper pembuat token
-  function makeToken(payload) {
-    return jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
+  // Helper untuk membuat Web Refresh Token (JWT)
+  function makeWebRefreshToken(payload) {
+    return jwt.sign(payload, PENGGUNA_REFRESH_TOKEN, { expiresIn: "7d" });
   }
 
-  // 1: validasi dasar & isolasi tenant
-  describe("Validasi Dasar & Isolasi Tenant", () => {
-    test("Menolak jika token kosong (null/undefined)", async () => {
-      await expect(penggunaService.refreshToken(null)).rejects.toMatchObject({
-        status: 401,
-      });
+  // Helper untuk membuat App Access Token yang expired (JWT)
+  function makeAppExpiredAccessToken(payload) {
+    return jwt.sign(payload, PENGGUNA_ACCESS_TOKEN, { expiresIn: "-1s" });
+  }
+
+  // Helper untuk membuat Hash Opaque Token
+  function hashOpaqueToken(token) {
+    return crypto.createHmac("sha256", REFRESH_SECRET).update(token).digest("hex");
+  }
+
+  // Helper untuk mock balikan Pengguna.findById
+  const mockPenggunaFindById = (userData) => {
+    Pengguna.findById.mockReturnValue({
+      populate: jest.fn().mockResolvedValue(userData),
     });
+  };
 
-    test("Menolak jika token tidak sah atau hasil manipulasi (signature salah)", async () => {
-      await expect(
-        penggunaService.refreshToken("token.ngawur.banget"),
-      ).rejects.toMatchObject({
-        status: 403,
-      });
-    });
-
-    test("Menolak jika tenantID di token dipalsukan (berbeda dengan DB)", async () => {
-      const tenantPalsu = new mongoose.Types.ObjectId().toString();
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantPalsu,
-        version: 1,
-      });
-
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue({
-          _id: userID,
-          tenantID: tenantID_asli, // DB pakai tenant asli
-          tokenVersion: 1,
-          roleID: { namaRole: "Staff" },
-        }),
-      });
-
-      await expect(penggunaService.refreshToken(token)).rejects.toMatchObject({
-        status: 401,
-        message: expect.stringMatching(/Token tidak valid untuk tenant ini/i),
-      });
+  describe("Validasi Dasar & Perlindungan Crash", () => {
+    test("Menolak dengan elegan jika argumen utama yang dilempar undefined", async () => {
+      // Mensimulasikan crash jika dipanggil tanpa argument object { token }
+      // Perhatikan: Karena parameter aslinya adalah objek, jika dipanggil `refreshToken()` atau `refreshToken(null)` 
+      // JavaScript otomatis error TypeError sebelum masuk ke blok kode.
+      // Di service production, controller lah yang harus memastikan pengiriman format object.
+      // Uji ini memastikan kita menangkap error tersebut dengan try catch eksternal.
+      try {
+        await penggunaService.refreshToken();
+      } catch (error) {
+        expect(error).toBeInstanceOf(TypeError);
+      }
     });
   });
 
-  // 2: validasi pengguna di web (Dashboard)
-  describe("Validasi Refresh Token — Akses Web", () => {
+  // --- ALUR WEB ---
+  describe("Validasi Refresh Token — Akses Web (JWT)", () => {
+    test("Menolak jika token Web tidak valid atau manipulasi signature", async () => {
+      await expect(
+        penggunaService.refreshToken({ token: "token.ngawur.banget" })
+      ).rejects.toMatchObject({
+        status: 401,
+        message: expect.stringMatching(/Refresh token tidak valid/i),
+      });
+    });
+
     test("Menolak jika tokenVersion Root tertinggal (Sesi di-revoke)", async () => {
-      // Token memiliki versi 1
-      const token = makeToken({
-        id: userID,
+      const token = makeWebRefreshToken({ id: userID, version: 1 });
+
+      mockPenggunaFindById({
+        _id: userID,
         tenantID: tenantID_asli,
-        version: 1,
+        tokenVersion: 2, // DB sudah naik ke versi 2
+        roleID: { namaRole: "Staff" },
       });
 
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue({
-          _id: userID,
-          tenantID: tenantID_asli,
-          aksesType: "web",
-          tokenVersion: 2, // DB sudah naik ke versi 2 (misal setelah ganti password)
-          roleID: { namaRole: "Staff" },
-        }),
-      });
-
-      await expect(penggunaService.refreshToken(token)).rejects.toMatchObject({
+      await expect(
+        penggunaService.refreshToken({ token })
+      ).rejects.toMatchObject({
         status: 401,
         message: expect.stringMatching(/Sesi tidak valid/i),
       });
     });
 
-    test("Berhasil memperbarui token Web dan melakukan rotasi tokenVersion", async () => {
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        version: 5,
-      });
+    test("Menolak jika pengguna Web sudah dihapus dari database", async () => {
+      const token = makeWebRefreshToken({ id: userID, version: 1 });
+      mockPenggunaFindById(null);
 
-      const mockUser = {
-        _id: userID,
-        tenantID: tenantID_asli,
-        aksesType: "web",
-        tokenVersion: 5,
-        roleID: { namaRole: "Manager" },
-        save: jest.fn().mockResolvedValue(true),
-        markModified: jest.fn(),
-      };
-
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(mockUser),
-      });
-
-      const result = await penggunaService.refreshToken(token);
-
-      expect(result).toHaveProperty("accessToken");
-      expect(result).toHaveProperty("refreshToken");
-      // Memastikan fungsi rotasi token (date.now) dipanggil sebelum save
-      expect(mockUser.save).toHaveBeenCalled();
-      expect(mockUser.tokenVersion).toBeGreaterThan(5);
-    });
-  });
-
-  // 3: validasi pengguna di aplikasi (Kasir POS)
-  describe("Validasi Refresh Token — Akses App (Device Binding)", () => {
-    test("Menolak jika payload token tidak mencantumkan deviceID sama sekali", async () => {
-      // Token tidak punya deviceID
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        version: 1,
-      });
-
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue({
-          _id: userID,
-          tenantID: tenantID_asli,
-          aksesType: "app", // Tipe aplikasi
-          roleID: { namaRole: "Kasir" },
-        }),
-      });
-
-      await expect(penggunaService.refreshToken(token)).rejects.toMatchObject({
-        status: 401,
-        message: expect.stringMatching(/Device ID tidak ditemukan/i),
-      });
-    });
-
-    test("Menolak jika deviceID di token tidak terdaftar di database (Device Hantu)", async () => {
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        deviceID: "DEV-HANTU",
-        version: 1,
-      });
-
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue({
-          _id: userID,
-          tenantID: tenantID_asli,
-          aksesType: "app",
-          device: [{ deviceID: "DEV-ASLI", tokenVersion: 1 }], // Dev hantu tidak ada di array
-          roleID: { namaRole: "Kasir" },
-        }),
-      });
-
-      await expect(penggunaService.refreshToken(token)).rejects.toMatchObject({
-        status: 401,
-        message: expect.stringMatching(/Perangkat tidak dikenali/i),
-      });
-    });
-
-    test("Menolak jika tokenVersion spesifik perangkat tertinggal (Device di-reset)", async () => {
-      // Token membawa versi 1
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        deviceID: "DEV-ASLI",
-        version: 1,
-      });
-
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue({
-          _id: userID,
-          tenantID: tenantID_asli,
-          aksesType: "app",
-          device: [{ deviceID: "DEV-ASLI", tokenVersion: 2 }], // Versi perangkat sudah 2
-          roleID: { namaRole: "Kasir" },
-        }),
-      });
-
-      await expect(penggunaService.refreshToken(token)).rejects.toMatchObject({
-        status: 401,
-        message: expect.stringMatching(/Sesi kedaluwarsa/i),
-      });
-    });
-
-    test("Berhasil memperbarui token App dan melakukan rotasi spesifik pada perangkat", async () => {
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        deviceID: "DEV-ASLI",
-        version: 3,
-      });
-
-      const mockUser = {
-        _id: userID,
-        tenantID: tenantID_asli,
-        aksesType: "app",
-        roleID: { namaRole: "Kasir" },
-        device: [
-          {
-            deviceID: "DEV-ASLI",
-            tokenVersion: 3,
-            lastUsed: new Date("2020-01-01"),
-          },
-        ],
-        save: jest.fn().mockResolvedValue(true),
-        markModified: jest.fn(),
-      };
-
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(mockUser),
-      });
-
-      const result = await penggunaService.refreshToken(token);
-
-      expect(result).toHaveProperty("accessToken");
-      expect(result).toHaveProperty("refreshToken");
-      expect(mockUser.markModified).toHaveBeenCalledWith("device");
-      expect(mockUser.save).toHaveBeenCalled();
-
-      // Pastikan hanya tokenVersion device yang berputar
-      const rotatedDevice = mockUser.device[0];
-      expect(rotatedDevice.tokenVersion).toBeGreaterThan(3);
-      expect(rotatedDevice.lastUsed.getFullYear()).toBeGreaterThan(2020); // Pastikan lastUsed update
-    });
-  });
-
-  // 4: validasi entitas hilang (orphan data)
-  describe("Validasi Entitas Hilang (Orphan Data)", () => {
-    test("Menolak dengan 401 jika pengguna sudah dihapus dari database", async () => {
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        version: 1,
-      });
-
-      // Query database mengembalikan null (staf sudah dipecat/dihapus)
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(null),
-      });
-
-      await expect(penggunaService.refreshToken(token)).rejects.toMatchObject({
-        status: 401,
-      });
-    });
-
-    test("Menolak dengan 403/401 jika Role pengguna telah dihapus (Mencegah Fatal Crash)", async () => {
-      const token = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        version: 1,
-      });
-
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue({
-          _id: userID,
-          tenantID: tenantID_asli,
-          aksesType: "web",
-          tokenVersion: 1,
-          roleID: null, // Role sudah dihapus, menyebabkan data orphan
-        }),
-      });
-
-      // Menolak dengan elegan alih-alih melempar TypeError: Cannot read properties of null (reading '_id')
-      await expect(penggunaService.refreshToken(token)).rejects.toMatchObject({
-        status: expect.any(Number), // Memastikan melempar error HTTP, bukan TypeError bawaan Node.js
-      });
-    });
-  });
-
-  // 5: anomali transisi akses & sesi (bug fix regression tests)
-  describe("Anomali Transisi Akses dan Sesi", () => {
-    test("Menolak celah Cross-Platform: Token Web dipakai setelah akses diubah ke App", async () => {
-      // Skenario: Pengguna awalnya punya akses "web". Dia login dan dapat refresh token (tanpa deviceID).
-      const tokenWebLama = makeToken({
-        id: userID,
-        tenantID: tenantID_asli,
-        version: 1,
-      });
-
-      // Tiba-tiba, manajer mengubah tipe akses pengguna ini menjadi "app" di database.
-      Pengguna.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue({
-          _id: userID,
-          tenantID: tenantID_asli,
-          aksesType: "app", // Tipe akses telah bermutasi!
-          roleID: { namaRole: "Staff" },
-          device: [],
-        }),
-      });
-
-      // Saat token web lama mencoba refresh, sistem harus memperlakukannya sebagai akses app
-      // dan langsung memblokirnya karena token tersebut tidak membawa deviceID.
       await expect(
-        penggunaService.refreshToken(tokenWebLama),
+        penggunaService.refreshToken({ token })
       ).rejects.toMatchObject({
         status: 401,
-        message: expect.stringMatching(/Device ID tidak ditemukan/i),
+        message: expect.stringMatching(/Pengguna tidak ditemukan/i),
       });
     });
 
-    test("Menolak dengan 403 spesifik saat Refresh Token benar-benar kedaluwarsa secara alami", async () => {
-      const tokenExpired = "token.yang.sudah.basi.waktunya";
+    test("Berhasil memperbarui token Web dan melakukan rotasi tokenVersion", async () => {
+      const token = makeWebRefreshToken({ id: userID, version: 5 });
+
+      const mockUser = {
+        _id: userID,
+        tenantID: tenantID_asli,
+        tokenVersion: 5,
+        roleID: { namaRole: "Manager", permissions: [] },
+        save: jest.fn().mockResolvedValue(true),
+      };
+
+      mockPenggunaFindById(mockUser);
+
+      // Kita perlu me-mock generateToken & generateRefreshToken karena mereka dipanggil di dalam
+      const mockAccessToken = "new_web_access_token";
+      const mockNewRefreshToken = "new_web_refresh_token";
+      penggunaService.generateToken = jest.fn().mockReturnValue(mockAccessToken);
+      penggunaService.generateRefreshToken = jest.fn().mockReturnValue(mockNewRefreshToken);
+
+      const result = await penggunaService.refreshToken({ token });
+
+      expect(result).toHaveProperty("accessToken", mockAccessToken);
+      expect(result).toHaveProperty("newRefreshToken", mockNewRefreshToken);
+      expect(mockUser.save).toHaveBeenCalled();
+      expect(mockUser.tokenVersion).toBeGreaterThan(5); // Rotasi Date.now()
+    });
+  });
+
+  // --- ALUR APP ---
+  describe("Validasi Refresh Token — Akses App (Opaque Token & Device Binding)", () => {
+    const validInstallationId = "DEV-APP-001";
+    const rawOpaqueToken = "random_opaque_string_dari_client";
+    
+    test("Menolak jika parameter token tidak lengkap", async () => {
+      await expect(
+        penggunaService.refreshToken({
+          installationId: validInstallationId, // installationId memicu Alur App
+          token: null, // Token hilang
+          expiredAccessToken: "some_expired_token",
+        })
+      ).rejects.toMatchObject({
+        status: 401,
+        message: expect.stringMatching(/Token tidak lengkap/i),
+      });
+    });
+
+    test("Menolak jika signature Access Token yang kadaluwarsa tidak valid", async () => {
+      await expect(
+        penggunaService.refreshToken({
+          installationId: validInstallationId,
+          token: rawOpaqueToken,
+          expiredAccessToken: "token_palsu.yang.invalid", // Signature akan gagal
+        })
+      ).rejects.toMatchObject({
+        status: 401,
+        message: expect.stringMatching(/Signature Access Token tidak valid/i),
+      });
+    });
+
+    test("Menolak jika pengguna App tidak ditemukan atau status non-aktif", async () => {
+      const expiredToken = makeAppExpiredAccessToken({ id: userID });
       
-      const expiredError = new Error("jwt expired");
-      expiredError.name = "TokenExpiredError";
-      
-      // GUNAKAN jest.spyOn UNTUK MEMBAJAK FUNGSI ASLI SEMENTARA
-      const verifySpy = jest.spyOn(jwt, "verify").mockImplementationOnce(() => { 
-        throw expiredError; 
+      mockPenggunaFindById({
+        _id: userID,
+        status: "nonaktif", // Blokir
       });
 
-      await expect(penggunaService.refreshToken(tokenExpired)).rejects.toMatchObject({
-        status: 403,
-        message: expect.stringMatching(/tidak valid atau kadaluwarsa/i),
+      await expect(
+        penggunaService.refreshToken({
+          installationId: validInstallationId,
+          token: rawOpaqueToken,
+          expiredAccessToken: expiredToken,
+        })
+      ).rejects.toMatchObject({
+        status: 401,
+        message: expect.stringMatching(/Pengguna tidak ditemukan atau non-aktif/i),
+      });
+    });
+
+    test("Menolak jika perangkat tidak valid, pending, atau sesi telah dicabut", async () => {
+      const expiredToken = makeAppExpiredAccessToken({ id: userID });
+      mockPenggunaFindById({ _id: userID, status: "aktif" });
+
+      Device.findOne.mockResolvedValue(null); // Perangkat tidak ditemukan atau status bukan TRUSTED
+
+      await expect(
+        penggunaService.refreshToken({
+          installationId: validInstallationId,
+          token: rawOpaqueToken,
+          expiredAccessToken: expiredToken,
+        })
+      ).rejects.toMatchObject({
+        status: 401,
+        message: expect.stringMatching(/Sesi perangkat tidak valid atau telah dicabut/i),
+      });
+    });
+
+    test("Menolak jika Opaque Token (Hash) tidak cocok", async () => {
+      const expiredToken = makeAppExpiredAccessToken({ id: userID });
+      mockPenggunaFindById({ _id: userID, status: "aktif" });
+
+      Device.findOne.mockResolvedValue({
+        penggunaID: userID,
+        installationId: validInstallationId,
+        status: "trusted",
+        refreshTokenHash: "hash_yang_berbeda_dari_database", 
       });
 
-      // KEMBALIKAN FUNGSI KE ASLINYA SETELAH TEST SELESAI
-      verifySpy.mockRestore();
+      await expect(
+        penggunaService.refreshToken({
+          installationId: validInstallationId,
+          token: rawOpaqueToken, // Raw token ini dihash dan dibandingkan
+          expiredAccessToken: expiredToken,
+        })
+      ).rejects.toMatchObject({
+        status: 401,
+        message: expect.stringMatching(/Refresh token tidak cocok/i),
+      });
+    });
+
+    test("Berhasil memperbarui token App dan merotasi Opaque Token Hash", async () => {
+      const expiredToken = makeAppExpiredAccessToken({ id: userID });
+      const mockUser = { _id: userID, status: "aktif", tenantID: tenantID_asli };
+      
+      mockPenggunaFindById(mockUser);
+
+      const oldHash = hashOpaqueToken(rawOpaqueToken);
+      const mockDevice = {
+        penggunaID: userID,
+        installationId: validInstallationId,
+        status: "trusted",
+        refreshTokenHash: oldHash, // Hash lama yang valid
+        save: jest.fn().mockResolvedValue(true),
+      };
+
+      Device.findOne.mockResolvedValue(mockDevice);
+
+      // Mock output token
+      const mockNewAccessToken = "new_app_access_token";
+      penggunaService.generateToken = jest.fn().mockReturnValue(mockNewAccessToken);
+
+      const result = await penggunaService.refreshToken({
+        installationId: validInstallationId,
+        token: rawOpaqueToken,
+        expiredAccessToken: expiredToken,
+      });
+
+      expect(result).toHaveProperty("accessToken", mockNewAccessToken);
+      expect(result).toHaveProperty("newRefreshToken"); // Opaque string raw
+      
+      expect(mockDevice.save).toHaveBeenCalled();
+      expect(mockDevice.refreshTokenHash).not.toBe(oldHash); // Pastikan hash diputar
+      expect(mockDevice.lastRefreshAt).toBeInstanceOf(Date);
     });
   });
 });

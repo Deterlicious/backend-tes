@@ -102,6 +102,20 @@ describe("Unit Test Tenant Controller", () => {
       );
     });
 
+    test("harus melempar error 400 jika format ID tidak valid (bukan ObjectId)", async () => {
+      const mongoose = require("mongoose");
+      mongoose.Types.ObjectId.isValid.mockReturnValueOnce(false);
+
+      req.userDecoded = { tenantID: "id_acak_acakan" };
+      req.params.id = "id_acak_acakan";
+
+      await tenantController.update(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 400 }),
+      );
+    });
+
     test("harus melempar error 403 jika pemilik mencoba mengubah toko orang lain", async () => {
       req.userDecoded = { tenantID: "toko_1" };
       req.params.id = "toko_2";
@@ -147,6 +161,20 @@ describe("Unit Test Tenant Controller", () => {
       expect(tenantService.delete).toHaveBeenCalledWith("toko_1");
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.any(String) }),
+      );
+    });
+
+    test("harus melempar error 400 jika format ID tidak valid (bukan ObjectId)", async () => {
+      const mongoose = require("mongoose");
+      mongoose.Types.ObjectId.isValid.mockReturnValueOnce(false);
+
+      req.userDecoded = { tenantID: "id_acak_acakan" };
+      req.params.id = "id_acak_acakan";
+
+      await tenantController.delete(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 400 }),
       );
     });
 
