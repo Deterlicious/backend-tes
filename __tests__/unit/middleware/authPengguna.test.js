@@ -1,11 +1,13 @@
 const authPengguna = require("../../../middleware/authPengguna");
 const jwt = require("jsonwebtoken");
 const Pengguna = require("../../../models/penggunaModel");
+const Device = require("../../../models/deviceModel");
 const redis = require("../../../config/redis");
 
 // Mocking dependencies
 jest.mock("jsonwebtoken");
 jest.mock("../../../models/penggunaModel");
+jest.mock("../../../models/deviceModel");
 jest.mock("../../../config/redis", () => ({
   get: jest.fn(),
   set: jest.fn(),
@@ -24,6 +26,12 @@ describe("Unit Test Middleware — authPengguna", () => {
     // DEFAULT BEHAVIOR: Simulasi Cache Miss (Data tidak ada di Redis)
     redis.get.mockResolvedValue(null);
     redis.set.mockResolvedValue("OK");
+
+    // Tambahan: Default mock agar Device tidak error di skenario Web/Basic
+    Device.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    });
   });
 
   // Helper untuk memanipulasi rantai Mongoose (findById -> select -> populate -> lean)
@@ -31,6 +39,14 @@ describe("Unit Test Middleware — authPengguna", () => {
     Pengguna.findById.mockReturnValue({
       select: jest.fn().mockReturnThis(),
       populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(resolvedValue),
+    });
+  };
+
+  // Tambahan: Helper untuk memanipulasi rantai Device
+  const mockDeviceChain = (resolvedValue) => {
+    Device.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
       lean: jest.fn().mockResolvedValue(resolvedValue),
     });
   };
@@ -60,22 +76,20 @@ describe("Unit Test Middleware — authPengguna", () => {
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }));
   });
 
-  // pengujian anti bypass untuk aplikasi
-  test("Skenario 4 [CRITICAL] — Memblokir bypass jika pengguna App tidak mengirimkan deviceID", async () => {
+  test("Skenario 4 [CRITICAL] — Memblokir bypass jika pengguna App tidak mengirimkan installationId", async () => {
     req.headers.authorization = "Bearer token_app_tanpa_device";
 
-    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_123",
       version: 1,
       loginType: "app",
+      // installationId sengaja dikosongkan
     });
 
     mockPenggunaChain({
       _id: "user_123",
       roleID: { namaRole: "Owner", permissions: [] },
       aksesType: "app",
-      device: [{ deviceID: "DEV-SAH-01", tokenVersion: 1 }],
     });
 
     await authPengguna(req, res, next);
@@ -83,7 +97,7 @@ describe("Unit Test Middleware — authPengguna", () => {
     expect(next).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 401,
-        message: expect.stringMatching(/Device ID tidak ditemukan/i),
+        message: expect.stringMatching(/Installation ID tidak ditemukan/i), // Disesuaikan dengan pesan middleware baru
       }),
     );
   });
@@ -91,10 +105,9 @@ describe("Unit Test Middleware — authPengguna", () => {
   test("Skenario 5 [CRITICAL] — Memblokir bypass jika pengguna App menggunakan device yang tidak dikenali", async () => {
     req.headers.authorization = "Bearer token_app_device_hantu";
 
-    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_123",
-      deviceID: "DEV-HANTU-99",
+      installationId: "DEV-HANTU-99", // Update field
       version: 1,
       loginType: "app",
     });
@@ -103,8 +116,10 @@ describe("Unit Test Middleware — authPengguna", () => {
       _id: "user_123",
       roleID: { namaRole: "Kasir", permissions: [] },
       aksesType: "app",
-      device: [{ deviceID: "DEV-SAH-01", tokenVersion: 1 }],
     });
+
+    // Perangkat sah yang terdaftar di DB berbeda dengan token
+    mockDeviceChain([{ installationId: "DEV-SAH-01", status: "trusted" }]);
 
     await authPengguna(req, res, next);
 
@@ -116,13 +131,12 @@ describe("Unit Test Middleware — authPengguna", () => {
     );
   });
 
-  test("Skenario 6 — Memblokir akses App jika tokenVersion perangkat kedaluwarsa (di-revoke)", async () => {
-    req.headers.authorization = "Bearer token_app_kadaluwarsa";
+  test("Skenario 6 — Memblokir akses App jika perangkat berstatus selain trusted (Revoked/Pending)", async () => {
+    req.headers.authorization = "Bearer token_app_revoked";
 
-    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_123",
-      deviceID: "DEV-SAH-01",
+      installationId: "DEV-SAH-01",
       version: 1,
       loginType: "app",
     });
@@ -131,11 +145,20 @@ describe("Unit Test Middleware — authPengguna", () => {
       _id: "user_123",
       roleID: { namaRole: "Kasir", permissions: [] },
       aksesType: "app",
-      device: [{ deviceID: "DEV-SAH-01", tokenVersion: 2 }],
     });
 
+    // Simulasi perangkat ditemukan, tapi statusnya revoked
+    mockDeviceChain([{ installationId: "DEV-SAH-01", status: "revoked" }]);
+
     await authPengguna(req, res, next);
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }));
+    expect(next).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 403,
+        message: expect.stringMatching(
+          /Perangkat belum disetujui atau telah diblokir/i,
+        ),
+      }),
+    );
   });
 
   // pengujian akses web
@@ -188,10 +211,9 @@ describe("Unit Test Middleware — authPengguna", () => {
   test("Skenario 9 — Lolos validasi sempurna untuk pengguna App dengan device valid", async () => {
     req.headers.authorization = "Bearer token_app_valid";
 
-    // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_app",
-      deviceID: "DEV-SAH-01",
+      installationId: "DEV-SAH-01",
       version: 3,
       loginType: "app",
     });
@@ -200,8 +222,10 @@ describe("Unit Test Middleware — authPengguna", () => {
       _id: "user_app",
       roleID: { namaRole: "Kasir", permissions: [{ nama: "akses-pos" }] },
       aksesType: "app",
-      device: [{ deviceID: "DEV-SAH-01", type: "primary", tokenVersion: 3 }],
     });
+
+    // Simulasi perangkat valid
+    mockDeviceChain([{ installationId: "DEV-SAH-01", status: "trusted" }]);
 
     await authPengguna(req, res, next);
 
@@ -288,7 +312,7 @@ describe("Unit Test Middleware — authPengguna", () => {
     // FIX: Tambahkan loginType: "app"
     jwt.verify.mockReturnValue({
       id: "user_redis",
-      deviceID: "DEV-01",
+      installationId: "DEV-01", // Update ke installationId
       version: 2,
       loginType: "app",
     });
@@ -297,7 +321,7 @@ describe("Unit Test Middleware — authPengguna", () => {
     const cachedSession = {
       _id: "user_redis",
       aksesType: "app",
-      device: [{ deviceID: "DEV-01", tokenVersion: 2 }],
+      device: [{ installationId: "DEV-01", status: "trusted" }], // Update skema cache
       permissions: ["SUPER_KASIR", "LIHAT_MENU"],
     };
     redis.get.mockResolvedValue(JSON.stringify(cachedSession));

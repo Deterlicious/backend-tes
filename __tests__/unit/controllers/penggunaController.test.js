@@ -315,7 +315,7 @@ describe("Unit Test — Pengguna Controller", () => {
       req.body = { installationId: "BUDI-HP-001" };
       req.headers.authorization = "Bearer access_token_mock";
       req.cookies.refreshToken = "opaque_token";
-      req.user = { id: "user_123" };
+      req.pengguna = { id: "user_123" };
 
       penggunaService.logout.mockResolvedValue(true);
 

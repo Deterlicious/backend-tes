@@ -151,8 +151,18 @@ describe("Integration Test — Device Route Gateways", () => {
     });
 
     describe("4. POST /api/devices/self-approve", () => {
+      // TAMBAHKAN SKENARIO INI
+      test("Menolak ketat (401) jika Token Pengguna tidak ada/invalid", async () => {
+        mockAuthFail = true;
+        const res = await request(app)
+          .post("/api/devices/self-approve")
+          .send({ installationId: "BUDI-HP" });
+        expect(res.status).toBe(401);
+        expect(deviceController.selfApproveDevice).not.toHaveBeenCalled();
+      });
+
       test("Meloloskan (200) langsung ke Controller tanpa melewati pengecekan 'checkPermission'", async () => {
-        mockPermissionFail = true;
+        mockPermissionFail = true; // Bukti bahwa checkPermission dilewati
         const res = await request(app)
           .post("/api/devices/self-approve")
           .send({ installationId: "BUDI-HP" });
