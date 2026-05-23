@@ -397,11 +397,15 @@ class TransferStokService {
         transfer.status = "BATAL";
 
         // 🎯 LOGIKA JEMBATAN: Set status pengajuan ke PENDING (pengiriman tertunda)
+        // dan hapus referensi transferStokID agar pengajuan bisa dibuatkan Surat Jalan baru
         if (transfer.pengajuanStokID) {
           const PengajuanStok = require("../models/pengajuanStokModel");
           await PengajuanStok.findOneAndUpdate(
             { _id: transfer.pengajuanStokID, tenantID },
-            { status: "PENDING" },
+            {
+              status: "PENDING",
+              $unset: { transferStokID: "" }, // ✅ FIX: Hapus referensi agar bisa buat SJ baru
+            },
           );
         }
       }

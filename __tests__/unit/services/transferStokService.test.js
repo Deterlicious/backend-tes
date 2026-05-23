@@ -270,6 +270,34 @@ describe("TransferStokService — Unit Test", () => {
       expect(JurnalStok.create).toHaveBeenCalledWith(
         expect.objectContaining({ tipeKoreksi: "Masuk", alasan: "Lainnya" }) // Jurnal koreksi pembatalan
       );
+      // ✅ FIX: Validasi bahwa transferStokID dihapus dari PengajuanStok saat dibatalkan
+      expect(PengajuanStok.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: pengajuanStokID, tenantID },
+        {
+          status: "PENDING",
+          $unset: { transferStokID: "" },
+        }
+      );
+      expect(mockTransfer.status).toBe("BATAL");
+    });
+
+    test("6. Status BATAL — Tidak rollback stok jika masih PENDING (belum DIKIRIM)", async () => {
+      mockTransfer.status = "PENDING"; // Barang belum keluar
+
+      await transferStokService.updateStatus(tenantID, transferId, "BATAL");
+
+      // Tidak ada rollback stok karena barang belum pernah keluar
+      expect(Inventory.updateOne).not.toHaveBeenCalled();
+      expect(JurnalStok.create).not.toHaveBeenCalled();
+
+      // ✅ FIX: Validasi bahwa transferStokID tetap dihapus dari PengajuanStok
+      expect(PengajuanStok.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: pengajuanStokID, tenantID },
+        {
+          status: "PENDING",
+          $unset: { transferStokID: "" },
+        }
+      );
       expect(mockTransfer.status).toBe("BATAL");
     });
   });
