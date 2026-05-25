@@ -1,77 +1,75 @@
 const express = require("express");
 const router = express.Router();
 const penggunaController = require("../controllers/penggunaController");
-
 const authAkun = require("../middleware/authAkun");
 const authPengguna = require("../middleware/authPengguna");
 const { checkPermission } = require("../middleware/authorizePermission");
+const createError = require("http-errors");
+const { validatePenggunaLogin } = require("../validators/penggunaValidator");
 
-/**
- * Wrapper utility untuk menangani error async
- */
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(penggunaController, req, res, next)).catch(next);
 };
 
-// ==========================================
-// 1. PUBLIC / SEMI PUBLIC
-// ==========================================
+// middleware untuk validasi login pengguna
+const validateLoginRequest = (req, res, next) => {
+  const validation = validatePenggunaLogin(req.body);
+  if (!validation.valid) {
+    // Lemparkan error 400 Bad Request ke global error handler
+    return next(createError(400, validation.errors[0]));
+  }
+  next();
+};
+
+// 1. public / semi public routes (tanpa authPengguna, tapi tetap validasi akun)
 router.post("/pin-refresh", wrap(penggunaController.refreshToken));
 
-// ==========================================
-// 2. LEVEL AKUN (SETUP & LOGIN SCREEN)
-// ==========================================
+// 2. level akun (setup & login screen)
 router.post(
   "/register-owner",
   authAkun,
   wrap(penggunaController.registerOwner),
 );
-
-router.post("/pin-login", authAkun, wrap(penggunaController.loginPin));
+router.post(
+  "/pin-login",
+  authAkun,
+  validateLoginRequest,
+  wrap(penggunaController.loginPin),
+);
 router.get("/check-owner", authAkun, wrap(penggunaController.checkOwner));
 
+// 3. level pengguna (setelah login pin)
 
-// ==========================================
-// 3. LEVEL PENGGUNA (SETELAH LOGIN PIN)
-// ==========================================
 router.use(authPengguna);
 
 // Logout
 router.post("/pin-logout", wrap(penggunaController.logout));
 
-// ==========================================
-// CRUD PENGGUNA (DENGAN PERMISSION)
-// ==========================================
-
-// CREATE
+// CRUD pengguna (pakai permission "pengguna" untuk semua operasi, karena ini terkait manajemen pengguna)
 router.post(
   "/register-pengguna",
   checkPermission("create-pengguna"),
   wrap(penggunaController.create),
 );
 
-// READ ALL
 router.get(
   "/",
   checkPermission("read-pengguna"),
   wrap(penggunaController.getAll),
 );
 
-// READ BY ID
 router.get(
   "/:id",
   checkPermission("read-pengguna"),
   wrap(penggunaController.getById),
 );
 
-// UPDATE
 router.put(
   "/:id",
   checkPermission("update-pengguna"),
   wrap(penggunaController.update),
 );
 
-// DELETE
 router.delete(
   "/:id",
   checkPermission("delete-pengguna"),

@@ -1,21 +1,20 @@
 const penggunaService = require("../services/penggunaService");
 const createError = require("http-errors");
-const Pengguna = require("../models/penggunaModel");
+const { DEVICE_STATUS } = require("../config/constants");
 
+// Standardisasi Cookie Mutlak: Nama "refreshToken" dan path "/"
 const setRefreshTokenCookie = (res, token) => {
-  res.cookie("penggunaRefreshToken", token, {
+  res.cookie("refreshToken", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    path: "/api/pengguna",
+    path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 };
 
 class PenggunaController {
   _getRequesterContext(req) {
-    if (req.akun)
-      return { tenantID: req.akun.tenantID || null, source: "AKUN" };
     if (req.akunContext)
       return { tenantID: req.akunContext.tenantID ?? null, source: "AKUN" };
     if (req.pengguna)
@@ -30,30 +29,71 @@ class PenggunaController {
     return context.tenantID;
   }
 
-  // ==========================================
-  // 1. REGISTER OWNER
-  // ==========================================
+  // 1. register owner (BARU)
   async registerOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
-
       if (!context || context.source !== "AKUN") {
         throw createError(403, "Akses ditolak. Gunakan Akun SaaS.");
       }
 
       const tenantID = this._ensureTenant(context);
 
-      const result = await penggunaService.registerOwner(req.body, tenantID);
+      // FIX: Menggunakan installationId dan metadata perangkat
+      const {
+        nama,
+        pin,
+        aksesType,
+        installationId,
+        deviceName,
+        appVersion,
+        osVersion,
+      } = req.body;
+
+      // Mendapatkan alamat IP untuk audit (lastIpAddress)
+      const ipAddress =
+        req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+      // Normalisasi aksesType agar selalu berupa array
+      const normalizedAksesType = Array.isArray(aksesType)
+        ? aksesType
+        : [aksesType || "app"];
+
+      // Validasi kewajiban installationId untuk akses aplikasi
+      if (normalizedAksesType.includes("app") && !installationId) {
+        throw createError(
+          400,
+          "installationId wajib disertakan untuk pendaftaran Owner via aplikasi.",
+        );
+      }
+
+      // Payload disesuaikan dengan signature terbaru pada Service
+      const payload = {
+        nama,
+        pin,
+        aksesType: normalizedAksesType,
+        installationId,
+        deviceName,
+        appVersion,
+        osVersion,
+        ipAddress,
+      };
+
+      const result = await penggunaService.registerOwner(payload, tenantID);
+
+      // Pasang Refresh Token ke cookie (untuk kebutuhan akses web jika ada)
       setRefreshTokenCookie(res, result.refreshToken);
 
       res.status(201).json({
-        message: "Owner berhasil didaftarkan dengan akses penuh.",
+        success: true,
+        message: "Owner berhasil didaftarkan.",
         data: {
-          _id: result.user._id,
-          nama: result.user.nama,
-          role: result.user.role,
+          pengguna: result.pengguna,
+          // Sertakan metadata perangkat yang otomatis terdaftar sebagai 'trusted'
+          device: result.device || null,
         },
-        accessToken: result.token,
+        accessToken: result.accessToken,
+        // Mengirimkan Refresh Token di body untuk kemudahan Flutter Secure Storage
         refreshToken: result.refreshToken,
       });
     } catch (err) {
@@ -61,35 +101,33 @@ class PenggunaController {
     }
   }
 
-  // ==========================================
-  // 2. CREATE STAFF
-  // ==========================================
+  // 2. create pengguna biasa (BARU)
   async create(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
-      const result = await penggunaService.create(req.body, tenantID);
+      // FIX: Buang deviceID dan deviceType dari penerimaan body.
+      // Owner/Admin tidak perlu tahu atau menginput ID perangkat saat membuat akun kasir.
+      const { nama, pin, roleID, aksesType } = req.body;
+
+      // Payload kini bersih, hanya fokus pada data identitas Pengguna
+      const payload = { nama, pin, roleID, aksesType };
+
+      const result = await penggunaService.create(payload, tenantID);
 
       res.status(201).json({
-        message: "Pengguna berhasil dibuat.",
-        data: {
-          _id: result._id,
-          nama: result.nama,
-          nomorHp: result.nomorHp,
-          role: result.roleID?.namaRole || "No Role",
-          fotoKaryawan: result.fotoKaryawan,
-          status: result.status,
-        },
+        success: true,
+        message:
+          "Pengguna berhasil dibuat. Pengguna baru ini dapat login menggunakan nama dan PIN yang telah ditetapkan.",
+        data: result.pengguna,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 3. GET ALL
-  // ==========================================
+  // 3. get all
   async getAll(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
@@ -97,149 +135,250 @@ class PenggunaController {
 
       const result = await penggunaService.getAll(tenantID);
 
-      const formatted = result.map((u) => ({
-        _id: u._id,
-        nama: u.nama,
-        nomorHp: u.nomorHp,
-        role: u.roleID?.namaRole || "No Role",
-        status: u.status,
-        status: u.status,
-      }));
-
       res.json({
         message: "Daftar pengguna berhasil diambil.",
-        total: formatted.length,
-        data: formatted,
-        data: formatted,
+        total: result.length,
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 4. GET BY ID
-  // ==========================================
+  // 4. get by id
   async getById(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
-      const u = await penggunaService.getById(req.params.id, tenantID);
+      const result = await penggunaService.getById(req.params.id, tenantID);
 
       res.json({
         message: "Detail pengguna berhasil diambil.",
-        data: {
-          _id: u._id,
-          nama: u.nama,
-          nomorHp: u.nomorHp,
-          role: u.roleID?.namaRole || "No Role",
-          fotoKaryawan: u.fotoKaryawan,
-          status: u.status,
-        },
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 5. UPDATE
-  // ==========================================
+  // 5. update
   async update(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
-      const u = await penggunaService.update(req.params.id, req.body, tenantID);
+      const result = await penggunaService.update(
+        req.params.id,
+        req.body,
+        tenantID,
+      );
 
       res.json({
         message: "Data pengguna berhasil diperbarui.",
-        data: {
-          _id: u._id,
-          nama: u.nama,
-          nomorHp: u.nomorHp,
-          role: u.roleID?.namaRole || "No Role",
-          fotoKaryawan: u.fotoKaryawan,
-          status: u.status,
-        },
+        data: result,
       });
     } catch (err) {
       next(err);
     }
   }
 
-  // ==========================================
-  // 6. LOGIN PIN
-  // ==========================================
+  // 6. login pin pengguna (BARU)
   async loginPin(req, res, next) {
     try {
-      const { nama, pin } = req.body;
+      // 1. Ganti deviceID menjadi installationId dan menambahkan metadata untuk audit
+      const {
+        nama,
+        pin,
+        loginType,
+        installationId,
+        deviceName,
+        appVersion,
+        osVersion,
+      } = req.body;
 
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
-      const result = await penggunaService.login({
+      // Ambil IP Address untuk kebutuhan audit/lastIpAddress
+      const ipAddress =
+        req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+      // 2. Memanggil Service Login
+      // Logika Mongoose Transaction dan pengecekan kuota device akan berada di dalam service ini
+      const result = await penggunaService.loginPin({
         nama,
         pin,
         tenantID,
+        loginType,
+        installationId,
+        deviceName,
+        appVersion,
+        osVersion,
+        ipAddress,
       });
 
-      setRefreshTokenCookie(res, result.refreshToken);
-
-      res.json({
-        message: "Login pengguna berhasil.",
-        data: {
-          _id: result.user._id,
-          nama: result.user.nama,
-          role: result.user.role,
-          role: result.user.role,
-        },
-        accessToken: result.token,
-        refreshToken: result.refreshToken,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  // ==========================================
-  // 🔄 REFRESH TOKEN
-  // ==========================================
-  async refreshToken(req, res, next) {
-    try {
-      const token = req.cookies.penggunaRefreshToken || req.body.refreshToken;
-
-      if (!token) {
-        throw createError(401, "Refresh Token tidak ditemukan.");
+      // 3. Penanganan Skenario Perangkat Pending
+      // Jika perangkat baru didaftarkan atau masa pending diperbarui (expired)
+      if (result.status === DEVICE_STATUS.PENDING) {
+        return res.status(200).json({
+          success: false,
+          code: "DEVICE_PENDING_APPROVAL",
+          message: "Perangkat menunggu persetujuan owner.",
+          data: {
+            installationId: result.device.installationId,
+            pendingExpiresAt: result.device.pendingExpiresAt,
+          },
+        });
       }
 
-      const tokens = await penggunaService.refreshToken(token);
-      setRefreshTokenCookie(res, tokens.refreshToken);
+      // 4. Penanganan Skenario Sukses
+      // Pasang Refresh Token ke Cookie (Opsional, tergantung preferensi Flutter Sir)
+      // Sesuai roadmap, refreshToken ini adalah Opaque Token yang sudah di-hash di DB
+      setRefreshTokenCookie(res, result.refreshToken);
+
+      const isApp = result.status === DEVICE_STATUS.TRUSTED;
 
       res.json({
-        message: "Token pengguna diperbarui.",
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
+        success: true,
+        message: "Login berhasil.",
+        data: {
+          user: result.pengguna,
+          ...(isApp && {
+            device: {
+              installationId: result.device.installationId,
+              status: result.device.status,
+            },
+          }),
+        },
+        accessToken: result.accessToken,
+        ...(isApp && { refreshToken: result.refreshToken }),
       });
     } catch (err) {
-      res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
+      // Error seperti DEVICE_REVOKED (401) atau DEVICE_LIMIT_EXCEEDED (403)
+      // akan ditangkap oleh Global Error Handler
       next(err);
     }
   }
 
-  // ==========================================
-  // 🚪 LOGOUT
-  // ==========================================
-  async logout(req, res, next) {
+  // 7. refresh token (BARU
+  async refreshToken(req, res, next) {
     try {
-      res.clearCookie("penggunaRefreshToken", { path: "/api/pengguna" });
-      res.json({ message: "Logout berhasil." });
+      // Deteksi jalur: Jika ada installationId, berarti ini dari Mobile App
+      const { installationId } = req.body;
+      const isMobileApp = !!installationId;
+
+      let result;
+
+      if (isMobileApp) {
+        // ALUR APP (Roadmap V1 - Opaque Token)
+        const opaqueToken = req.body.refreshToken;
+        if (!opaqueToken) {
+          throw createError(401, "Refresh token tidak ditemukan di body.");
+        }
+
+        // Ekstrak Expired Access Token dari Header Authorization
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          throw createError(
+            401,
+            "Access Token kedaluwarsa tidak disertakan di header.",
+          );
+        }
+        const expiredAccessToken = authHeader.split(" ")[1];
+
+        // Eksekusi di Service
+        result = await penggunaService.refreshToken({
+          token: opaqueToken,
+          expiredAccessToken,
+          installationId,
+        });
+        
+      } else {
+        // ALUR WEB (JWT Cookie Lama)
+        const token = req.cookies.refreshToken || req.body.refreshToken;
+        if (!token) {
+          throw createError(401, "Refresh token tidak ditemukan.");
+        }
+        // Eksekusi Service lama
+        // result = await penggunaService.refreshToken(token);
+        result = await penggunaService.refreshToken({
+          token: req.cookies.refreshToken || req.body.refreshToken,
+          expiredAccessToken: req.headers.authorization?.split(" ")[1],
+          installationId: req.body.installationId,
+        });
+
+        // Kembalikan ke Cookie jika web
+        setRefreshTokenCookie(res, result.newRefreshToken);
+      }
+
+      res.json({
+        success: true,
+        message: "Token berhasil diperbarui.",
+        data: {
+          accessToken: result.accessToken,
+          // Untuk mobile, kirim Refresh Token baru via JSON Body
+          ...(isMobileApp && { refreshToken: result.newRefreshToken }),
+        },
+      });
     } catch (err) {
       next(err);
     }
   }
 
+  // 8. logout (BARU)
+  async logout(req, res, next) {
+    const cookieOptions = { path: "/", httpOnly: true };
+    try {
+      // Deteksi jalur berdasarkan keberadaan installationId di body (atau query)
+      const { installationId } = req.body;
+      const isMobileApp = !!installationId;
+
+      if (isMobileApp) {
+        // ALUR APP (Roadmap V1)
+        // Kita butuh userId untuk memutus cache dengan composite key.
+        // Di titik ini, asumsinya request ini lolos authMiddleware, jadi req.pengguna sudah terisi.
+        // Jika tidak, sistem perlu mengirim userId dari frontend, atau mengekstraknya dari JWT.
+        const userId = req.pengguna ? req.pengguna.id : null;
+
+        if (!userId) {
+          throw createError(
+            400,
+            "Sesi tidak valid atau userId tidak ditemukan.",
+          );
+        }
+
+        // Minta Service untuk set null hash dan hapus in-memory cache
+        await penggunaService.logout({
+          token: req.cookies.refreshToken || req.body.refreshToken,
+          accessToken: req.headers.authorization?.split(" ")[1],
+          userId: req.pengguna ? req.pengguna.id : null,
+          installationId: req.body.installationId,
+        });
+      } else {
+        // ALUR WEB (Cookie Lama)
+        const token = req.cookies.refreshToken || req.body.refreshToken;
+        if (token) {
+          // await penggunaService.logout(token); // Service lama (mungkin update tokenVersion web)
+          await penggunaService.logout({
+            token,
+            accessToken: req.headers.authorization?.split(" ")[1],
+            installationId: null,
+          });
+        }
+      }
+
+      // Hapus cookie (tidak efek ke App, tapi pembersihan yang aman untuk Web)
+      res.clearCookie("refreshToken", cookieOptions);
+      res.json({ success: true, message: "Logout berhasil." });
+    } catch (err) {
+      // Tindakan Defensif
+      res.clearCookie("refreshToken", cookieOptions);
+      next(err);
+    }
+  }
+
+  // 9. check owner
   async checkOwner(req, res, next) {
     try {
       const context = this._getRequesterContext(req);
@@ -259,9 +398,7 @@ class PenggunaController {
     }
   }
 
-  // ==========================================
-  // 🗑️ DELETE
-  // ==========================================
+  // 10. delete
   async delete(req, res, next) {
     try {
       const context = this._getRequesterContext(req);

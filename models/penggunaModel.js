@@ -10,7 +10,7 @@ const penggunaSchema = new mongoose.Schema(
     },
     pin: {
       type: String,
-      required: true, 
+      required: true,
     },
     roleID: {
       type: mongoose.Schema.Types.ObjectId,
@@ -33,12 +33,43 @@ const penggunaSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
       required: true,
-      index: true, 
+      index: true,
     },
     fotoKaryawan: {
       type: String,
       default: null,
     },
+
+    aksesType: {
+      type: [String],
+      enum: ["web", "app"],
+      default: ["app"],
+      validate: {
+        validator: function (v) {
+          return v.length > 0;
+        },
+        message: "aksesType tidak boleh kosong",
+      },
+    },
+
+    // Device management — hanya relevan untuk aksesType "app"
+    // device: [deviceSchema],
+    // maxPrimaryDevice: {
+    //   type: Number,
+    //   min: 1,
+    //   max: 3,
+    //   default: 1,
+    // },
+    // maxDevice: {
+    //   type: Number,
+    //   min: 1,
+    //   max: 6,
+    //   default: 1,
+    // },
+    // deviceHistory: [deviceHistorySchema],
+
+    // tokenVersion untuk pengguna web (revoke sesi)
+    // untuk pengguna app, tokenVersion ada di dalam device object
     tokenVersion: {
       type: Number,
       required: true,
@@ -46,12 +77,13 @@ const penggunaSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, 
+    timestamps: true,
   },
 );
 
 // Compound Index: Optimasi login screen (Tampilkan karyawan aktif di tenant X)
 penggunaSchema.index({ tenantID: 1, status: 1 });
+penggunaSchema.index({ tenantID: 1, nama: 1 }, { unique: true });
 
 // Middleware untuk Hashing PIN sebelum disimpan
 penggunaSchema.pre("save", async function (next) {
@@ -65,7 +97,6 @@ penggunaSchema.pre("save", async function (next) {
   }
 });
 
-penggunaSchema.index({ tenantID: 1, nama: 1 }, { unique: true });
 // Method untuk membandingkan PIN saat login
 penggunaSchema.methods.comparePin = async function (candidatePin) {
   return await bcrypt.compare(candidatePin, this.pin);

@@ -2,247 +2,288 @@ const Akun = require("../models/akunModel");
 const jwt = require("jsonwebtoken");
 const redis = require("../config/redis");
 const {
-  validateRegister,
-  validateLogin,
+  validateRegister,
+  validateLogin,
 } = require("../validators/akunValidator");
 const createError = require("http-errors");
 
 const AKUN_JWT_SECRET = process.env.AKUN_JWT_SECRET || "akun_secret";
 const AKUN_REFRESH_SECRET =
-  process.env.AKUN_REFRESH_SECRET || "akun_refresh_secret";
+  process.env.AKUN_REFRESH_SECRET || "akun_refresh_secret";
 
 const KEY_PROFILE = (id) => `akun:profile:${id}`;
 const KEY_ALL_USERS = "akun:all_users";
 
 class AkunService {
-  
-  // Fungsi generate token JWT
-  generateTokens(user, device) {
-    const payload = {
-      id: user._id,
-      role: user.role,
-      deviceID: device.deviceID,
-      version: device.tokenVersion,
-    };
+  // Generate token JWT — tidak lagi butuh device, tokenVersion di level Akun
+  generateTokens(user) {
+    const payload = {
+      id: user._id,
+      role: user.role,
+      version: user.tokenVersion,
+    };
 
-    // Tambahkan tenantID ke dalam token hanya jika akun sudah membuat/terikat dengan toko
-    if (user.tenantID) {
-      payload.tenantID = user.tenantID;
-    }
+    // Tambahkan tenantID ke token hanya jika akun sudah terikat dengan toko
+    if (user.tenantID) {
+      payload.tenantID = user.tenantID;
+    }
 
-    const accessToken = jwt.sign(payload, AKUN_JWT_SECRET, {
-      expiresIn: "15m",
-    });
+    const accessToken = jwt.sign(payload, AKUN_JWT_SECRET, {
+      expiresIn: "15m",
+    });
 
-    const refreshToken = jwt.sign(
-      {
-        id: user._id,
-        deviceID: device.deviceID,
-        version: device.tokenVersion,
-      },
-      AKUN_REFRESH_SECRET,
-      { expiresIn: "7d" },
-    );
+    const refreshToken = jwt.sign(
+      {
+        id: user._id,
+        version: user.tokenVersion,
+      },
+      AKUN_REFRESH_SECRET,
+      { expiresIn: "7d" },
+    );
 
-    return { accessToken, refreshToken };
-  }
+    return { accessToken, refreshToken };
+  }
 
-  async clearCache(userId) {
-    await redis.del(KEY_PROFILE(userId));
-  }
+  async clearCache(userId) {
+    await redis.del(KEY_PROFILE(userId));
+  }
 
-  async register(payload) {
-    const validation = validateRegister(payload);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
+  async register(payload) {
+    const validation = validateRegister(payload);
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
-    const existing = await Akun.findOne({ email: payload.email });
-    if (existing) throw createError(409, "Email sudah terdaftar.");
+    const existing = await Akun.findOne({ email: payload.email });
+    if (existing) throw createError(409, "Email sudah terdaftar.");
 
-    const newUser = await Akun.create(payload);
-    await redis.del(KEY_ALL_USERS);
+    // 1. Buat instance secara eksplisit
+    // Masukkan username: null jika tidak ada di payload agar konsisten muncul di JSON
+    const newUser = new Akun({
+      email: payload.email,
+      password: payload.password,
+      username: payload.username || null,
+      role: payload.role || "client",
+      tenantID: payload.tenantID || null,
+    });
 
-    return newUser;
-  }
+    await newUser.save();
+    await redis.del(KEY_ALL_USERS);
 
-  async login(payload) {
-    const validation = validateLogin(payload);
-    if (!validation.valid) throw createError(400, validation.errors[0]);
+    // 2. TRANSFORMASI & PEMBERSIHAN (CRITICAL)
+    // Gunakan minimize: false agar username: null tetap terlihat di result
+    const result = newUser.toObject({ minimize: false });
 
-    const { email, password, deviceID, deviceType } = payload;
+    // Hapus data sensitif dan internal sebelum dikembalikan ke controller
+    delete result.password;
+    delete result.__v;
 
-    const user = await Akun.findOne({ email });
-    if (!user) throw createError(404, "Email tidak ditemukan.");
+    return result;
+  }
 
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) throw createError(400, "Password salah.");
+  async login(payload) {
+    const validation = validateLogin(payload);
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
-    // Manajemen perangkat (Device Management)
-    let device = user.device.find((d) => d.deviceID === deviceID);
-    let isNewDevice = false;
+    const { email, password } = payload;
 
-    // Versi token diperbarui setiap kali login untuk invalidasi token lama
-    const newTokenVersion = Math.floor(1000 + Math.random() * 9000);
+    const user = await Akun.findOne({ email });
+    if (!user) throw createError(404, "Email tidak ditemukan.");
 
-    if (device) {
-      device.tokenVersion = newTokenVersion;
-      device.lastUsed = new Date();
-    } else {
-      if (user.device.length >= user.maxDevice) {
-        throw createError(
-          403,
-          "Kuota perangkat penuh. Harap hapus perangkat lama terlebih dahulu.",
-        );
-      }
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) throw createError(400, "Password salah.");
 
-      isNewDevice = true;
-      const newDeviceObj = {
-        deviceID,
-        type:
-          deviceType || (user.device.length === 0 ? "primary" : "secondary"),
-        tokenVersion: newTokenVersion,
-        lastUsed: new Date(),
-      };
+    user.tokenVersion = Date.now();
+    await user.save();
+    await this.clearCache(user._id);
 
-      user.device.push(newDeviceObj);
-      user.deviceHistory.push({
-        deviceID,
-        type: newDeviceObj.type,
-        action: "added",
-      });
+    const tokens = this.generateTokens(user);
 
-      device = user.device[user.device.length - 1];
-    }
+    // KONSISTENSI: Gunakan minimize: false agar username: null muncul
+    const userObj = user.toObject({ minimize: false });
+    delete userObj.password;
+    delete userObj.__v;
 
-    user.markModified("device");
-    if (isNewDevice) user.markModified("deviceHistory");
+    // Pastikan struktur return ini datar (flat) untuk accessToken & refreshToken
+    return {
+      user: userObj,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
+  }
 
-    await user.save();
-    await this.clearCache(user._id);
+  async refreshToken(token) {
+    if (!token) throw createError(401, "Refresh token tidak ditemukan.");
 
-    const tokens = this.generateTokens(user, device);
+    let payload;
+    try {
+      payload = jwt.verify(token, AKUN_REFRESH_SECRET);
+    } catch (err) {
+      throw createError(403, "Refresh token tidak valid atau kedaluwarsa.");
+    }
 
-    return {
-      id: user._id,
-      email: user.email,
-      username: user.username,
-      role: user.role,
-      tenantID: user.tenantID, 
-      currentDevice: device.deviceID,
-      tokens,
-      message: isNewDevice ? "Login berhasil pada perangkat baru." : "Login berhasil.",
-    };
-  }
+    const user = await Akun.findById(payload.id);
+    if (!user) throw createError(401, "Pengguna tidak ditemukan.");
 
-  async refreshToken(token) {
-    if (!token) throw createError(401, "Refresh token tidak ditemukan.");
+    // Validasi tokenVersion
+    if (user.tokenVersion !== payload.version || user.tokenVersion === 0) {
+      throw createError(403, "Sesi kedaluwarsa. Silakan login ulang.");
+    }
 
-    let payload;
-    try {
-      payload = jwt.verify(token, AKUN_REFRESH_SECRET);
-    } catch (err) {
-      throw createError(403, "Refresh token tidak valid atau kedaluwarsa.");
-    }
+    // Rotate tokenVersion setiap refresh
+    user.tokenVersion = Date.now();
+    await user.save();
+    await this.clearCache(user._id);
 
-    const user = await Akun.findById(payload.id);
-    if (!user) throw createError(401, "Pengguna tidak ditemukan.");
+    return this.generateTokens(user);
+  }
 
-    const device = user.device.find((d) => d.deviceID === payload.deviceID);
-    if (!device) throw createError(401, "Perangkat tidak terdaftar.");
+  // perbaikan: Menambah parameter accessToken dari controller
+  async logout(token, accessToken) {
+    // 1. Logika Invalidasi Refresh Token (Tetap dipertahankan)
+    if (token) {
+      try {
+        const payload = jwt.verify(token, AKUN_REFRESH_SECRET);
+        const user = await Akun.findById(payload.id);
 
-    if (device.tokenVersion !== payload.version || device.tokenVersion === 0) {
-      throw createError(
-        403,
-        "Sesi kedaluwarsa. Silakan login ulang.",
-      );
-    }
+        if (user) {
+          // Set tokenVersion ke 0 untuk invalidasi semua sesi
+          user.tokenVersion = 0;
+          await user.save();
+          await this.clearCache(user._id);
+        }
+      } catch (ignore) {}
+    }
 
-    const newTokenVersion = Math.floor(1000 + Math.random() * 9000);
-    device.tokenVersion = newTokenVersion;
-    device.lastUsed = new Date();
+    // 2. perbaikan: Logika Redis Blacklist khusus untuk Access Token
+    if (accessToken) {
+      try {
+        const decodedAccess = jwt.verify(accessToken, AKUN_JWT_SECRET);
 
-    user.markModified("device");
-    await user.save();
-    await this.clearCache(user._id);
+        // Hitung sisa waktu token dalam detik (exp - waktu sekarang)
+        const timeRemaining = decodedAccess.exp - Math.floor(Date.now() / 1000);
 
-    return this.generateTokens(user, device);
-  }
+        // Jika token masih memiliki sisa waktu, masukkan ke blacklist
+        if (timeRemaining > 0) {
+          // Key di redis akan menggunakan prefix 'bl_' (blacklist)
+          await redis.set(
+            `bl_${accessToken}`,
+            "blacklisted",
+            "EX",
+            timeRemaining,
+          );
+        }
+      } catch (ignore) {
+        // Blok catch kosong dipertahankan agar jika token sudah kedaluwarsa
+        // secara alami, API tidak crash dan tetap melanjutkan proses penghapusan cookie.
+      }
+    }
+  }
 
-  async logout(token) {
-    if (!token) return;
-    try {
-      const payload = jwt.verify(token, AKUN_REFRESH_SECRET);
-      const user = await Akun.findById(payload.id);
+  async getProfile(tenantID) {
+    // Cari akun via tenantID untuk dapat akunID
+    const akun = await Akun.findOne({ tenantID }).select("-password").lean();
+    if (!akun) throw createError(404, "Akun tidak ditemukan."); // ✅ throw, bukan return null
 
-      if (user) {
-        const device = user.device.find((d) => d.deviceID === payload.deviceID);
-        if (device) {
-          device.tokenVersion = 0;
-          device.lastUsed = new Date();
+    // Cache tetap pakai akunID → konsisten dengan clearCache()
+    const cached = await redis.get(KEY_PROFILE(akun._id));
+    if (cached) return JSON.parse(cached);
 
-          user.markModified("device");
-          await user.save();
-          await this.clearCache(user._id);
-        }
-      }
-    } catch (ignore) {}
-  }
+    await redis.set(KEY_PROFILE(akun._id), JSON.stringify(akun), "EX", 300);
+    return akun;
+  }
 
-  async getProfile(userId) {
-    const cached = await redis.get(KEY_PROFILE(userId));
-    if (cached) return JSON.parse(cached);
+  // perbaikan: Menggunakan findOne dan .save() agar middleware Mongoose untuk hashing password aktif
+  async updateProfile(tenantID, payload) {
+    // FIX 1: Menggunakan findOne untuk pencarian berdasarkan kolom custom, bukan findById
+    const user = await Akun.findOne({ tenantID });
 
-    const user = await Akun.findById(userId)
-      .select("-password -deviceHistory")
-      .lean();
-    if (!user) return null;
+    if (!user) {
+      throw createError(404, "Akun tidak ditemukan.");
+    }
 
-    await redis.set(KEY_PROFILE(userId), JSON.stringify(user), "EX", 300);
-    return user;
-  }
+    // perbaikan: Logika ganti password yang mengunci pergerakan tanpa password lama
+    if (payload.password) {
+      if (!payload.oldPassword) {
+        throw createError(
+          400,
+          "Password lama wajib disertakan untuk alasan keamanan.",
+        );
+      }
 
-  async updateProfile(userId, payload) {
-    const safePayload = {};
-    if (payload.username) safePayload.username = payload.username;
-    if (payload.email) safePayload.email = payload.email;
-    if (payload.tenantID) safePayload.tenantID = payload.tenantID;
+      // Pastikan method comparePassword ini sudah ada di schema akunModel.js Anda
+      const isMatch = await user.comparePassword(payload.oldPassword);
+      if (!isMatch) {
+        throw createError(400, "Password lama tidak sesuai.");
+      }
 
-    const updated = await Akun.findByIdAndUpdate(userId, safePayload, {
-      new: true,
-    })
-      .select("-password")
-      .lean();
+      // Assign password baru (Mongoose pre-save hook akan melakukan hashing nanti)
+      user.password = payload.password;
+    }
 
-    await this.clearCache(userId);
-    if (payload.email) await redis.del(KEY_ALL_USERS);
+    // Update field lain secara selektif
+    if (payload.username !== undefined) user.username = payload.username;
+    if (payload.email) user.email = payload.email;
+    if (payload.tenantID) user.tenantID = payload.tenantID;
 
-    return updated;
-  }
+    // Simpan ke database, memicu Mongoose validation dan hook hashing password
+    await user.save();
 
-  async getAllUsers() {
-    const cached = await redis.get(KEY_ALL_USERS);
-    if (cached) return JSON.parse(cached);
+    // Pembersihan Cache
+    // FIX 2: Menggunakan user._id, bukan userId yang tidak terdefinisi
+    await this.clearCache(user._id);
+    if (payload.email) {
+      await redis.del(KEY_ALL_USERS);
+    }
 
-    const users = await Akun.find({})
-      .select("-password -device -deviceHistory")
-      .lean();
+    // Transformasi agar response aman (tidak membocorkan password baru/lama)
+    const result = user.toObject({ minimize: false });
+    delete result.password;
+    delete result.__v;
 
-    await redis.set(KEY_ALL_USERS, JSON.stringify(users), "EX", 60);
-    return users;
-  }
+    return result;
+  }
 
-  async deleteUserByAdmin(targetUserId, requesterId) {
-    if (targetUserId === requesterId) {
-      throw createError(400, "Tidak dapat menghapus akun Anda sendiri.");
-    }
+  // perbaikan: Tambahkan parameter requesterId agar selaras dengan Controller
+  async getAllAkun(requesterId) {
+    // perbaikan: Terapkan validasi otorisasi level akun (platform)
+    const requester = await Akun.findById(requesterId).select("role").lean();
+    if (!requester || requester.role !== "admin") {
+      throw createError(
+        403,
+        "Forbidden: Hanya admin platform yang dapat mengakses seluruh data akun.",
+      );
+    }
 
-    const deleted = await Akun.findByIdAndDelete(targetUserId);
-    if (!deleted) throw createError(404, "Pengguna tidak ditemukan.");
+    const cached = await redis.get(KEY_ALL_USERS);
+    if (cached) return JSON.parse(cached);
 
-    await this.clearCache(targetUserId);
-    await redis.del(KEY_ALL_USERS);
+    const users = await Akun.find({}).select("-password").lean();
 
-    return true;
-  }
+    await redis.set(KEY_ALL_USERS, JSON.stringify(users), "EX", 60);
+    return users;
+  }
+
+  async deleteUserByAdmin(targetUserId, requesterId) {
+    const requester = await Akun.findById(requesterId).select("role").lean();
+
+    // if (targetUserId === requesterId) {
+    //   throw createError(400, "Tidak dapat menghapus akun Anda sendiri.");
+    // }
+
+    if (!requester || requester.role !== "admin") {
+      throw createError(
+        403,
+        "Forbidden: hanya admin yang boleh menghapus akun.",
+      );
+    }
+
+    const deleted = await Akun.findByIdAndDelete(targetUserId);
+    if (!deleted) throw createError(404, "Pengguna tidak ditemukan.");
+
+    await this.clearCache(targetUserId);
+    await redis.del(KEY_ALL_USERS);
+
+    return true;
+  }
 }
 
 module.exports = new AkunService();

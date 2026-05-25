@@ -2,66 +2,28 @@ const express = require("express");
 const router = express.Router();
 const tenantController = require("../controllers/tenantController");
 
-// Middleware
-const authAkun = require("../middleware/authAkun"); // untuk create awal
+const authAkun = require("../middleware/authAkun");
 const authPengguna = require("../middleware/authPengguna");
 const { adminOnly } = require("../middleware/authorize");
 const { checkPermission } = require("../middleware/authorizePermission");
 
-// Wrapper
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(tenantController, req, res, next)).catch(next);
 };
 
-// ==========================================
-// 🔹 CREATE TENANT (PAKAI AKUN - SETUP AWAL)
-// ==========================================
-router.post("/", authAkun, wrap(tenantController.create));
+// daftar semua tenant (khusus super admin SaaS)
+router.get("/", adminOnly, authAkun, wrap(tenantController.getAll));
 
+// registrasi tenant baru (khusus akun owner)
+router.post("/", authAkun, wrap(tenantController.createWithOwner));
 
-// ==========================================
-// 🔹 RBAC (SETELAH ADA PENGGUNA)
-// ==========================================
-router.use(authPengguna);
+// lihat detail tenant (karyawan dengan izin read-tenant)
+router.get("/:id", authPengguna, wrap(tenantController.getById));
 
+// perbarui data tenant
+router.put("/:id", authPengguna, checkPermission("update-tenant"), wrap(tenantController.update));
 
-// ==========================================
-// 🔹 READ TENANT
-// ==========================================
-router.get(
-  "/:id",
-  checkPermission("read-tenant"),
-  wrap(tenantController.getById)
-);
-
-
-// ==========================================
-// 🔹 UPDATE TENANT
-// ==========================================
-router.put(
-  "/:id",
-  checkPermission("update-tenant"),
-  wrap(tenantController.update)
-);
-
-
-// ==========================================
-// 🔹 DELETE TENANT
-// ==========================================
-router.delete(
-  "/:id",
-  checkPermission("delete-tenant"),
-  wrap(tenantController.delete)
-);
-
-
-// ==========================================
-// 🔹 ADMIN ONLY
-// ==========================================
-router.get(
-  "/",
-  adminOnly,
-  wrap(tenantController.getAll)
-);
+// hapus tenant permanen
+router.delete("/:id", authPengguna, checkPermission("delete-tenant"), wrap(tenantController.delete));
 
 module.exports = router;

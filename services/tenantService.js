@@ -40,46 +40,36 @@ class TenantService {
 
     const akun = await Akun.findById(akunID);
     if (!akun) throw createError(404, "Akun tidak ditemukan.");
+
     if (akun.tenantID) {
       throw createError(400, "Akun sudah memiliki tenant.");
+    }
+
+    const allPermissions = await Permission.find();
+    if (!allPermissions || allPermissions.length === 0) {
+      throw createError(
+        500,
+        "System permission kosong. Tambahkan permission terlebih dahulu.",
+      );
     }
 
     let tenant = null;
     let ownerRole = null;
 
     try {
-      // ==========================================
-      // 🔥 VALIDASI SYSTEM PERMISSION HARUS ADA
-      // ==========================================
-      const permissions = await Permission.find().select("_id").lean();
+      tenant = new Tenant(payload);
+      await tenant.save();
 
-      if (!permissions || permissions.length === 0) {
-        throw createError(
-          500,
-          "System permission kosong. Tambahkan permission terlebih dahulu sebelum membuat tenant.",
-        );
-      }
+      const allPermissions = await Permission.find();
+      const permissionIds = allPermissions.map((p) => p._id);
 
-      const permissionIDs = permissions.map((p) => p._id);
-
-      // ==========================================
-      // CREATE TENANT
-      // ==========================================
-      tenant = await Tenant.create(payload);
-
-      // ==========================================
-      // CREATE OWNER ROLE (WAJIB FULL PERMISSION)
-      // ==========================================
-      ownerRole = await Role.create({
+      ownerRole = new Role({
         tenantID: tenant._id,
         namaRole: "Owner",
-        deskripsi: "Role otomatis dengan akses penuh",
-        permissions: permissionIDs,
+        permissions: permissionIds,
       });
+      await ownerRole.save();
 
-      // ==========================================
-      // UPDATE AKUN
-      // ==========================================
       const updatedAkun = await Akun.findByIdAndUpdate(
         akunID,
         {
@@ -100,7 +90,6 @@ class TenantService {
         role: ownerRole,
       };
     } catch (err) {
-      // ROLLBACK
       if (tenant) {
         await Tenant.deleteOne({ _id: tenant._id });
       }
@@ -113,11 +102,13 @@ class TenantService {
     }
   }
 
-  async forceDelete(tenantID) {
+  async delete(tenantID) {
     await Role.deleteMany({ tenantID });
     await Pengguna.deleteMany({ tenantID });
     await Tenant.findByIdAndDelete(tenantID);
-    
+
+    // perbaikan: mereset id tenant pada akun pemilik agar tidak menjadi data hantu saat login
+    await Akun.updateMany({ tenantID }, { $set: { tenantID: null } });
 
     await redis.del(CACHE_KEY_ALL);
     await redis.del(CACHE_KEY_ID(tenantID));
@@ -125,7 +116,9 @@ class TenantService {
 
   async update(id, payload) {
     const validation = validateTenantPayload(payload, true);
-    if (!validation.valid) return { error: validation.errors };
+
+    // perbaikan: melempar error langsung agar selaras dan ditangkap otomatis oleh controller
+    if (!validation.valid) throw createError(400, validation.errors[0]);
 
     const updated = await Tenant.findByIdAndUpdate(id, payload, {
       new: true,
@@ -139,14 +132,7 @@ class TenantService {
     return updated;
   }
 
-  async delete(id) {
-    const deleted = await Tenant.findByIdAndDelete(id).lean();
-    if (!deleted) return null;
-
-    await redis.del(CACHE_KEY_ALL);
-    await redis.del(CACHE_KEY_ID(id));
-    return deleted;
-  }
+  // perbaikan: menghapus fungsi delete biasa karena berpotensi menyisakan data yatim piatu di database
 }
 
 module.exports = new TenantService();

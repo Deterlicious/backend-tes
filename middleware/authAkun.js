@@ -7,7 +7,7 @@ const AKUN_JWT_SECRET = process.env.AKUN_JWT_SECRET || "akun_secret";
 
 async function authAkun(req, res, next) {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers?.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       throw createError(401, "Akses ditolak. Token akun tidak ditemukan.");
@@ -22,51 +22,34 @@ async function authAkun(req, res, next) {
       if (err.name === "TokenExpiredError") {
         throw createError(
           401,
-          "Sesi berakhir (Token expired). Silakan login ulang."
+          "Sesi berakhir (Token expired). Silakan login ulang.",
         );
       }
       throw createError(403, "Token tidak valid.");
     }
 
-    // Ambil data akun (roleID sudah dihapus dari select)
+    // Ambil data akun — tidak lagi butuh device, cukup tokenVersion di root
     const akun = await Akun.findById(decoded.id)
-      .select("device role tenantID")
+      .select("role tenantID tokenVersion")
       .lean();
 
     if (!akun) {
       throw createError(401, "Akun tidak ditemukan atau telah dihapus.");
     }
 
-    // Validasi device (jika deviceID ada di token)
-    if (decoded.deviceID) {
-      const currentDevice = akun.device?.find(
-        (d) => d.deviceID === decoded.deviceID
+    // fix: Hilangkan bypass '!== undefined'. Versi WAJIB ada dan cocok.
+    if (!decoded.version || akun.tokenVersion !== decoded.version) {
+      throw createError(
+        401,
+        "Sesi telah berakhir atau dihentikan. Silakan login ulang.",
       );
-
-      if (!currentDevice) {
-        throw createError(
-          401,
-          "Perangkat tidak dikenali. Silakan login ulang."
-        );
-      }
-
-      // Validasi token version (logout paksa / revoke)
-      if (
-        decoded.version !== undefined &&
-        currentDevice.tokenVersion !== decoded.version
-      ) {
-        throw createError(
-          401,
-          "Sesi telah berakhir di perangkat ini. Silakan login ulang."
-        );
-      }
     }
 
-    // Context Akun (roleID sudah dihapus)
+    // Context Akun
     req.akunContext = {
       akunID: akun._id,
       roleAkun: akun.role,
-      tenantID: decoded.tenantID || null,
+      tenantID: akun.tenantID ? akun.tenantID.toString() : null,
     };
 
     req.userDecoded = decoded;
