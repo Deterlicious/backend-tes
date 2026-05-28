@@ -64,10 +64,16 @@ class AkunController {
 
       setRefreshTokenCookie(res, result.refreshToken);
 
+      // Menyesuaikan pesan berdasarkan evaluasi dinamis dari Service
+      const responseMessage = result.needsSetup
+        ? "Login berhasil. Anda belum melakukan setup toko, silakan setup di /api/tenant."
+        : "Login berhasil.";
+
       res.json({
-        message: "Login berhasil.",
+        message: responseMessage,
         data: result.user, // Mengirim profil user utuh tanpa pemetaan manual
         accessToken: result.accessToken,
+        requireSetup: result.needsSetup, // Flag boolean ini yang akan ditangkap oleh Flutter
       });
     } catch (err) {
       next(err);
