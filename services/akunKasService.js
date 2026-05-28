@@ -1,8 +1,6 @@
 const AkunKas = require("../models/akunKasModel");
 const redis = require("../config/redis");
-const {
-  validateAkunKasPayload
-} = require("../validators/akunKasValidator");
+const { validateAkunKasPayload } = require("../validators/akunKasValidator");
 const createError = require("http-errors");
 
 const KEY_LIST = (tenantID) => `akunkas:list:${tenantID}`;
@@ -24,10 +22,10 @@ class AkunKasService {
     if (cached) return JSON.parse(cached);
 
     const data = await AkunKas.find({
-        tenantID
-      })
+      tenantID,
+    })
       .sort({
-        createdAt: -1
+        createdAt: -1,
       })
       .lean();
 
@@ -61,9 +59,10 @@ class AkunKasService {
 
   async create(payload) {
     const validation = validateAkunKasPayload(payload);
-    if (!validation.valid) return {
-      error: validation.errors
-    };
+    if (!validation.valid)
+      return {
+        error: validation.errors,
+      };
 
     try {
       const akunKas = await AkunKas.create(payload);
@@ -80,20 +79,25 @@ class AkunKasService {
 
   async update(id, payload, requesterTenantID) {
     const validation = validateAkunKasPayload(payload, true);
-    if (!validation.valid) return {
-      error: validation.errors
-    };
+    if (!validation.valid)
+      return {
+        error: validation.errors,
+      };
 
     delete payload.tenantID;
 
     try {
-      const updated = await AkunKas.findOneAndUpdate({
-        _id: id,
-        tenantID: requesterTenantID,
-      }, payload, {
-        new: true,
-        runValidators: true,
-      }).lean();
+      const updated = await AkunKas.findOneAndUpdate(
+        {
+          _id: id,
+          tenantID: requesterTenantID,
+        },
+        payload,
+        {
+          new: true,
+          runValidators: true,
+        },
+      ).lean();
 
       if (!updated) return null;
 

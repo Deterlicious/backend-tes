@@ -14,6 +14,11 @@ const kontrakKompensasiSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    jenisKontrak: {
+      type: String,
+      enum: ["Tetap", "Kontrak"],
+      required: true,
+    },
     tipeGaji: {
       type: String,
       enum: ["Bulanan", "Harian", "Per-jam"],
@@ -39,7 +44,7 @@ const kontrakKompensasiSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 kontrakKompensasiSchema.index({ tenantID: 1, status: 1 });

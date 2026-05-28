@@ -76,7 +76,7 @@ class TipeAsetController {
       const result = await tipeAsetService.update(
         req.params.id,
         tenantID,
-        req.body
+        req.body,
       );
 
       if (result?.error) {

@@ -1,33 +1,13 @@
 const asetService = require("../services/asetService");
 const createError = require("http-errors");
-const Permission = require("../models/permissionModel");
 
 class AsetController {
-  async _checkPermission(userPermissionIDs, permissionName) {
-    const permissionDoc = await Permission.findOne({ nama: permissionName });
-
-    if (!permissionDoc) return false;
-
-    return userPermissionIDs
-      .map((id) => id.toString())
-      .includes(permissionDoc._id.toString());
-  }
-
   _getRequesterTenantID(req) {
     return req.pengguna?.tenantID || null;
   }
 
   async getAll(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-aset"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola aset");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       if (!tenantID) {
@@ -44,15 +24,6 @@ class AsetController {
 
   async getById(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-aset"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola aset");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await asetService.getById(req.params.id, tenantID);
 
@@ -68,15 +39,6 @@ class AsetController {
 
   async create(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-aset"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola aset");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
 
       const payload = {
@@ -98,20 +60,11 @@ class AsetController {
 
   async update(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-aset"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola aset");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await asetService.update(
         req.params.id,
         req.body,
-        tenantID
+        tenantID,
       );
 
       if (result?.error) {
@@ -130,15 +83,6 @@ class AsetController {
 
   async delete(req, res, next) {
     try {
-      const isAllowed = await this._checkPermission(
-        req.pengguna.permissions,
-        "kelola-aset"
-      );
-
-      if (!isAllowed) {
-        throw createError(403, "Anda tidak memiliki akses kelola aset");
-      }
-
       const tenantID = this._getRequesterTenantID(req);
       const result = await asetService.delete(req.params.id, tenantID);
 

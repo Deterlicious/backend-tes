@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 
 const izinCutiSchema = new mongoose.Schema(
   {
+    tenantID: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     penggunaID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pengguna",
@@ -37,26 +43,19 @@ const izinCutiSchema = new mongoose.Schema(
       ref: "Pengguna",
       default: null,
     },
-    tenantID: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Tenant",
-      required: true,
-      index: true,
+    catatan: {
+      type: String,
+      default: null,
+      trim: true,
     },
   },
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
-izinCutiSchema.index({
-  tenantID: 1,
-  status: 1
-});
-izinCutiSchema.index({
-  penggunaID: 1,
-  tanggalMulai: -1
-});
+izinCutiSchema.index({ tenantID: 1, status: 1 });
+izinCutiSchema.index({ penggunaID: 1, tanggalMulai: -1 });
 
 module.exports = mongoose.model("IzinCuti", izinCutiSchema);

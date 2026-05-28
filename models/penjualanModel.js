@@ -229,4 +229,5 @@ PenjualanSchema.pre("validate", function (next) {
   next();
 });
 
-module.exports = mongoose.models.Penjualan || mongoose.model("Penjualan", PenjualanSchema);
+module.exports =
+  mongoose.models.Penjualan || mongoose.model("Penjualan", PenjualanSchema);

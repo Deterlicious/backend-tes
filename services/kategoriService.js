@@ -84,11 +84,12 @@ class KategoriService {
 
     try {
       // Update DB
-      Kategori.findOneAndUpdate({ _id: id, tenantID }, payload, {
-        new: true,
-        runValidators: true,
-      }).lean();
-
+      // BARU
+      const updated = await Kategori.findOneAndUpdate(
+        { _id: id, tenantID },
+        payload,
+        { new: true, runValidators: true },
+      ).lean();
       if (!updated) return null;
 
       // Invalidate Cache (List Tenant & Detail ID)
@@ -105,16 +106,12 @@ class KategoriService {
     }
   }
 
-  async delete(id) {
+  async delete(id, tenantID) {
     const target = await Kategori.findOne({ _id: id, tenantID }).lean();
     if (!target) return null;
-
     await Kategori.deleteOne({ _id: id, tenantID });
-
-    // Cleanup Cache
     await redis.del(CACHE_KEY_LIST(target.tenantID));
     await redis.del(CACHE_KEY_DETAIL(id));
-
     return true;
   }
 }

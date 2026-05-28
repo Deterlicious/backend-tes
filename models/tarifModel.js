@@ -22,7 +22,7 @@ const tarifSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
-    isDefault: {
+    isActive: {
       type: Boolean,
       default: false,
     },
@@ -60,12 +60,12 @@ const tarifSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 tarifSchema.index({ tenantID: 1, namaTarif: 1 }, { unique: true });
 tarifSchema.index({ tipeAsetID: 1 });
-tarifSchema.index({ tenantID: 1, isDefault: 1 });
+tarifSchema.index({ tenantID: 1, isActive: 1 });
 tarifSchema.index({ tenantID: 1, prioritas: -1 });
 
 module.exports = mongoose.model("Tarif", tarifSchema);

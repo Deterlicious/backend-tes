@@ -46,7 +46,7 @@ const sesiBookingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Aktif", "Selesai", "Batal", "VOID"],
+      enum: ["Aktif", "Selesai", "Batal"],
       default: "Aktif",
       index: true,
     },
@@ -65,7 +65,7 @@ const sesiBookingSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
 sesiBookingSchema.index({ dataAset: 1, status: 1, waktuMulai: 1 });
@@ -75,7 +75,7 @@ sesiBookingSchema.pre("save", function (next) {
   if (this.waktuMulai && this.waktuSelesai) {
     if (this.waktuSelesai < this.waktuMulai) {
       return next(
-        new Error("Waktu selesai tidak boleh lebih awal dari waktu mulai.")
+        new Error("Waktu selesai tidak boleh lebih awal dari waktu mulai."),
       );
     }
 

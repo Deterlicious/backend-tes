@@ -2,9 +2,7 @@ const Pengguna = require("../models/penggunaModel");
 const Role = require("../models/roleModel");
 const jwt = require("jsonwebtoken");
 const redis = require("../config/redis");
-const {
-  validatePenggunaPayload
-} = require("../validators/penggunaValidator");
+const { validatePenggunaPayload } = require("../validators/penggunaValidator");
 
 const mongoose = require("mongoose");
 const crypto = require("crypto");
@@ -15,10 +13,10 @@ const { DEVICE_STATUS } = require("../config/constants");
 
 const createError = require("http-errors");
 
-const PENGGUNA_ACCESS_TOKEN =
-  process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
-const PENGGUNA_REFRESH_TOKEN =
-  process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
+// const PENGGUNA_ACCESS_TOKEN =
+//   process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
+// const PENGGUNA_REFRESH_TOKEN =
+//   process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
 
 const KEY_LIST = (tenantID) => `pengguna:list:${tenantID}`;
 const KEY_DETAIL = (id) => `pengguna:detail:${id}`;
@@ -27,10 +25,28 @@ const KEY_LOGIN_LIST = (tenantID) => `pengguna:login-screen:${tenantID}`;
 class PenggunaService {
   // TOKEN GENERATORS (BARU
   generateToken(pengguna, device = null, loginType) {
+    const roleName =
+      pengguna.roleID && typeof pengguna.roleID === "object"
+        ? pengguna.roleID.namaRole
+        : null;
+    const rawPermissions =
+      pengguna.roleID && typeof pengguna.roleID === "object"
+        ? pengguna.roleID.permissions || []
+        : [];
+
+    // Mapping: Ekstrak HANYA string 'nama' agar JWT tetap ringan dan bisa dibaca oleh Sidebar frontend
+    const permissions = rawPermissions.map((p) =>
+      p && typeof p === "object" && p.nama ? p.nama : p,
+    );
+
     const payload = {
       id: pengguna._id,
-      tenantID: pengguna.tenantID,
+      // Memastikan hanya ID berupa string yang masuk ke properti tenantID
+      tenantID: pengguna.tenantID?._id || pengguna.tenantID,
+      tenantName: pengguna.tenantID?.namaToko || "Toko Tidak Diketahui",
       roleID: pengguna.roleID?._id || pengguna.roleID,
+      role: roleName,
+      permissions,
       aksesType: pengguna.aksesType,
       loginType,
     };
@@ -45,9 +61,8 @@ class PenggunaService {
       payload.version = pengguna.tokenVersion;
     }
 
-    // Roadmap: Access Token berumur pendek (15 menit)
     return jwt.sign(payload, process.env.PENGGUNA_ACCESS_TOKEN, {
-      expiresIn: "15m",
+      expiresIn: loginType === "web" ? "1h" : "1d",
     });
   }
 
@@ -124,7 +139,20 @@ class PenggunaService {
         tokenVersion: now,
       });
       await newOwner.save({ session });
-      await newOwner.populate("roleID", "namaRole");
+      await newOwner.populate([
+        {
+          path: "roleID",
+          select: "namaRole permissions",
+          populate: {
+            path: "permissions",
+            select: "nama",
+          },
+        },
+        {
+          path: "tenantID",
+          select: "namaToko",
+        },
+      ]);
 
       rawRefreshToken = null;
       device = null;
@@ -229,10 +257,21 @@ class PenggunaService {
     }
 
     // 2. Autentikasi Kredensial Dasar
-    const user = await Pengguna.findOne({ nama, tenantID }).populate(
-      "roleID",
-      "namaRole permissions",
-    );
+    // Melakukan Deep Populate untuk mengambil teks slug 'nama' dari koleksi Permission
+    const user = await Pengguna.findOne({ nama, tenantID }).populate([
+      {
+        path: "roleID",
+        select: "namaRole permissions",
+        populate: {
+          path: "permissions",
+          select: "nama",
+        },
+      },
+      {
+        path: "tenantID",
+        select: "namaToko",
+      },
+    ]);
     if (!user) throw createError(401, "Nama atau PIN salah.");
 
     const isMatch = await user.comparePin(pin);
@@ -255,6 +294,10 @@ class PenggunaService {
 
       const accessToken = this.generateToken(user, null, "web");
       const refreshToken = this.generateRefreshToken(user, null, "web");
+
+      // Setelah generate token baru, hapus cache lama
+      const cacheKey = `auth:pengguna:${user._id}`;
+      await redis.del(cacheKey);
 
       return {
         status: "success_web",
@@ -487,10 +530,14 @@ class PenggunaService {
       const userId = decodedAccess.id;
 
       // 2. Pastikan user masih ada & aktif
-      const user = await Pengguna.findById(userId).populate(
-        "roleID",
-        "namaRole permissions",
-      );
+      const user = await Pengguna.findById(userId).populate({
+        path: "roleID",
+        select: "namaRole permissions",
+        populate: {
+          path: "permissions",
+          select: "nama",
+        },
+      });
       if (!user || user.status !== "aktif") {
         throw createError(401, "Pengguna tidak ditemukan atau non-aktif.");
       }
@@ -590,7 +637,7 @@ class PenggunaService {
         const decoded = jwt.verify(token, process.env.PENGGUNA_REFRESH_TOKEN);
         const user = await Pengguna.findById(decoded.id);
         if (user) {
-          user.tokenVersion = 0;
+          user.tokenVersion = Date.now();
           await user.save();
           await this.clearCache(user.tenantID, user._id);
         }
@@ -784,18 +831,41 @@ class PenggunaService {
     }
 
     // 2. Proteksi Anti Mass-Assignment (Hanya field ini yang boleh masuk)
-    const allowedFields = ["nama", "nomorHp", "status", "fotoKaryawan"];
+    // const allowedFields = ["nama", "nomorHp", "status", "fotoKaryawan"];
+    // let isSecurityChanged = false; // Radar Pendeteksi Perubahan Kritis
+
+    // allowedFields.forEach((field) => {
+    //   if (payload[field] !== undefined) {
+    //     // Jika status diubah (misal dari aktif ke non-aktif), tandai sebagai krisis keamanan
+    //     if (field === "status" && payload.status !== user.status) {
+    //       isSecurityChanged = true;
+    //     }
+    //     user[field] = payload[field];
+    //   }
+    // });
+
+    // 2. Proteksi Anti Mass-Assignment (Eksplisit)
     let isSecurityChanged = false; // Radar Pendeteksi Perubahan Kritis
 
-    allowedFields.forEach((field) => {
-      if (payload[field] !== undefined) {
-        // Jika status diubah (misal dari aktif ke non-aktif), tandai sebagai krisis keamanan
-        if (field === "status" && payload.status !== user.status) {
-          isSecurityChanged = true;
-        }
-        user[field] = payload[field];
+    if (payload.nama !== undefined) {
+      user.nama = payload.nama;
+    }
+
+    // Eksekusi pembaruan Nomor HP secara langsung
+    if (payload.nomorHp !== undefined) {
+      user.nomorHp = payload.nomorHp;
+    }
+
+    if (payload.status !== undefined) {
+      if (payload.status !== user.status) {
+        isSecurityChanged = true;
       }
-    });
+      user.status = payload.status;
+    }
+
+    if (payload.fotoKaryawan !== undefined) {
+      user.fotoKaryawan = payload.fotoKaryawan;
+    }
 
     // 3. Penanganan Khusus Array aksesType
     if (payload.aksesType !== undefined) {
@@ -808,8 +878,26 @@ class PenggunaService {
     }
 
     // 4. Penanganan Khusus PIN
-    if (payload.pin && String(payload.pin).trim() !== "") {
-      user.pin = payload.pin; // Mongoose pre-save hook akan meng-hash ini otomatis
+    if (payload.pinBaru && String(payload.pinBaru).trim() !== "") {
+      // SKENARIO A: Perubahan dari laman Profil mandiri (Strict Verification)
+      if (!payload.pinLama) {
+        throw createError(
+          400,
+          "PIN lama wajib disertakan untuk mengonfirmasi perubahan.",
+        );
+      }
+
+      const isMatch = await user.comparePin(payload.pinLama);
+      if (!isMatch) {
+        throw createError(401, "PIN lama yang Anda masukkan tidak sesuai.");
+      }
+
+      user.pin = payload.pinBaru; // Mongoose pre-save hook akan meng-hash ini otomatis
+      isSecurityChanged = true;
+    } else if (payload.pin && String(payload.pin).trim() !== "") {
+      // SKENARIO B: Reset PIN oleh Admin / Modul Manajemen Staf (Bypass)
+      // *Pastikan penggunaController Anda melindungi jalur ini dari eksploitasi staf biasa
+      user.pin = payload.pin;
       isSecurityChanged = true;
     }
 

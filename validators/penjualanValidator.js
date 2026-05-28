@@ -24,8 +24,24 @@ function validateIdOrArray(value, label, errors) {
   }
 }
 
-function isValidDate(value) {
-  return !Number.isNaN(new Date(value).getTime());
+// Fungsi pembantu untuk mengecek aturan waktu transaksi (Masa Depan Saja)
+function checkTanggalTransaksiRules(dateValue, errors) {
+  const inputDate = new Date(dateValue);
+
+  if (Number.isNaN(inputDate.getTime())) {
+    errors.push("tanggalTransaksi tidak valid");
+    return;
+  }
+
+  const inputTime = inputDate.getTime();
+  const nowTime = Date.now();
+
+  // 1. Tidak boleh masa depan (Toleransi 1 menit untuk antisipasi delay jaringan)
+  if (inputTime > nowTime + 60000) {
+    errors.push("Waktu transaksi penjualan tidak boleh di masa depan.");
+  }
+
+  // 2. Batasan mundur 3 bulan SUDAH DIHAPUS.
 }
 
 function validatePenjualanPayload(data, isUpdate = false) {
@@ -76,8 +92,8 @@ function validatePenjualanPayload(data, isUpdate = false) {
 
     if (!data.tanggalTransaksi) {
       errors.push("tanggalTransaksi wajib diisi");
-    } else if (!isValidDate(data.tanggalTransaksi)) {
-      errors.push("tanggalTransaksi tidak valid");
+    } else {
+      checkTanggalTransaksiRules(data.tanggalTransaksi, errors);
     }
 
     if (
@@ -87,8 +103,11 @@ function validatePenjualanPayload(data, isUpdate = false) {
       errors.push("jenisPenjualan wajib diisi (dine-in/takeaway/booking)");
     }
 
-    if (data.jatuhTempo && !isValidDate(data.jatuhTempo)) {
-      errors.push("jatuhTempo tidak valid");
+    if (data.jatuhTempo) {
+      const jtDate = new Date(data.jatuhTempo);
+      if (Number.isNaN(jtDate.getTime())) {
+        errors.push("jatuhTempo tidak valid");
+      }
     }
 
     validateIdOrArray(data.pajakTransaksiIDs, "pajakTransaksiIDs", errors);
@@ -145,11 +164,8 @@ function validatePenjualanPayload(data, isUpdate = false) {
       errors.push("pelangganID tidak valid");
     }
 
-    if (
-      data.tanggalTransaksi !== undefined &&
-      !isValidDate(data.tanggalTransaksi)
-    ) {
-      errors.push("tanggalTransaksi tidak valid");
+    if (data.tanggalTransaksi !== undefined) {
+      checkTanggalTransaksiRules(data.tanggalTransaksi, errors);
     }
 
     if (data.pajakTransaksiIDs !== undefined) {

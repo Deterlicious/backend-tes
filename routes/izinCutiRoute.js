@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const izinCutiController = require("../controllers/izinCutiController");
 const authPengguna = require("../middleware/authPengguna");
+const { checkPermission } = require("../middleware/authorizePermission");
 
 const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(izinCutiController, req, res, next)).catch(next);
@@ -9,15 +10,21 @@ const wrap = (fn) => (req, res, next) => {
 
 router.use(authPengguna);
 
+// 1. ENDPOINT KHUSUS STAF
+router
+  .route("/staf")
+  .get(wrap(izinCutiController.getAllOwn))
+  .post(wrap(izinCutiController.createOwn));
+
+// 2. ENDPOINT ADMIN
 router
   .route("/")
-  .post(wrap(izinCutiController.create))
-  .get(wrap(izinCutiController.getAll));
+  .get(checkPermission("read-izin-cuti"), wrap(izinCutiController.getAll))
+  .post(checkPermission("create-izin-cuti"), wrap(izinCutiController.create));
 
 router
   .route("/:id")
-  .get(wrap(izinCutiController.getById))
-  .put(wrap(izinCutiController.update))
-  .delete(wrap(izinCutiController.delete));
+  .get(checkPermission("read-izin-cuti"), wrap(izinCutiController.getById))
+  .put(checkPermission("update-izin-cuti"), wrap(izinCutiController.update));
 
 module.exports = router;

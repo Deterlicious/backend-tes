@@ -42,17 +42,20 @@ const AkunKasSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
+AkunKasSchema.index(
+  {
+    tenantID: 1,
+    nomorAkun: 1,
+  },
+  {
+    unique: true,
+  },
+);
 AkunKasSchema.index({
-  tenantID: 1,
-  nomorAkun: 1
-}, {
-  unique: true
-});
-AkunKasSchema.index({
-  namaAkun: 1
+  namaAkun: 1,
 });
 
 module.exports = mongoose.model("AkunKas", AkunKasSchema);
