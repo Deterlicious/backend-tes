@@ -4,6 +4,12 @@ const Permission = require("../models/permissionModel");
 
 class KategoriController {
   async _checkPermission(userPermissionIDs, permissionName) {
+    if (!userPermissionIDs || !Array.isArray(userPermissionIDs)) return false;
+    
+    // Jika userPermissionIDs berisi nama permission (string)
+    if (userPermissionIDs.includes(permissionName)) return true;
+
+    // Fallback untuk Object ID / string ID
     const permissionDoc = await Permission.findOne({ nama: permissionName });
     if (!permissionDoc) return false;
     const hasAccess = userPermissionIDs
