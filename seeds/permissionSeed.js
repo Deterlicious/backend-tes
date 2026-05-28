@@ -53,11 +53,6 @@ const permissionsList = [
   { nama: "create-pengguna", grup: "Pengguna", deskripsi: "Tambah staf" },
   { nama: "update-pengguna", grup: "Pengguna", deskripsi: "Edit staf" },
   { nama: "delete-pengguna", grup: "Pengguna", deskripsi: "Hapus staf" },
-  {
-    nama: "kelola-staff",
-    grup: "Pengguna",
-    deskripsi: "Kelola role dan permission staf",
-  },
 
   // Role
   { nama: "read-role", grup: "Role", deskripsi: "Lihat role" },
@@ -370,9 +365,21 @@ const permissionsList = [
 
   // Inventory
   { nama: "create-inventory", grup: "Inventory", deskripsi: "Tambah stok" },
-  { nama: "read-inventory", grup: "Inventory", deskripsi: "Lihat semua stok (Global)" },
-  { nama: "read-inventory-gudang", grup: "Inventory", deskripsi: "Lihat stok khusus gudang" },
-  { nama: "read-inventory-outlet", grup: "Inventory", deskripsi: "Lihat stok khusus outlet" },
+  {
+    nama: "read-inventory",
+    grup: "Inventory",
+    deskripsi: "Lihat semua stok (Global)",
+  },
+  {
+    nama: "read-inventory-gudang",
+    grup: "Inventory",
+    deskripsi: "Lihat stok khusus gudang",
+  },
+  {
+    nama: "read-inventory-outlet",
+    grup: "Inventory",
+    deskripsi: "Lihat stok khusus outlet",
+  },
   { nama: "delete-inventory", grup: "Inventory", deskripsi: "Hapus stok" },
   {
     nama: "update-inventory-minimum",
@@ -388,10 +395,26 @@ const permissionsList = [
   // =====================
   // LOKASI GUDANG / OUTLET
   // =====================
-  { nama: "create-location", grup: "Location", deskripsi: "Tambah lokasi/gudang baru" },
-  { nama: "read-location", grup: "Location", deskripsi: "Lihat daftar lokasi/gudang" },
-  { nama: "update-location", grup: "Location", deskripsi: "Edit informasi lokasi/gudang" },
-  { nama: "delete-location", grup: "Location", deskripsi: "Hapus lokasi/gudang" },
+  {
+    nama: "create-location",
+    grup: "Location",
+    deskripsi: "Tambah lokasi/gudang baru",
+  },
+  {
+    nama: "read-location",
+    grup: "Location",
+    deskripsi: "Lihat daftar lokasi/gudang",
+  },
+  {
+    nama: "update-location",
+    grup: "Location",
+    deskripsi: "Edit informasi lokasi/gudang",
+  },
+  {
+    nama: "delete-location",
+    grup: "Location",
+    deskripsi: "Hapus lokasi/gudang",
+  },
 
   // Jurnal Stok
   {
