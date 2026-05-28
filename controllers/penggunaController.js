@@ -168,11 +168,30 @@ class PenggunaController {
       const context = this._getRequesterContext(req);
       const tenantID = this._ensureTenant(context);
 
-      const result = await penggunaService.update(
-        req.params.id,
-        req.body,
-        tenantID,
-      );
+      // Salin isi req.body agar tidak memanipulasi object bawaan Express
+      const payload = { ...req.body };
+
+      // Identifikasi siapa yang sedang melakukan request (dari token JWT di auth middleware)
+      const requesterId = req.pengguna ? req.pengguna.id : null;
+      const requesterRole = req.pengguna ? req.pengguna.role : null;
+      const targetId = req.params.id;
+
+      // PROTEKSI KEAMANAN: Cegah Manipulasi Mandiri oleh Staf Biasa
+      if (requesterId === targetId && requesterRole !== "Owner") {
+        // 1. Cegah bypass PIN. Staf HANYA boleh pakai pinLama & pinBaru
+        if (payload.pin) {
+          delete payload.pin;
+        }
+
+        // 2. Cegah Privilege Escalation (Staf menaikkan jabatan atau memanipulasi statusnya sendiri)
+        if (payload.roleID) delete payload.roleID;
+        if (payload.status) delete payload.status;
+        if (payload.aksesType) delete payload.aksesType;
+      }
+
+      // Catatan: Jika requesterRole === "Owner", mereka bebas mengubah data staf lain (termasuk reset 'pin' langsung)
+
+      const result = await penggunaService.update(targetId, payload, tenantID);
 
       res.json({
         message: "Data pengguna berhasil diperbarui.",
@@ -293,7 +312,6 @@ class PenggunaController {
           expiredAccessToken,
           installationId,
         });
-        
       } else {
         // ALUR WEB (JWT Cookie Lama)
         const token = req.cookies.refreshToken || req.body.refreshToken;
@@ -370,10 +388,17 @@ class PenggunaController {
 
       // Hapus cookie (tidak efek ke App, tapi pembersihan yang aman untuk Web)
       res.clearCookie("refreshToken", cookieOptions);
+      res.clearCookie("refreshToken", {
+        path: "/api/akun/auth",
+        httpOnly: true,
+      }); // clear cookie akun sekalian
       res.json({ success: true, message: "Logout berhasil." });
     } catch (err) {
-      // Tindakan Defensif
       res.clearCookie("refreshToken", cookieOptions);
+      res.clearCookie("refreshToken", {
+        path: "/api/akun/auth",
+        httpOnly: true,
+      });
       next(err);
     }
   }

@@ -13,10 +13,10 @@ const { DEVICE_STATUS } = require("../config/constants");
 
 const createError = require("http-errors");
 
-const PENGGUNA_ACCESS_TOKEN =
-  process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
-const PENGGUNA_REFRESH_TOKEN =
-  process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
+// const PENGGUNA_ACCESS_TOKEN =
+//   process.env.PENGGUNA_JWT_SECRET || "pengguna_secret";
+// const PENGGUNA_REFRESH_TOKEN =
+//   process.env.PENGGUNA_JWT_REFRESH_SECRET || "pengguna_refresh_secret";
 
 const KEY_LIST = (tenantID) => `pengguna:list:${tenantID}`;
 const KEY_DETAIL = (id) => `pengguna:detail:${id}`;
@@ -61,9 +61,8 @@ class PenggunaService {
       payload.version = pengguna.tokenVersion;
     }
 
-    // Roadmap: Access Token berumur pendek (15 menit)
     return jwt.sign(payload, process.env.PENGGUNA_ACCESS_TOKEN, {
-      expiresIn: "15m",
+      expiresIn: loginType === "web" ? "1h" : "1d",
     });
   }
 
@@ -295,6 +294,10 @@ class PenggunaService {
 
       const accessToken = this.generateToken(user, null, "web");
       const refreshToken = this.generateRefreshToken(user, null, "web");
+
+      // Setelah generate token baru, hapus cache lama
+      const cacheKey = `auth:pengguna:${user._id}`;
+      await redis.del(cacheKey);
 
       return {
         status: "success_web",
@@ -634,7 +637,7 @@ class PenggunaService {
         const decoded = jwt.verify(token, process.env.PENGGUNA_REFRESH_TOKEN);
         const user = await Pengguna.findById(decoded.id);
         if (user) {
-          user.tokenVersion = 0;
+          user.tokenVersion = Date.now();
           await user.save();
           await this.clearCache(user.tenantID, user._id);
         }
@@ -828,18 +831,41 @@ class PenggunaService {
     }
 
     // 2. Proteksi Anti Mass-Assignment (Hanya field ini yang boleh masuk)
-    const allowedFields = ["nama", "nomorHp", "status", "fotoKaryawan"];
+    // const allowedFields = ["nama", "nomorHp", "status", "fotoKaryawan"];
+    // let isSecurityChanged = false; // Radar Pendeteksi Perubahan Kritis
+
+    // allowedFields.forEach((field) => {
+    //   if (payload[field] !== undefined) {
+    //     // Jika status diubah (misal dari aktif ke non-aktif), tandai sebagai krisis keamanan
+    //     if (field === "status" && payload.status !== user.status) {
+    //       isSecurityChanged = true;
+    //     }
+    //     user[field] = payload[field];
+    //   }
+    // });
+
+    // 2. Proteksi Anti Mass-Assignment (Eksplisit)
     let isSecurityChanged = false; // Radar Pendeteksi Perubahan Kritis
 
-    allowedFields.forEach((field) => {
-      if (payload[field] !== undefined) {
-        // Jika status diubah (misal dari aktif ke non-aktif), tandai sebagai krisis keamanan
-        if (field === "status" && payload.status !== user.status) {
-          isSecurityChanged = true;
-        }
-        user[field] = payload[field];
+    if (payload.nama !== undefined) {
+      user.nama = payload.nama;
+    }
+
+    // Eksekusi pembaruan Nomor HP secara langsung
+    if (payload.nomorHp !== undefined) {
+      user.nomorHp = payload.nomorHp;
+    }
+
+    if (payload.status !== undefined) {
+      if (payload.status !== user.status) {
+        isSecurityChanged = true;
       }
-    });
+      user.status = payload.status;
+    }
+
+    if (payload.fotoKaryawan !== undefined) {
+      user.fotoKaryawan = payload.fotoKaryawan;
+    }
 
     // 3. Penanganan Khusus Array aksesType
     if (payload.aksesType !== undefined) {
@@ -852,8 +878,26 @@ class PenggunaService {
     }
 
     // 4. Penanganan Khusus PIN
-    if (payload.pin && String(payload.pin).trim() !== "") {
-      user.pin = payload.pin; // Mongoose pre-save hook akan meng-hash ini otomatis
+    if (payload.pinBaru && String(payload.pinBaru).trim() !== "") {
+      // SKENARIO A: Perubahan dari laman Profil mandiri (Strict Verification)
+      if (!payload.pinLama) {
+        throw createError(
+          400,
+          "PIN lama wajib disertakan untuk mengonfirmasi perubahan.",
+        );
+      }
+
+      const isMatch = await user.comparePin(payload.pinLama);
+      if (!isMatch) {
+        throw createError(401, "PIN lama yang Anda masukkan tidak sesuai.");
+      }
+
+      user.pin = payload.pinBaru; // Mongoose pre-save hook akan meng-hash ini otomatis
+      isSecurityChanged = true;
+    } else if (payload.pin && String(payload.pin).trim() !== "") {
+      // SKENARIO B: Reset PIN oleh Admin / Modul Manajemen Staf (Bypass)
+      // *Pastikan penggunaController Anda melindungi jalur ini dari eksploitasi staf biasa
+      user.pin = payload.pin;
       isSecurityChanged = true;
     }
 

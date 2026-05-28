@@ -3,7 +3,6 @@ const createError = require("http-errors");
 const Permission = require("../models/permissionModel");
 
 class KategoriController {
-
   async getAll(req, res, next) {
     try {
       const tenantID = req.pengguna.tenantID;
@@ -45,7 +44,11 @@ class KategoriController {
 
   async update(req, res, next) {
     try {
-      const result = await kategoriService.update(req.params.id, req.body);
+      const result = await kategoriService.update(
+        req.params.id,
+        req.body,
+        req.pengguna.tenantID, // atau req.user.tenantID, sesuai middleware Sir
+      );
       if (result?.error) {
         return res.status(400).json({ errors: result.error });
       }
@@ -58,7 +61,10 @@ class KategoriController {
 
   async delete(req, res, next) {
     try {
-      const result = await kategoriService.delete(req.params.id);
+      const result = await kategoriService.delete(
+        req.params.id,
+        req.pengguna.tenantID,
+      );
       if (!result) throw createError(404, "Kategori tidak ditemukan");
       res.json({ message: "Kategori berhasil dihapus" });
     } catch (err) {

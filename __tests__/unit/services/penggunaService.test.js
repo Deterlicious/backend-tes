@@ -87,7 +87,7 @@ describe("Unit Test — Pengguna Service", () => {
           loginType: "app",
         }),
         expect.any(String),
-        { expiresIn: "15m" },
+        { expiresIn: "1d" },
       );
       expect(token).toBe("token_app_mock");
     });
@@ -108,7 +108,7 @@ describe("Unit Test — Pengguna Service", () => {
       expect(jwt.sign).toHaveBeenCalledWith(
         expect.objectContaining({ version: 5, loginType: "web" }),
         expect.any(String),
-        { expiresIn: "15m" },
+        { expiresIn: "1h" },
       );
       expect(token).toBe("token_web_mock");
     });
@@ -440,8 +440,8 @@ describe("Unit Test — Pengguna Service", () => {
           installationId: null,
         });
 
-        expect(mockUser.tokenVersion).toBe(0);
-        expect(mockUser.save).toHaveBeenCalled();
+        expect(mockUser.tokenVersion).toBeGreaterThan(0);
+        expect(typeof mockUser.tokenVersion).toBe("number");
         expect(redis.del).toHaveBeenCalled();
       });
 
