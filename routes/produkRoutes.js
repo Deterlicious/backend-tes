@@ -17,10 +17,10 @@ const wrap = (fn) => (req, res, next) => {
 router.use(authPengguna);
 
 // Definisi Rute (Eksplisit & Seragam dengan style Location)
-router.get("/", checkPermission("kelola-produk", "akses-pos"), wrap(produkController.getAll));
-router.get("/:id", checkPermission("kelola-produk", "akses-pos"), wrap(produkController.getById));
-router.post("/", checkPermission("kelola-produk"), wrap(produkController.create));
-router.put("/:id", checkPermission("kelola-produk"), wrap(produkController.update));
-router.delete("/:id", checkPermission("kelola-produk"), wrap(produkController.delete));
+router.get("/", checkPermission("read-produk", "akses-pos"), wrap(produkController.getAll));
+router.get("/:id", checkPermission("read-produk", "akses-pos"), wrap(produkController.getById));
+router.post("/", checkPermission("create-produk"), wrap(produkController.create));
+router.put("/:id", checkPermission("update-produk"), wrap(produkController.update));
+router.delete("/:id", checkPermission("delete-produk"), wrap(produkController.delete));
 
 module.exports = router;

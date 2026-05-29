@@ -13,25 +13,25 @@ router.use(authPengguna); // Proteksi global: semua route butuh token pengguna
 
 router.post(
   "/",
-  checkPermission("kelola-staff"),
+  checkPermission("update-role"),
   wrap(rpController.assignPermission)
 );
 
 router.get(
   "/",
-  checkPermission("kelola-staff"),
+  checkPermission("read-role"),
   wrap(rpController.getAllRolePermissions)
 );
 
 router.get(
   "/by-role/:roleId",
-  checkPermission("kelola-staff"),
+  checkPermission("read-role"),
   wrap(rpController.getPermissionsByRole)
 );
 
 router.delete(
   "/:id",
-  checkPermission("kelola-staff"),
+  checkPermission("update-role"),
   wrap(rpController.removePermission)
 );
 

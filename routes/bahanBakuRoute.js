@@ -9,10 +9,10 @@ const wrap = (fn) => (req, res, next) =>
 
 router.use(authPengguna);
 
-router.post("/", checkPermission("kelola-bahan"), wrap(bahanBakuController.createBahanBaku));
-router.get("/", checkPermission("kelola-bahan"), wrap(bahanBakuController.getBahanBakus));
-router.get("/:id", checkPermission("kelola-bahan"), wrap(bahanBakuController.getBahanBakuById));
-router.put("/:id", checkPermission("kelola-bahan"), wrap(bahanBakuController.updateBahanBaku));
-router.delete("/:id", checkPermission("kelola-bahan"), wrap(bahanBakuController.deleteBahanBaku));
+router.post("/", checkPermission("create-bahan"), wrap(bahanBakuController.createBahanBaku));
+router.get("/", checkPermission("read-bahan"), wrap(bahanBakuController.getBahanBakus));
+router.get("/:id", checkPermission("read-bahan"), wrap(bahanBakuController.getBahanBakuById));
+router.put("/:id", checkPermission("update-bahan"), wrap(bahanBakuController.updateBahanBaku));
+router.delete("/:id", checkPermission("delete-bahan"), wrap(bahanBakuController.deleteBahanBaku));
 
 module.exports = router;
