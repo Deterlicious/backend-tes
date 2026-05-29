@@ -17,11 +17,11 @@ jest.mock("../../../middleware/authPengguna", () =>
 );
 
 jest.mock("../../../middleware/authorizePermission", () => ({
-  checkPermission: jest.fn((permission) => (req, res, next) => {
+  checkPermission: jest.fn((...permissions) => (req, res, next) => {
     if (req.headers["x-fail-permission"]) {
-      return res.status(403).json({ message: `Akses ditolak. Butuh izin: ${permission}` });
+      return res.status(403).json({ message: `Akses ditolak. Butuh izin: ${permissions.join(", ")}` });
     }
-    req.requiredPermission = permission;
+    req.requiredPermission = permissions[0];
     next();
   }),
 }));
@@ -191,25 +191,25 @@ describe("JurnalStok Routes — Unit Test", () => {
       expect(calledReq.requiredPermission).toBe("read-jurnal-stok");
     });
 
-    test("3. POST / menggunakan permission 'kelola-jurnal-stok'", async () => {
+    test("3. POST / menggunakan permission 'create-jurnal-stok'", async () => {
       await request(app).post("/api/jurnal-stok").send({});
       const [calledReq] = jurnalStokController.create.mock.calls[0];
-      expect(calledReq.requiredPermission).toBe("kelola-jurnal-stok");
+      expect(calledReq.requiredPermission).toBe("create-jurnal-stok");
     });
 
-    test("4. PUT /:id menggunakan permission 'kelola-jurnal-stok'", async () => {
+    test("4. PUT /:id menggunakan permission 'update-jurnal-stok'", async () => {
       await request(app).put("/api/jurnal-stok/123").send({});
       const [calledReq] = jurnalStokController.update.mock.calls[0];
-      expect(calledReq.requiredPermission).toBe("kelola-jurnal-stok");
+      expect(calledReq.requiredPermission).toBe("update-jurnal-stok");
     });
 
-    test("5. DELETE /:id menggunakan permission 'kelola-jurnal-stok'", async () => {
+    test("5. DELETE /:id menggunakan permission 'delete-jurnal-stok'", async () => {
       await request(app).delete("/api/jurnal-stok/123");
       const [calledReq] = jurnalStokController.delete.mock.calls[0];
-      expect(calledReq.requiredPermission).toBe("kelola-jurnal-stok");
+      expect(calledReq.requiredPermission).toBe("delete-jurnal-stok");
     });
 
-    test("6. Semua WMS PATCH menggunakan 'kelola-jurnal-stok'", async () => {
+    test("6. Semua WMS PATCH menggunakan 'create-jurnal-stok'", async () => {
       await request(app).patch("/api/jurnal-stok/wms/kirim").send({});
       await request(app).patch("/api/jurnal-stok/wms/terima").send({});
       await request(app).patch("/api/jurnal-stok/wms/rollback").send({});
@@ -223,7 +223,7 @@ describe("JurnalStok Routes — Unit Test", () => {
       ];
       controllers.forEach((ctrl) => {
         const [calledReq] = ctrl.mock.calls[0];
-        expect(calledReq.requiredPermission).toBe("kelola-jurnal-stok");
+        expect(calledReq.requiredPermission).toBe("create-jurnal-stok");
       });
     });
 
@@ -232,7 +232,7 @@ describe("JurnalStok Routes — Unit Test", () => {
         .delete("/api/jurnal-stok/123")
         .set("x-fail-permission", "true");
       expect(res.status).toBe(403);
-      expect(res.body.message).toMatch(/kelola-jurnal-stok/);
+      expect(res.body.message).toMatch(/delete-jurnal-stok/);
       expect(jurnalStokController.delete).not.toHaveBeenCalled();
     });
 
