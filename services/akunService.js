@@ -102,11 +102,16 @@ class AkunService {
     delete userObj.password;
     delete userObj.__v;
 
+    // EVALUASI DINAMIS: Mengecek eksistensi tenantID secara langsung
+    const hasTenant =
+      userObj.tenantID !== null && userObj.tenantID !== undefined;
+
     // Pastikan struktur return ini datar (flat) untuk accessToken & refreshToken
     return {
       user: userObj,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
+      needsSetup: !hasTenant, // Jika hasTenant false, needsSetup menjadi true
     };
   }
 
