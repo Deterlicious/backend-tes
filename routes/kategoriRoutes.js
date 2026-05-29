@@ -8,6 +8,8 @@ const wrap = (fn) => (req, res, next) => {
   Promise.resolve(fn.call(kategoriController, req, res, next)).catch(next);
 };
 
+router.use(authPengguna);
+
 router
   .route("/")
   .post(authPengguna, checkPermission("create-kategori"), wrap(kategoriController.create))

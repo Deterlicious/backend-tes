@@ -93,16 +93,19 @@ describe("Produk — CRUD", () => {
       .post("/api/tenant")
       .set("Authorization", `Bearer ${tokenA}`)
       .send({ namaToko: "Toko Test Produk" });
-    const tokenB = tenantRes.body.tokens?.accessToken;
+    const tokenB =
+      tenantRes.body.data?.accessToken ||
+      tenantRes.body.tokens?.accessToken ||
+      tenantRes.body.accessToken;
     if (!tokenB) throw new Error("Gagal mendapatkan Token B di Step 3!");
 
     // Tahap 4: Register Owner
     const penggunaRes = await request(app)
       .post("/api/pengguna/register-owner")
       .set("Authorization", `Bearer ${tokenB}`)
-      .send({ nama: "Owner Test Produk", pin: "123456" });
+      .send({ nama: "Owner Test Produk", pin: "123456", aksesType: "web" });
 
-    tokenC =
+     tokenC =
       penggunaRes.body.tokens?.accessToken ||
       penggunaRes.body.accessToken ||
       penggunaRes.body.data?.tokens?.accessToken;

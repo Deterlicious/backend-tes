@@ -592,10 +592,14 @@ class PenggunaService {
         throw createError(401, "Refresh token tidak valid atau kedaluwarsa.");
       }
 
-      const user = await Pengguna.findById(decoded.id).populate(
-        "roleID",
-        "namaRole permissions",
-      );
+      const user = await Pengguna.findById(decoded.id).populate({
+        path: "roleID",
+        select: "namaRole permissions",
+        populate: {
+          path: "permissions",
+          select: "nama",
+        },
+      });
       if (!user) throw createError(401, "Pengguna tidak ditemukan.");
 
       if (user.tokenVersion !== decoded.version) {

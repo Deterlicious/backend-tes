@@ -1,4 +1,4 @@
-// permintaanStokValidator.js
+// pengajuanStokValidator.js
 const mongoose = require("mongoose");
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -6,6 +6,7 @@ const VALID_STATUS = [
   "DRAFT",
   "SUBMITTED",
   "APPROVED",
+  "PENDING",
   "REJECTED",
   "COMPLETED",
 ];
@@ -13,10 +14,11 @@ const VALID_STATUS = [
 /**
  * Validasi payload untuk operasi CREATE/UPDATE Permintaan Stok.
  */
-function validatePermintaanStokPayload(data, isUpdate = false) {
+function validatePengajuanStokPayload(data, isUpdate = false) {
   const errors = [];
   const allowedUpdates = [
-    "nomorRequest",
+    "nomorPengajuan",
+    "jenisPengajuan",
     "dariLocationID",
     "keLocationID",
     "status",
@@ -29,7 +31,7 @@ function validatePermintaanStokPayload(data, isUpdate = false) {
   if (!isUpdate) {
     if (!data.tenantID || !isValidObjectId(data.tenantID))
       errors.push("Tenant ID wajib diisi dan formatnya harus valid.");
-    if (!data.nomorRequest) errors.push("Nomor Request wajib diisi.");
+    if (!data.nomorPengajuan) errors.push("Nomor Request wajib diisi.");
     if (!data.dariLocationID || !isValidObjectId(data.dariLocationID))
       errors.push(
         "Lokasi Asal Permintaan (dariLocationID) wajib diisi dan valid."
@@ -82,7 +84,7 @@ function validatePermintaanStokPayload(data, isUpdate = false) {
         if (key === "items" && Array.isArray(data.items)) {
           data.items.forEach((item, index) => {
             if (
-              item.qtyApproved &&
+              item.qtyApproved !== undefined &&
               (typeof item.qtyApproved !== "number" || item.qtyApproved < 0)
             )
               errors.push(
@@ -102,7 +104,7 @@ function validatePermintaanStokPayload(data, isUpdate = false) {
       ) {
         errors.push(`Field '${key}' tidak diizinkan untuk diubah.`);
       } else {
-        updates[key] = data[key];
+        errors.push(`Field tidak dikenal: ${key}.`);
       }
     });
 
@@ -114,4 +116,4 @@ function validatePermintaanStokPayload(data, isUpdate = false) {
   }
 }
 
-module.exports = { validatePermintaanStokPayload, VALID_STATUS };
+module.exports = { validatePengajuanStokPayload, VALID_STATUS };

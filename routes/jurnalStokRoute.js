@@ -13,7 +13,7 @@ router.use(authPengguna);
 router
   .route("/")
   .post(
-    checkPermission("kelola-jurnal-stok"),
+    checkPermission("create-jurnal-stok"),
     wrap(jurnalStokController.create),
   )
   .get(
@@ -28,12 +28,19 @@ router
     wrap(jurnalStokController.getById),
   )
   .put(
-    checkPermission("kelola-jurnal-stok"),
+    checkPermission("update-jurnal-stok"),
     wrap(jurnalStokController.update),
   )
   .delete(
-    checkPermission("kelola-jurnal-stok"),
+    checkPermission("delete-jurnal-stok"),
     wrap(jurnalStokController.delete),
   );
 
+// WMS Audit Trail Events
+router.patch("/wms/kirim",    checkPermission("create-jurnal-stok", "update-jurnal-stok"), wrap(jurnalStokController.kirimBarang));
+router.patch("/wms/terima",   checkPermission("create-jurnal-stok", "update-jurnal-stok"), wrap(jurnalStokController.terimaBarang));
+router.patch("/wms/rollback", checkPermission("create-jurnal-stok", "update-jurnal-stok"), wrap(jurnalStokController.rollbackBarang));
+router.patch("/wms/opname",   checkPermission("create-jurnal-stok", "update-jurnal-stok"), wrap(jurnalStokController.opnameBarang));
+
 module.exports = router;
+

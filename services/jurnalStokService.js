@@ -28,17 +28,12 @@ class JurnalStokService {
     const cached = await redis.get(key);
     if (cached) return JSON.parse(cached);
 
-    const data = await JurnalStok.find({
-        tenantID
-      })
+    const data = await JurnalStok.find({ tenantID })
       .populate("bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
-      .populate("locationID", "namaLokasi")
-      .sort({
-        tanggal: -1,
-        createdAt: -1
-      })
-      .lean();
+      .populate("locationID", "nama tipe")
+      .sort({ tanggal: -1, createdAt: -1 })
+      .lean();  
 
     if (data.length > 0) {
       await redis.set(key, JSON.stringify(data), "EX", 300);
@@ -63,7 +58,7 @@ class JurnalStokService {
       })
       .populate("bahanBakuID", "namaBahan satuan")
       .populate("dicatatOleh", "nama")
-      .populate("locationID", "namaLokasi")
+      .populate("locationID", "nama tipe")
       .lean();
 
     if (!data) return null;
@@ -188,6 +183,166 @@ class JurnalStokService {
     await this.clearCache(requesterTenantID, id);
 
     return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // WMS AUDIT TRAIL
+  // ---------------------------------------------------------------------------
+
+  async kirimBarangJurnal(bahanBakuID, dariLocationID, qtyKirim, noDokumen, tenantID, dicatatOleh = null) {
+    if (qtyKirim <= 0) {
+      throw createError(400, "Jumlah kirim harus lebih dari 0.");
+    }
+
+    const inventory = await Inventory.findOneAndUpdate(
+      { bahanBakuID, locationID: dariLocationID, tenantID, stok: { $gte: qtyKirim } },
+      { $inc: { stok: -qtyKirim } },
+      { new: true },
+    );
+
+    if (!inventory) {
+      throw createError(400, "Stok tidak mencukupi atau data inventaris tidak ditemukan di lokasi asal.");
+    }
+
+    try {
+      const jurnal = await JurnalStok.create({
+        bahanBakuID,
+        tanggal: new Date(),
+        tipeKoreksi: "Keluar",
+        jumlah: qtyKirim,
+        alasan: "Transfer Gudang",
+        keterangan: `Kirim Transfer: ${noDokumen}`,
+        dicatatOleh,
+        locationID: dariLocationID,
+        tenantID,
+      });
+      return { inventory, jurnal };
+    } catch (err) {
+      await Inventory.findOneAndUpdate(
+        { bahanBakuID, locationID: dariLocationID, tenantID },
+        { $inc: { stok: qtyKirim } },
+      );
+      throw err;
+    }
+  }
+
+  async terimaBarangJurnal(bahanBakuID, keLocationID, qtyTerima, noDokumen, tenantID, dicatatOleh = null) {
+    if (qtyTerima <= 0) {
+      throw createError(400, "Jumlah terima harus lebih dari 0.");
+    }
+
+    let inventory = await Inventory.findOneAndUpdate(
+      { bahanBakuID, locationID: keLocationID, tenantID },
+      { $inc: { stok: qtyTerima } },
+      { new: true },
+    );
+
+    const isNewRecord = !inventory;
+    if (isNewRecord) {
+      inventory = await Inventory.create({
+        bahanBakuID,
+        locationID: keLocationID,
+        stok: qtyTerima,
+        tenantID,
+      });
+    }
+
+    try {
+      const jurnal = await JurnalStok.create({
+        bahanBakuID,
+        tanggal: new Date(),
+        tipeKoreksi: "Masuk",
+        jumlah: qtyTerima,
+        alasan: "Transfer Gudang",
+        keterangan: `Terima Transfer: ${noDokumen}`,
+        dicatatOleh,
+        locationID: keLocationID,
+        tenantID,
+      });
+      return { inventory, jurnal };
+    } catch (err) {
+      if (isNewRecord) {
+        await Inventory.findOneAndDelete({ _id: inventory._id });
+      } else {
+        await Inventory.findOneAndUpdate(
+          { bahanBakuID, locationID: keLocationID, tenantID },
+          { $inc: { stok: -qtyTerima } },
+        );
+      }
+      throw err;
+    }
+  }
+
+  async rollbackBarangJurnal(bahanBakuID, dariLocationID, qtyKirim, noDokumen, tenantID, dicatatOleh = null) {
+    if (qtyKirim <= 0) {
+      throw createError(400, "Jumlah rollback harus lebih dari 0.");
+    }
+
+    const inventory = await Inventory.findOneAndUpdate(
+      { bahanBakuID, locationID: dariLocationID, tenantID },
+      { $inc: { stok: qtyKirim } },
+      { new: true },
+    );
+
+    if (!inventory) {
+      throw createError(404, "Data inventaris tidak ditemukan di lokasi asal. Rollback tidak dapat dilakukan.");
+    }
+
+    try {
+      const jurnal = await JurnalStok.create({
+        bahanBakuID,
+        tanggal: new Date(),
+        tipeKoreksi: "Masuk",
+        jumlah: qtyKirim,
+        alasan: "Lainnya",
+        keterangan: `Pembatalan Transfer: ${noDokumen}`,
+        dicatatOleh,
+        locationID: dariLocationID,
+        tenantID,
+      });
+      return { inventory, jurnal };
+    } catch (err) {
+      await Inventory.findOneAndUpdate(
+        { bahanBakuID, locationID: dariLocationID, tenantID },
+        { $inc: { stok: -qtyKirim } },
+      );
+      throw err;
+    }
+  }
+
+  async opnameBarangJurnal(inventoryID, fisikAktual, catatan, tenantID, dicatatOleh = null) {
+    if (fisikAktual < 0) {
+      throw createError(400, "Jumlah stok fisik aktual tidak boleh bernilai negatif.");
+    }
+
+    const inventory = await Inventory.findOne({ _id: inventoryID, tenantID });
+    if (!inventory) {
+      throw createError(404, "Data inventaris tidak ditemukan.");
+    }
+
+    const stokSebelumnya = inventory.stok;
+    const delta = fisikAktual - stokSebelumnya;
+    inventory.stok = fisikAktual;
+    await inventory.save();
+
+    try {
+      const jurnal = await JurnalStok.create({
+        bahanBakuID: inventory.bahanBakuID,
+        tanggal: new Date(),
+        tipeKoreksi: delta >= 0 ? "Masuk" : "Keluar",
+        jumlah: Math.abs(delta),
+        alasan: "Stok Opname",
+        keterangan: catatan || "Penyesuaian stok fisik",
+        dicatatOleh,
+        locationID: inventory.locationID,
+        tenantID,
+      });
+      return { inventory, jurnal, delta };
+    } catch (err) {
+      inventory.stok = stokSebelumnya;
+      await inventory.save();
+      throw err;
+    }
   }
 }
 

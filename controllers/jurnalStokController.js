@@ -1,6 +1,7 @@
 const jurnalStokService = require("../services/jurnalStokService");
 const createError = require("http-errors");
 const Permission = require("../models/permissionModel");
+const { validateWmsPayload } = require("../validators/jurnalStokValidator");
 
 class JurnalStokController {
   async _checkPermission(userPermissionIDs, permissionName) {
@@ -158,6 +159,95 @@ class JurnalStokController {
       next(err);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // WMS EVENT HANDLERS
+  // ---------------------------------------------------------------------------
+
+  async kirimBarang(req, res, next) {
+    try {
+      const tenantID = this._getRequesterTenantID(req);
+      const dicatatOleh = this._getRequesterUserID(req);
+
+      const validation = validateWmsPayload("kirim", req.body);
+      if (!validation.valid) {
+        return res.status(400).json({ message: "Validasi gagal.", errors: validation.errors });
+      }
+
+      const { bahanBakuID, dariLocationID, qtyKirim, noDokumen } = req.body;
+      const result = await jurnalStokService.kirimBarangJurnal(
+        bahanBakuID, dariLocationID, qtyKirim, noDokumen, tenantID, dicatatOleh
+      );
+
+      res.status(201).json({ data: result, message: "Stok berhasil dikurangi dan jurnal keluar dicatat." });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async terimaBarang(req, res, next) {
+    try {
+      const tenantID = this._getRequesterTenantID(req);
+      const dicatatOleh = this._getRequesterUserID(req);
+
+      const validation = validateWmsPayload("terima", req.body);
+      if (!validation.valid) {
+        return res.status(400).json({ message: "Validasi gagal.", errors: validation.errors });
+      }
+
+      const { bahanBakuID, keLocationID, qtyTerima, noDokumen } = req.body;
+      const result = await jurnalStokService.terimaBarangJurnal(
+        bahanBakuID, keLocationID, qtyTerima, noDokumen, tenantID, dicatatOleh
+      );
+
+      res.status(201).json({ data: result, message: "Stok berhasil ditambah dan jurnal masuk dicatat." });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async rollbackBarang(req, res, next) {
+    try {
+      const tenantID = this._getRequesterTenantID(req);
+      const dicatatOleh = this._getRequesterUserID(req);
+
+      const validation = validateWmsPayload("rollback", req.body);
+      if (!validation.valid) {
+        return res.status(400).json({ message: "Validasi gagal.", errors: validation.errors });
+      }
+
+      const { bahanBakuID, dariLocationID, qtyKirim, noDokumen } = req.body;
+      const result = await jurnalStokService.rollbackBarangJurnal(
+        bahanBakuID, dariLocationID, qtyKirim, noDokumen, tenantID, dicatatOleh
+      );
+
+      res.status(201).json({ data: result, message: "Stok berhasil dikembalikan dan jurnal pemulihan dicatat." });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async opnameBarang(req, res, next) {
+    try {
+      const tenantID = this._getRequesterTenantID(req);
+      const dicatatOleh = this._getRequesterUserID(req);
+
+      const validation = validateWmsPayload("opname", req.body);
+      if (!validation.valid) {
+        return res.status(400).json({ message: "Validasi gagal.", errors: validation.errors });
+      }
+
+      const { inventoryID, fisikAktual, catatan } = req.body;
+      const result = await jurnalStokService.opnameBarangJurnal(
+        inventoryID, fisikAktual, catatan, tenantID, dicatatOleh
+      );
+
+      res.status(201).json({ data: result, message: `Opname selesai. Selisih stok: ${result.delta}.` });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new JurnalStokController();
+

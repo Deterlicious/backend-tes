@@ -8,9 +8,9 @@ const TransferStokSchema = new mongoose.Schema(
       unique: true, // e.g., "TRF/GDG/001"
     },
 
-    permintaanStokID: {
+    pengajuanStokID: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "PermintaanStok",
+      ref: "PengajuanStok",
       default: null,
     },
     // RELASI: DARI MANA? (Biasanya Gudang)
@@ -46,11 +46,11 @@ const TransferStokSchema = new mongoose.Schema(
           ref: "BahanBaku",
           required: true,
         },
-        // Jumlah yang dikirim oleh Gudang
+        // Jumlah yang dikirim oleh Gudang (disimpan dalam satuan dasar, bisa desimal)
         qtyKirim: {
           type: Number,
           required: true,
-          min: 1,
+          min: [0, 'Jumlah kirim harus lebih dari 0'],
         },
         // Jumlah yang fisik diterima oleh Toko (bisa beda jika ada rusak di jalan)
         qtyTerima: {

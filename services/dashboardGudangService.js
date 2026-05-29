@@ -1,6 +1,6 @@
 const Inventory = require("../models/inventoryModel");
 const JurnalStok = require("../models/jurnalStokModel");
-const PermintaanStok = require("../models/permintaanStokModel");
+const PengajuanStok = require("../models/pengajuanStokModel");
 const TransferStok = require("../models/transferStokModel");
 const createError = require("http-errors");
 
@@ -10,15 +10,15 @@ class DashboardGudangService {
     if (!tenantID) throw createError(400, "Tenant ID tidak valid.");
 
     const [
-      permintaanSubmitted,
-      permintaanApproved,
+      pengajuanSubmitted,
+      pengajuanApproved,
       suratJalanPending,
       transferDikirim,
       stokKritis,
       jurnalTerbaru,
     ] = await Promise.all([
-      PermintaanStok.countDocuments({ tenantID, status: "SUBMITTED" }),
-      PermintaanStok.countDocuments({ tenantID, status: "APPROVED" }),
+      PengajuanStok.countDocuments({ tenantID, status: "SUBMITTED" }),
+      PengajuanStok.countDocuments({ tenantID, status: { $in: ["APPROVED", "PENDING"] } }),
       TransferStok.countDocuments({ tenantID, status: "PENDING" }),
       TransferStok.countDocuments({ tenantID, status: "DIKIRIM" }),
       Inventory.countDocuments({
@@ -35,9 +35,9 @@ class DashboardGudangService {
     ]);
 
     return {
-      permintaan: {
-        menungguApproval: permintaanSubmitted,
-        siapDibuatSuratJalan: permintaanApproved,
+      pengajuan: {
+        menungguApproval: pengajuanSubmitted,
+        siapDibuatSuratJalan: pengajuanApproved,
       },
       transfer: {
         suratJalanPending,
@@ -55,16 +55,16 @@ class DashboardGudangService {
     if (!tenantID) throw createError(400, "Tenant ID tidak valid.");
 
     const [
-      draftPermintaan,
-      submittedPermintaan,
-      approvedPermintaan,
+      draftPengajuan,
+      submittedPengajuan,
+      approvedPengajuan,
       transferDikirim,
       transferDiterima,
       jurnalTerbaru,
     ] = await Promise.all([
-      PermintaanStok.countDocuments({ tenantID, status: "DRAFT" }),
-      PermintaanStok.countDocuments({ tenantID, status: "SUBMITTED" }),
-      PermintaanStok.countDocuments({ tenantID, status: "APPROVED" }),
+      PengajuanStok.countDocuments({ tenantID, status: "DRAFT" }),
+      PengajuanStok.countDocuments({ tenantID, status: "SUBMITTED" }),
+      PengajuanStok.countDocuments({ tenantID, status: { $in: ["APPROVED", "PENDING"] } }),
       TransferStok.countDocuments({ tenantID, status: "DIKIRIM" }),
       TransferStok.countDocuments({ tenantID, status: "DITERIMA" }),
       JurnalStok.find({ tenantID })
@@ -77,10 +77,10 @@ class DashboardGudangService {
     ]);
 
     return {
-      permintaan: {
-        draft: draftPermintaan,
-        menungguApproval: submittedPermintaan,
-        disetujui: approvedPermintaan,
+      pengajuan: {
+        draft: draftPengajuan,
+        menungguApproval: submittedPengajuan,
+        disetujui: approvedPengajuan,
       },
       transfer: {
         sedangDikirim: transferDikirim,

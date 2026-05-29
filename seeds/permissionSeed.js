@@ -364,13 +364,57 @@ const permissionsList = [
   },
 
   // Inventory
-  { nama: "read-inventory", grup: "Inventory", deskripsi: "Lihat stok" },
+  { nama: "create-inventory", grup: "Inventory", deskripsi: "Tambah stok" },
+  {
+    nama: "read-inventory",
+    grup: "Inventory",
+    deskripsi: "Lihat semua stok (Global)",
+  },
+  {
+    nama: "read-inventory-gudang",
+    grup: "Inventory",
+    deskripsi: "Lihat stok khusus gudang",
+  },
+  {
+    nama: "read-inventory-outlet",
+    grup: "Inventory",
+    deskripsi: "Lihat stok khusus outlet",
+  },
+  { nama: "delete-inventory", grup: "Inventory", deskripsi: "Hapus stok" },
   {
     nama: "update-inventory-minimum",
     grup: "Inventory",
     deskripsi: "Edit minimum stok",
   },
-  { nama: "opname-inventory", grup: "Inventory", deskripsi: "Koreksi stok" },
+  {
+    nama: "opname-inventory",
+    grup: "Inventory",
+    deskripsi: "Koreksi stok",
+  },
+
+  // =====================
+  // LOKASI GUDANG / OUTLET
+  // =====================
+  {
+    nama: "create-location",
+    grup: "Location",
+    deskripsi: "Tambah lokasi/gudang baru",
+  },
+  {
+    nama: "read-location",
+    grup: "Location",
+    deskripsi: "Lihat daftar lokasi/gudang",
+  },
+  {
+    nama: "update-location",
+    grup: "Location",
+    deskripsi: "Edit informasi lokasi/gudang",
+  },
+  {
+    nama: "delete-location",
+    grup: "Location",
+    deskripsi: "Hapus lokasi/gudang",
+  },
 
   // Jurnal Stok
   {
@@ -394,26 +438,33 @@ const permissionsList = [
     deskripsi: "Hapus jurnal stok manual",
   },
 
-  // Permintaan Stok
+  // =====================
+  // PENGAJUAN STOK
+  // =====================
   {
-    nama: "read-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Lihat permintaan",
+    nama: "read-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Lihat pengajuan",
   },
   {
-    nama: "create-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Buat permintaan",
+    nama: "create-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Buat pengajuan",
   },
   {
-    nama: "approve-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Setujui permintaan",
+    nama: "update-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Ubah draft dan submit pengajuan",
   },
   {
-    nama: "reject-permintaan-stok",
-    grup: "Permintaan Stok",
-    deskripsi: "Tolak permintaan",
+    nama: "approve-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Setujui pengajuan",
+  },
+  {
+    nama: "reject-pengajuan-stok",
+    grup: "Pengajuan Stok",
+    deskripsi: "Tolak pengajuan",
   },
 
   // Transfer Stok
@@ -441,6 +492,64 @@ const permissionsList = [
     nama: "cancel-transfer-stok",
     grup: "Transfer Stok",
     deskripsi: "Batalkan transfer",
+  },
+
+  // =====================
+  // PENGIRIMAN STOK
+  // =====================
+  {
+    nama: "read-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Lihat pengiriman stok",
+  },
+  {
+    nama: "create-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Buat pengiriman stok",
+  },
+  {
+    nama: "update-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Edit pengiriman stok",
+  },
+  {
+    nama: "approve-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Setujui pengiriman stok",
+  },
+  {
+    nama: "reject-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Tolak pengiriman stok",
+  },
+
+  // =====================
+  // PENGIRIMAN STOK
+  // =====================
+  {
+    nama: "read-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Lihat pengiriman stok",
+  },
+  {
+    nama: "create-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Buat pengiriman stok",
+  },
+  {
+    nama: "update-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Edit pengiriman stok",
+  },
+  {
+    nama: "approve-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Setujui pengiriman stok",
+  },
+  {
+    nama: "reject-pengiriman-stok",
+    grup: "Pengiriman Stok",
+    deskripsi: "Tolak pengiriman stok",
   },
 
   // Dashboard

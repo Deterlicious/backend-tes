@@ -150,6 +150,15 @@ describe("RBA Integration - Manajer Outlet", () => {
     expect(listRes.body.data[0]._id).toBe(requestID);
   });
 
+  it("melihat daftar transfer kosong mengembalikan array kosong, bukan 404", async () => {
+    const res = await request(app).get("/api/transferstok");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.count).toBe(0);
+    expect(res.body.data).toEqual([]);
+  });
+
   it("ditolak untuk approve, reject, membuat Surat Jalan, kirim, dan batal transfer", async () => {
     const permintaan = await PermintaanStok.create({
       nomorRequest: "REQ-MO-RBA",

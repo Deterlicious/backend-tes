@@ -1,8 +1,13 @@
 const mongoose = require("mongoose");
 
-const PermintaanStokSchema = new mongoose.Schema(
+const PengajuanStokSchema = new mongoose.Schema(
   {
-    nomorRequest: { type: String, required: true, unique: true },
+    nomorPengajuan: { type: String, required: true, unique: true },
+    jenisPengajuan: {
+      type: String,
+      enum: ["PERMINTAAN", "PENGIRIMAN"],
+      default: "PERMINTAAN",
+    },
     tenantID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -24,6 +29,7 @@ const PermintaanStokSchema = new mongoose.Schema(
       required: true,
     },
     disetujuiOleh: { type: mongoose.Schema.Types.ObjectId, ref: "Pengguna" },
+    ditolakOleh: { type: mongoose.Schema.Types.ObjectId, ref: "Pengguna" },
 
     // Menghubungkan ke tabel Surat Jalan (TransferStok)
     transferStokID: {
@@ -39,28 +45,30 @@ const PermintaanStokSchema = new mongoose.Schema(
           ref: "BahanBaku",
           required: true,
         },
-        jumlah: { type: Number, required: true },
-        satuan: { type: String, required: true },
+        jumlah: { type: Number, required: true }, // Nilai tersimpan dalam satuan base (kg, liter, dll)
+        satuan: { type: String, required: true },  // Satuan base BahanBaku
       },
     ],
 
     status: {
       type: String,
-      enum: ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "COMPLETED"],
+      enum: ["DRAFT", "SUBMITTED", "APPROVED", "PENDING", "REJECTED", "COMPLETED"],
       default: "DRAFT",
     },
 
     catatan: { type: String },
     catatanPenolakan: { type: String },
     tanggalKebutuhan: { type: Date },
+    tanggalApprove: { type: Date },
+    tanggalReject: { type: Date },
   },
   { timestamps: true },
 );
 
 // Indexing untuk Optimasi
-PermintaanStokSchema.index({ tenantID: 1, status: 1 });
-PermintaanStokSchema.index({ transferStokID: 1 }); // Penting untuk pencarian relasi
-PermintaanStokSchema.index({ dariLocationID: 1 });
-PermintaanStokSchema.index({ keLocationID: 1 });
+PengajuanStokSchema.index({ tenantID: 1, status: 1 });
+PengajuanStokSchema.index({ transferStokID: 1 }); // Penting untuk pencarian relasi
+PengajuanStokSchema.index({ dariLocationID: 1 });
+PengajuanStokSchema.index({ keLocationID: 1 });
 
-module.exports = mongoose.model("PermintaanStok", PermintaanStokSchema);
+module.exports = mongoose.model("PengajuanStok", PengajuanStokSchema);

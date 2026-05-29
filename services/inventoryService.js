@@ -44,19 +44,25 @@ class InventoryService {
         select: "namaBahan satuan kategori",
         match: kategori ? { kategori: kategori } : {},
       })
+      .populate("barangInventoryID", "namaBarang tipe satuan")
       .populate("locationID", "nama tipe")
       .sort({ createdAt: -1 })
       .lean();
 
-    // 4. Post-Filtering: Membersihkan data null akibat match kategori
-    data = data.filter((item) => item.bahanBakuID !== null);
+    // 4. Post-Filtering: Membersihkan data item yang referensinya sudah hilang.
+    data = data.filter((item) => {
+      if (kategori) return item.bahanBakuID !== null;
+      return item.bahanBakuID !== null || item.barangInventoryID !== null;
+    });
 
     // 5. Post-Filtering: Pencarian Nama Bahan
     if (search) {
       const searchRegex = new RegExp(search, "i");
-      data = data.filter((item) =>
-        searchRegex.test(item.bahanBakuID.namaBahan),
-      );
+      data = data.filter((item) => {
+        const namaBahan = item.bahanBakuID?.namaBahan || "";
+        const namaBarang = item.barangInventoryID?.namaBarang || "";
+        return searchRegex.test(namaBahan) || searchRegex.test(namaBarang);
+      });
     }
 
     // 6. Simpan Cache
@@ -78,6 +84,7 @@ class InventoryService {
 
     const data = await Inventory.findOne({ _id: id, tenantID })
       .populate("bahanBakuID", "namaBahan satuan")
+      .populate("barangInventoryID", "namaBarang tipe satuan")
       .populate("locationID", "nama tipe");
 
     if (!data) throw createError(404, "Data inventory tidak ditemukan.");
@@ -182,9 +189,6 @@ class InventoryService {
 
   async processSaleStock(produkID, qtyJual, locationID, tenantID, userID) {
     // Parameter diganti menjadi locationID agar konsisten dengan tim FE
-    const produk = await Produk.findOne({ _id: produkID, tenantID }).lean();
-    if (!produk) throw createError(404, "Produk tidak ditemukan");
-
     if (!produkID || !locationID || !tenantID || !userID) {
       throw createError(
         400,
@@ -194,6 +198,9 @@ class InventoryService {
 
     if (qtyJual <= 0)
       throw createError(400, "Jumlah penjualan harus lebih dari 0");
+
+    const produk = await Produk.findOne({ _id: produkID, tenantID }).lean();
+    if (!produk) throw createError(404, "Produk tidak ditemukan");
 
     const updatedProduk = await Produk.findOneAndUpdate(
       { _id: produkID, tenantID, stok: { $gte: qtyJual } },

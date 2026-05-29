@@ -12,19 +12,18 @@ const wrap = (fn) => (req, res, next) =>
 router.use(authPengguna);
 
 // --- CRUD STANDAR ---
-router.post("/", wrap(inventoryController.createInventory));
+router.post("/", checkPermission("create-inventory"), wrap(inventoryController.createInventory));
 router.get(
   "/",
-  checkPermission("read-inventory"),
+  checkPermission("read-inventory", "read-inventory-gudang", "read-inventory-outlet"),
   wrap(inventoryController.getInventories),
 );
 router.get(
   "/:id",
-  checkPermission("read-inventory"),
+  checkPermission("read-inventory", "read-inventory-gudang", "read-inventory-outlet"),
   wrap(inventoryController.getInventoryById),
 );
-router.put("/:id", wrap(inventoryController.updateInventory));
-router.delete("/:id", wrap(inventoryController.deleteInventory));
+router.delete("/:id", checkPermission("delete-inventory"), wrap(inventoryController.deleteInventory));
 
 // --- FITUR KHUSUS WMS (TAMBAHAN BARU) ---
 /** * POST /api/inventory/:id/opname
@@ -46,6 +45,10 @@ router.patch(
 /** * POST /api/inventory/process-sale
  * Digunakan oleh modul penjualan untuk memotong stok berdasarkan resep produk
  */
-router.post("/process-sale", wrap(inventoryController.processSaleStock));
+router.post(
+  "/process-sale",
+  checkPermission("akses-pos"),
+  wrap(inventoryController.processSaleStock),
+);
 
 module.exports = router;

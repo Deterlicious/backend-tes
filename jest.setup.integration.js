@@ -1,12 +1,12 @@
 // jest.setup.integration.js
-const { MongoMemoryServer } = require("mongodb-memory-server");
+const { MongoMemoryReplSet } = require("mongodb-memory-server");
 const mongoose = require("mongoose");
 
-let mongod;
+let replset;
 
 beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
+  replset = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+  await mongoose.connect(replset.getUri());
 });
 
 afterAll(async () => {
@@ -16,8 +16,8 @@ afterAll(async () => {
   }
 
   // Stop Mongo Memory Server
-  if (mongod) {
-    await mongod.stop();
+  if (replset) {
+    await replset.stop();
   }
 
   // Tutup koneksi Redis jika masih aktif
