@@ -710,8 +710,12 @@ class PenggunaService {
 
     const result = users.map((u) => ({
       ...u,
-      role: u.roleID?.namaRole || null,
-      roleID: u.roleID?._id || u.roleID,
+
+      // tetap simpan object hasil populate
+      roleID: u.roleID,
+
+      // optional helper field
+      role: typeof u.roleID === "object" ? u.roleID.namaRole : null,
     }));
 
     await redis.set(KEY_LIST(tenantID), JSON.stringify(result), "EX", 3600);
@@ -731,8 +735,11 @@ class PenggunaService {
 
     const result = {
       ...user,
-      role: user.roleID?.namaRole || null,
-      roleID: user.roleID?._id || user.roleID,
+
+      // jangan flatten populate object
+      roleID: user.roleID,
+
+      role: typeof user.roleID === "object" ? user.roleID.namaRole : null,
     };
 
     await redis.set(KEY_DETAIL(id), JSON.stringify(result), "EX", 3600);
